@@ -36,8 +36,9 @@
 N-best 를 내는지가 Spike 1 의 질문 그 자체이므로, 답이 나오기 전에 구현하면 지연 예산
 계산이 통째로 틀어진다.
 
-개발 PC(macOS)에서 확인한 것: 단위 테스트 32개 통과, ruff 클린, 목 서비스를 붙인
+개발 PC(macOS)에서 확인한 것: 단위 테스트 53개 통과, ruff 클린, 목 서비스를 붙인
 전 구간 통합 스모크(다섯 지점 계측 · 상태 전이 · 절 스트리밍 · 번역 저장)까지 동작.
+고성능 모드(§ 아래)도 업로드 경로와 링크 페일오버까지 같은 방식으로 확인했다.
 
 ---
 
@@ -148,7 +149,8 @@ best-effort 로 설치한다. 각 이미지는 빌드 마지막에 `torch.versio
 
 ```bash
 uv run kotonoha run                     # TUI
-uv run kotonoha doctor                  # 환경·서비스 점검
+uv run kotonoha doctor                  # 환경·서비스 점검 (배치 포함)
+uv run kotonoha netcheck                # 외부 A6000 링크 지연·대역폭 실측
 uv run kotonoha devices                 # 오디오 장치 목록
 uv run kotonoha replay foo.wav          # 마이크 없이 WAV 로 전 구간 재생 (EOU 회귀 확인)
 uv run kotonoha glossary import config/glossary.seed.yaml
@@ -164,13 +166,101 @@ TUI 키: `space` 말하기(토글) · `a` PTT/자동 · `r` 라우팅 · `c` 지
 
 ---
 
-## 설정
+## 고성능 모드 — 외부 RTX A6000
 
-`config/default.yaml` 이 기본이고, 같은 디렉터리에 `config/local.yaml` 이 있으면 그
-위에 덮어쓴다(기기별 장치 인덱스, Phase 0 결과 등). 환경변수가 가장 세다.
+Orin 단독으로는 Spike 3의 5 tok/s 기준을 통과하지 못할 수 있고, 통과하더라도 밀집
+14B로 물러나야 한다. 외부 A6000(48GB, sm_86)이 있으면 그 제약이 사라진다. 모드는 셋이다.
+
+| 모드 | Orin | A6000 | 오디오가 기기 밖으로 |
+|---|---|---|---|
+| `onboard` | 전부 | — | 아니오 |
+| `hybrid` | 오디오·ASR·TTS | **LLM만** | **아니오** |
+| `remote` | 오디오 프런트엔드 | ASR·검증·LLM·TTS | 예 |
+
+`hybrid`를 먼저 보라. LLM은 지연 이득이 가장 크면서 **텍스트만 오간다** —
+30B MoE를 A6000에서 돌리고도 발화 오디오는 기기를 벗어나지 않는다. §1이 요구한
+성질을 지키면서 §6에서 가장 큰 항목을 해결하는 지점이다.
+
+`remote`는 더 빠르지만 발화 오디오가 네트워크를 건넌다. 이건 명세가 상정한 조건이
+아니므로, 이 모드에서는 로그와 TUI 상태줄(`⇗audio`)에 그 사실을 계속 표시한다.
+
+### 쓰는 법
+
+A6000 쪽:
 
 ```bash
-KOTONOHA__LLM__PROFILE=moe KOTONOHA__ASR__N_BEST=3 kotonoha run
+export KOTONOHA_SERVICE_TOKEN=$(openssl rand -hex 32)
+docker compose -f docker/compose.remote.yaml up -d
+```
+
+Orin 쪽 — **먼저 링크를 재고** 나서 켠다:
+
+```bash
+export KOTONOHA__REMOTE__TOKEN=<위와 같은 값>
+uv run kotonoha -c config/performance.yaml netcheck
+uv run kotonoha -c config/performance.yaml run
+```
+
+`netcheck`는 역할별 RTT와 6초 발화 업로드 실측치를 내고, 그 합이 §6 예산의 몇 %를
+먹는지까지 계산한다. 25%를 넘으면 `hybrid`를 권한다. 추정하지 말고 이걸 돌릴 것.
+
+### 오디오 전송
+
+§3은 "오디오를 HTTP body에 태우지 말라"고 했고, 이유는 로컬 홉에서 base64에 낭비되는
+100~200ms였다. 기계가 다르면 붙일 공유메모리가 없으므로 오디오는 가야 한다 — 다만
+여전히 base64는 쓰지 않는다. multipart 바이너리 파트로, 기본 s16le다.
+
+```
+6초 발화 @16kHz    f32le 384KB / s16le 192KB    기가비트에서 ~1.6ms + RTT
+```
+
+`AudioPayload`가 shm 참조와 PCM을 모두 들고 다니고 클라이언트가 고른다
+([transport.py](src/kotonoha/transport.py)). 오케스트레이터는 어느 쪽인지 모른다.
+
+### 링크가 끊기면
+
+§10을 링크에도 그대로 적용했다. 원격 역할은 온보드 짝을 계속 띄워둔다.
+
+- 전송 실패는 **그 호출을 온보드로 한 번 재시도**한다. 링크 장애가 턴을 통째로
+  날리지 않는다.
+- 연속 `failover_after`회 실패하면 그 역할은 온보드로 내려가고, 원격이
+  `recover_after_s` 동안 계속 건강해야 돌아온다. 링크가 흔들려도 턴마다 배치가
+  뒤집히지 않는다.
+- 스트리밍(LLM·TTS)은 **첫 청크 전까지만** 폴백한다. 소리가 나가기 시작한 뒤에는
+  되감을 방법이 없으므로 그대로 오류로 보고한다.
+- 어느 쪽에서 돌았는지는 턴 로그의 `placement`·`failovers`에 남는다. 이게 없으면
+  조용히 온보드로 떨어진 턴과 A6000을 쓴 턴을 구분할 수 없다.
+
+### A6000에서 달라지는 것
+
+- **교차 검증 상시화** (`asr_verify.mode: always`). §5.5가 조건부인 이유는 Orin에서
+  0.8초가 붙기 때문이다. 여기서는 싸므로 매 턴 돌린다 — 외부 서버가 사주는 가장 큰
+  정확도 이득이다.
+- MoE 30B Q4_K_M, 컨텍스트 4096, fp16 whisper (int8은 Orin 대역폭 양보였다).
+- sm_86은 flash-attn이 빌드되므로 Qwen3-TTS가 제대로 뜰 가능성이 높다. 실제로 어떤
+  attention 구현으로 떴는지는 `/health`가 알려준다.
+
+### 보안
+
+A6000 서비스는 LAN에 열려 있다. `KOTONOHA_SERVICE_TOKEN`을 설정하면 베어러 토큰을
+요구하고(`/health`만 열어둠), 설정하지 않으면 기동 로그에 경고를 남긴다 — 무방비
+상태가 조용히 지나가지 않게 했다. 신뢰된 망 안의 공유 비밀일 뿐이고, 이 상자를
+공개 인터넷에 두지 않는 것을 대신하지는 못한다.
+
+---
+
+## 설정
+
+레이어는 셋이고, 뒤가 앞을 덮는다.
+
+1. `config/default.yaml` — 전체 기준값
+2. `--config` 로 준 파일 (`performance.yaml` 처럼 차이만 적은 오버레이)
+3. `config/local.yaml` — 기기별 값 (오디오 장치 인덱스, Phase 0 결론)
+
+환경변수가 이 셋을 모두 이긴다.
+
+```bash
+KOTONOHA__PERF_MODE=hybrid KOTONOHA__REMOTE__ENABLED=true kotonoha run
 ```
 
 ---
@@ -230,6 +320,7 @@ uv run --group eval eval/score_comet.py --hyp eval/out/ko2en.jsonl   # 개발 PC
 - [ ] Phase 3 게이팅·상태기계·실패 처리 전체
 - [ ] Phase 4 4언어 확장, 번체 후처리, 라우팅 3종
 - [ ] Phase 5 정확도 튜닝 (N-best 정정, 조건부 교차검증, 6턴 컨텍스트, 역번역 검증)
+- [x] 고성능 모드 — 외부 RTX A6000 (onboard / hybrid / remote, 링크 페일오버)
 
 ## 하지 않는 것
 

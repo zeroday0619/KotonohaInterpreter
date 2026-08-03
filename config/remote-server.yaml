@@ -1,0 +1,62 @@
+# Configuration for the services running ON the RTX A6000, not on the Orin.
+#
+# Only the model sections matter here. perf_mode, placement and remote are the
+# orchestrator's business; a service does not know or care where its caller is.
+#
+# The A6000 has 48 GB and roughly 3.5x the Orin's memory bandwidth, so the
+# concessions §2 forced on the Jetson build are lifted: fp16 instead of int8,
+# the MoE instead of the dense 14B, sm_86 instead of sm_87.
+
+asr:
+  # Set to vllm only after running spikes/spike1_asr_load.py on THIS box.
+  # sm_86 is a first-class vLLM target, so it is far more likely to work here
+  # than on the Orin — but the rule is still measure, do not assume.
+  backend: transformers
+  model_id: Qwen/Qwen3-ASR-1.7B-hf
+  dtype: float16
+  n_best: 5
+  num_beams: 5
+  timeout_s: 6.0 # includes the upload; the client also has its own timeout
+
+asr_verify:
+  enabled: true
+  backend: faster_whisper
+  model_id: large-v3
+  # int8_float16 was a bandwidth concession on the Orin. Not needed here.
+  compute_type: float16
+  device: cuda
+  beam_size: 5
+  timeout_s: 5.0
+
+tts:
+  backend: qwen3
+  model_id: Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice
+  sample_rate: 24000
+  chunk_ms: 200
+  timeout_s: 8.0
+  fallback: melo
+  voices:
+    ko: Vivian
+    en: Vivian
+    zh-TW: Vivian
+    ja: Vivian
+  melo_speakers:
+    ko: KR
+    en: EN-US
+    zh-TW: ZH
+    ja: JP
+
+llm:
+  profile: moe
+  models_dir: /models/gguf
+  n_ctx: 4096
+  max_tokens: 768
+
+# Unused by the services, but the config schema requires them.
+store:
+  path: /tmp/kotonoha-remote.db
+logging:
+  level: INFO
+  log_path: /tmp/kotonoha-remote.jsonl
+  turn_log_path: /tmp/kotonoha-remote-turns.jsonl
+  console: true

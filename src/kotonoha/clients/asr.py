@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 
 from ..config import AsrCfg
-from ..shmring import AudioRef
-from .base import BaseClient
+from ..transport import AudioPayload, Encoding
+from .base import BaseClient, ServiceError
 
 
 @dataclass
@@ -41,25 +42,56 @@ class AsrResult:
 
 
 class AsrClient(BaseClient):
-    def __init__(self, base_url: str, cfg: AsrCfg):
-        super().__init__(base_url, cfg.timeout_s, "asr")
+    def __init__(
+        self,
+        base_url: str,
+        cfg: AsrCfg,
+        *,
+        side: str = "local",
+        encoding: Encoding = "s16le",
+        **transport,
+    ):
+        super().__init__(base_url, cfg.timeout_s, "asr", side=side, **transport)
         self.cfg = cfg
+        self.encoding = encoding
 
     async def transcribe(
         self,
-        ref: AudioRef,
+        payload: AudioPayload,
         context: str = "",
         language_hint: str | None = None,
     ) -> AsrResult:
-        payload = {
-            "audio": ref.to_json(),
+        params = {
             "n_best": self.cfg.n_best,
             "num_beams": self.cfg.num_beams,
             "max_new_tokens": self.cfg.max_new_tokens,
             "context": context,
             "language_hint": language_hint,
         }
-        d = await self._post_json("/transcribe", payload)
+
+        if self.side == "local":
+            if payload.ref is None:
+                raise ServiceError("local asr client requires a shared-memory reference")
+            d = await self._post_json("/transcribe", {"audio": payload.ref.to_json(), **params})
+        else:
+            # Remote: no shared memory to attach to, so the PCM travels as a
+            # binary part. Still not base64 (§3).
+            d = await self._post_multipart(
+                "/transcribe/upload",
+                files={
+                    "audio": ("utt.pcm", payload.encoded(self.encoding), "application/octet-stream")
+                },
+                data={
+                    "params": json.dumps(
+                        {
+                            **params,
+                            "encoding": self.encoding,
+                            "sample_rate": payload.sample_rate,
+                        }
+                    )
+                },
+            )
+
         return AsrResult(
             hypotheses=[
                 Hypothesis(text=h["text"], avg_logprob=float(h.get("avg_logprob", -99.0)))
@@ -71,6 +103,6 @@ class AsrClient(BaseClient):
                 if d.get("language_confidence") is not None
                 else None
             ),
-            duration_s=float(d.get("duration_s", ref.seconds)),
+            duration_s=float(d.get("duration_s", payload.seconds)),
             infer_ms=float(d.get("infer_ms", 0.0)),
         )

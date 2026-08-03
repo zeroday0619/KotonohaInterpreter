@@ -1,0 +1,75 @@
+# Runs ON the external RTX A6000 box, not on the Orin.
+#
+#   export KOTONOHA_SERVICE_TOKEN=$(openssl rand -hex 32)
+#   docker compose -f docker/compose.remote.yaml up -d
+#
+# Then on the Orin, with the same token:
+#   export KOTONOHA__REMOTE__TOKEN=<same value>
+#   kotonoha -c config/performance.yaml netcheck
+#   kotonoha -c config/performance.yaml run
+#
+# No ipc: host here. Shared memory does not cross machines, so these services
+# receive audio through /transcribe/upload instead (transport.py).
+#
+# Ports are published on the host so the Orin can reach them. Keep this box on
+# a trusted network and leave KOTONOHA_SERVICE_TOKEN set — an open /transcribe
+# is an open transcription endpoint for anyone who can route to it.
+
+x-a6000: &a6000
+  restart: unless-stopped
+  environment:
+    - KOTONOHA_CONFIG=/app/config/remote-server.yaml
+    - KOTONOHA_SERVICE_TOKEN=${KOTONOHA_SERVICE_TOKEN:?set a token before starting}
+    - HF_HOME=/models/hf
+    - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-0}
+  volumes:
+    - ../:/app
+    - ${MODELS_DIR:-../models}:/models
+  working_dir: /app
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: 1
+            capabilities: [gpu]
+
+services:
+  asr:
+    <<: *a6000
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.remote
+      args:
+        BASE_IMAGE: ${REMOTE_BASE:-pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime}
+    ports: ["8001:8001"]
+    command: uvicorn kotonoha.services.asr_server:app --host 0.0.0.0 --port 8001
+
+  asr-verify:
+    <<: *a6000
+    image: kotonohainterpreter-asr # reuse the image built by the asr service
+    depends_on: [asr]
+    ports: ["8002:8002"]
+    command: uvicorn kotonoha.services.asr_verify_server:app --host 0.0.0.0 --port 8002
+
+  tts:
+    <<: *a6000
+    image: kotonohainterpreter-asr
+    depends_on: [asr]
+    ports: ["8004:8004"]
+    command: uvicorn kotonoha.services.tts_server:app --host 0.0.0.0 --port 8004
+
+  llm:
+    <<: *a6000
+    # llama.cpp with CUDA for x86. Pin a tag you have pulled.
+    image: ${LLM_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda}
+    ports: ["8003:8003"]
+    environment:
+      # 48 GB comfortably holds the 30B MoE at Q4_K_M, which is what the Orin
+      # could not run fast enough. That is the whole point of this box.
+      - LLM_PROFILE=${LLM_PROFILE:-moe}
+      - LLAMA_BIN=/app
+      - MODELS_DIR=/models/gguf
+      - LLM_PORT=8003
+      - LLM_CTX=${LLM_CTX:-4096}
+    entrypoint: ["bash", "/app/scripts/run_llm.sh"]

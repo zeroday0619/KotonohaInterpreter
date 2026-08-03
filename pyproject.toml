@@ -22,6 +22,8 @@ dependencies = [
   "opencc-python-reimplemented>=0.1.7",
   "fastapi>=0.111",
   "uvicorn>=0.30",
+  # Multipart parsing for the /transcribe/upload path used in remote mode.
+  "python-multipart>=0.0.9",
 ]
 
 # --- Jetson 실기 전용 ---

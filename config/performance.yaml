@@ -1,0 +1,55 @@
+# High-performance mode: the Orin drives audio, the RTX A6000 does the work.
+#
+#   kotonoha -c config/performance.yaml netcheck
+#   kotonoha -c config/performance.yaml run
+#
+# Copy to config/local.yaml (or point KOTONOHA_CONFIG at it) once netcheck says
+# the link holds. Everything here is layered on config/default.yaml.
+#
+# Before switching: run `kotonoha netcheck`. Every remote stage pays the RTT,
+# and §6 leaves no slack for a link that does not hold.
+
+perf_mode: remote # hybrid keeps audio on the device; remote is the fast one
+
+remote:
+  enabled: true
+  services:
+    asr: http://a6000.lan:8001
+    asr_verify: http://a6000.lan:8002
+    llm: http://a6000.lan:8003
+    tts: http://a6000.lan:8004
+  # Set KOTONOHA__REMOTE__TOKEN in the environment rather than committing one.
+  token: null
+  verify_tls: true
+  failover_after: 2
+  recover_after_s: 30.0
+  audio_encoding: s16le
+
+# The A6000 has 48 GB and roughly 3.5x the memory bandwidth of the Orin, so the
+# choices §2 forced on us do not apply to it. Spike 3's verdict is about the
+# Orin; the remote box gets the MoE regardless.
+llm:
+  profile: moe
+  n_ctx: 4096 # room for six turns of history plus the glossary
+  max_tokens: 768
+
+asr:
+  # sm_86 is a first-class vLLM target, unlike sm_87. Confirm with Spike 1 run
+  # on the A6000 itself before switching this away from transformers.
+  backend: transformers
+  n_best: 5
+
+asr_verify:
+  # Cheap here, so stop gating it. This is the single largest accuracy gain
+  # the external box buys us (§5.5).
+  mode: always
+  compute_type: float16 # int8 was an Orin memory-bandwidth concession
+
+tts:
+  # flash-attn builds for sm_86, so Qwen3-TTS should come up properly here.
+  # /health reports which attention implementation actually loaded.
+  backend: qwen3
+
+# Deliberately unchanged: VAD preroll, the 800 ms EOU wait and the clause
+# streaming thresholds. Those are frontend properties and the frontend still
+# runs on the Orin.

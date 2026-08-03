@@ -50,6 +50,38 @@ services:
   llm: http://127.0.0.1:8003
   tts: http://127.0.0.1:8004
 
+# --- High-performance mode: the external RTX A6000 -------------------------
+#
+#   onboard  everything on the Orin. The original design.
+#   hybrid   only the LLM goes to the A6000. Biggest single latency win, and it
+#            is text-only, so no audio ever leaves the device.
+#   remote   ASR, verification and TTS move too. Fastest when the link is good,
+#            but utterance audio now crosses the network.
+#
+# Run `kotonoha netcheck` before trusting any of this: the link adds RTT to
+# every stage, and §6 has no slack for a bad one.
+perf_mode: onboard # onboard | hybrid | remote
+placement: {} # per-role override, e.g. {llm: remote}
+
+remote:
+  enabled: false
+  services:
+    asr: http://a6000.lan:8001
+    asr_verify: http://a6000.lan:8002
+    llm: http://a6000.lan:8003
+    tts: http://a6000.lan:8004
+  token: null # bearer token; prefer KOTONOHA__REMOTE__TOKEN
+  verify_tls: true
+  ca_bundle: null
+  connect_timeout_s: 1.5
+  # §10 applied to the link: after this many consecutive transport failures the
+  # role drops to the on-board service, and only returns once the remote has
+  # been healthy for recover_after_s.
+  failover_after: 2
+  recover_after_s: 30.0
+  health_interval_s: 10.0
+  audio_encoding: s16le # s16le halves the bytes on the wire; f32le for debugging
+
 asr:
   # [SPIKE-1] Switch to backend: vllm if vLLM loads Qwen3-ASR.
   backend: transformers # transformers | vllm
@@ -69,6 +101,9 @@ asr:
 
 asr_verify:
   enabled: true
+  # §5.5 makes this conditional because it costs 0.8 s on the Orin. On the A6000
+  # it is cheap enough to run every turn, which is strictly more accurate.
+  mode: conditional # conditional | always
   backend: faster_whisper # faster_whisper | whisper_cpp
   model_id: large-v3
   compute_type: int8_float16

@@ -16,6 +16,7 @@ fallback is needed. Phase 1 should check how well this tracks real LID accuracy.
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from collections import Counter
@@ -23,12 +24,14 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import numpy as np
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from ..config import load_settings
 from ..logging_setup import setup_logging
 from ..shmring import AudioRef, StaleSlotError, attach_cached
+from ..transport import decode_pcm
+from .auth import install_auth
 
 log = setup_logging(service="asr", console=True)
 
@@ -37,7 +40,8 @@ QWEN_LANG = {"ko": "Korean", "en": "English", "ja": "Japanese", "zh-TW": "Chines
 
 
 class TranscribeReq(BaseModel):
-    audio: dict[str, Any]
+    # Present on the shared-memory path, absent on the upload path.
+    audio: dict[str, Any] | None = None
     n_best: int = 5
     num_beams: int = 5
     max_new_tokens: int = 256
@@ -180,6 +184,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="kotonoha-asr", lifespan=lifespan)
+install_auth(app, "asr")
 
 
 @app.get("/health")
@@ -193,11 +198,19 @@ def health() -> dict:
     }
 
 
-@app.post("/transcribe")
-def transcribe(req: TranscribeReq) -> dict:
+def _backend():
     b = STATE["backend"]
     if b is None:
         raise HTTPException(503, f"asr backend not loaded: {STATE['error']}")
+    return b
+
+
+@app.post("/transcribe")
+def transcribe(req: TranscribeReq) -> dict:
+    """Shared-memory path, used when the orchestrator is on the same box."""
+    b = _backend()
+    if req.audio is None:
+        raise HTTPException(400, "missing audio reference; use /transcribe/upload instead")
     ref = AudioRef.from_json(req.audio)
     try:
         audio = attach_cached(ref.name).read(ref)
@@ -206,3 +219,45 @@ def transcribe(req: TranscribeReq) -> dict:
     except FileNotFoundError as e:
         raise HTTPException(503, f"shm not available: {e}") from e
     return b.transcribe(audio, req)
+
+
+@app.post("/transcribe/upload")
+async def transcribe_upload(params: str = Form("{}"), audio: UploadFile = File(...)) -> dict:
+    """Upload path, for an orchestrator running on another machine.
+
+    `params` carries the JSON that would otherwise be the request body; `audio`
+    is raw PCM in the encoding named there. No base64 anywhere (§3).
+    """
+    b = _backend()
+    try:
+        d = json.loads(params or "{}")
+    except json.JSONDecodeError as e:
+        raise HTTPException(400, f"bad params json: {e}") from e
+
+    encoding = d.pop("encoding", "s16le")
+    sample_rate = int(d.pop("sample_rate", 16000))
+    if sample_rate != 16000:
+        raise HTTPException(400, f"expected 16 kHz audio, got {sample_rate}")
+
+    raw = await audio.read()
+    if not raw:
+        raise HTTPException(400, "empty audio")
+    pcm = decode_pcm(raw, encoding)
+
+    known = set(TranscribeReq.model_fields)
+    req = TranscribeReq(**{k: v for k, v in d.items() if k in known and k != "audio"})
+    out = b.transcribe(pcm, req)
+    out["received_bytes"] = len(raw)
+    return out
+
+
+@app.post("/echo")
+async def echo(audio: UploadFile = File(...)) -> dict:
+    """Transport probe for `kotonoha netcheck`.
+
+    Reads the body and reports its size, deliberately running no inference, so
+    the number measures the link and nothing else.
+    """
+    t0 = time.perf_counter()
+    raw = await audio.read()
+    return {"bytes": len(raw), "read_ms": round((time.perf_counter() - t0) * 1000, 3)}

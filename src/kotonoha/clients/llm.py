@@ -38,10 +38,10 @@ class StreamStats:
 
 
 class LlmClient(BaseClient):
-    def __init__(self, base_url: str, cfg: LlmCfg):
+    def __init__(self, base_url: str, cfg: LlmCfg, *, side: str = "local", **transport):
         # A full stream can run long. The first-clause timeout is the
         # orchestrator's job, not this timeout.
-        super().__init__(base_url, timeout=120.0, name="llm")
+        super().__init__(base_url, timeout=120.0, name="llm", side=side, **transport)
         self.cfg = cfg
 
     async def health(self) -> dict:
@@ -49,10 +49,10 @@ class LlmClient(BaseClient):
         try:
             r = await self._client.get("/health", timeout=2.0)
             if r.status_code == 200:
-                return {"ok": True, "service": "llm", **_safe_json(r)}
-            return {"ok": False, "service": "llm", "status": r.status_code}
+                return {"ok": True, "service": "llm", "side": self.side, **_safe_json(r)}
+            return {"ok": False, "service": "llm", "status": r.status_code, "side": self.side}
         except Exception as e:  # noqa: BLE001
-            return {"ok": False, "service": "llm", "error": repr(e)}
+            return {"ok": False, "service": "llm", "error": repr(e), "side": self.side}
 
     async def stream_chat(
         self,

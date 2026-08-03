@@ -21,13 +21,10 @@ import uuid
 import numpy as np
 
 from ..clients import (
-    AsrClient,
-    AsrVerifyClient,
-    LlmClient,
     ServiceError,
     ServiceTimeout,
     StreamStats,
-    TtsClient,
+    build_service_group,
 )
 from ..config import Settings
 from ..logging_setup import get_logger
@@ -35,6 +32,7 @@ from ..metrics import TurnLog, TurnMetrics
 from ..prompts import build_asr_context, build_translate_messages
 from ..shmring import AudioRing
 from ..store import Store
+from ..transport import AudioPayload
 from .clauses import ClauseStreamer
 from .events import EventBus
 from .lid import decide_language, route_targets
@@ -72,10 +70,13 @@ class Orchestrator:
             sample_rate=settings.shm.sample_rate,
         )
 
-        self.asr = AsrClient(settings.services.asr, settings.asr)
-        self.verify = AsrVerifyClient(settings.services.asr_verify, settings.asr_verify)
-        self.llm = LlmClient(settings.services.llm, settings.llm)
-        self.tts = TtsClient(settings.services.tts, settings.tts)
+        # Roles are routed to the A6000 or to the on-board service according to
+        # perf_mode, each with automatic failover (clients/router.py).
+        self.svc = build_service_group(settings, on_change=self._on_placement_change)
+        self.asr = self.svc.asr
+        self.verify = self.svc.asr_verify
+        self.llm = self.svc.llm
+        self.tts = self.svc.tts
 
         self.store = Store(settings.resolve(settings.store.path))
         self.turnlog = TurnLog(settings.resolve(settings.logging.turn_log_path), settings.budget_ms)
@@ -89,7 +90,12 @@ class Orchestrator:
         self.store.start_session(
             self.session_id,
             settings.session.routing,
-            {"llm_profile": settings.llm.profile, "asr_backend": settings.asr.backend},
+            {
+                "llm_profile": settings.llm.profile,
+                "asr_backend": settings.asr.backend,
+                "perf_mode": settings.perf_mode,
+                "placement": settings.resolved_placement(),
+            },
         )
 
     # -- lifecycle -------------------------------------------------------
@@ -100,8 +106,20 @@ class Orchestrator:
         self.playback.start(loop)
         self._running = True
         self._task = asyncio.create_task(self._frame_loop(), name="frame-loop")
+        self.svc.start_probes()
         asyncio.create_task(self._probe_services(), name="probe")
-        log.info("orchestrator.started", session=self.session_id, mode=self.s.session.mode)
+        log.info(
+            "orchestrator.started",
+            session=self.session_id,
+            mode=self.s.session.mode,
+            perf_mode=self.s.perf_mode,
+            placement=self.svc.placement,
+        )
+        if self.s.audio_leaves_device:
+            # Worth stating plainly: in this mode the utterance audio is sent to
+            # another machine. §1 asked for the device to be self-contained.
+            log.warning("privacy.audio_offbox", placement=self.svc.placement)
+            self.bus.emit("privacy", audio_leaves_device=True, placement=self.svc.placement)
 
     async def stop(self) -> None:
         self._running = False
@@ -113,16 +131,26 @@ class Orchestrator:
                 pass
         self.capture.stop()
         self.playback.stop()
-        for c in (self.asr, self.verify, self.llm, self.tts):
-            await c.aclose()
+        await self.svc.aclose()
         self.ring.close()
         self.store.close()
         log.info("orchestrator.stopped")
 
     async def _probe_services(self) -> None:
-        for c in (self.asr, self.verify, self.llm, self.tts):
-            h = await c.health()
-            self.bus.emit("service", name=c.name, ok=bool(h.get("ok")), detail=h)
+        for role in self.svc.all():
+            h = await role.active.health()
+            self.bus.emit(
+                "service",
+                name=role.name,
+                ok=bool(h.get("ok")),
+                side=role.side,
+                degraded=role.degraded,
+                detail=h,
+            )
+
+    def _on_placement_change(self, role: str, side: str, reason: str) -> None:
+        """A role moved between the A6000 and the on-board service."""
+        self.bus.emit("placement", role=role, side=side, reason=reason)
 
     # -- push-to-talk (§4: the initial implementation) ---------------------
     def ptt_down(self) -> None:
@@ -192,6 +220,9 @@ class Orchestrator:
     async def _process(self, utt) -> None:
         m = TurnMetrics()
         m.mark("eou")
+        m.perf_mode = self.s.perf_mode
+        m.placement = dict(self.svc.placement)
+        failover_base = self._failover_total()
         if self.machine.state is State.LISTENING:
             self.machine.to(State.PROCESSING, "eou")
 
@@ -208,10 +239,14 @@ class Orchestrator:
 
         if pcm.size == 0:
             m.outcome = "empty_asr"
-            self._finish(m, None, None, None)
+            self._finish(m, None, None, None, failover_base)
             return
 
-        ref = self.ring.publish(pcm)
+        # Both carriers are prepared: the shm reference for an on-board service
+        # and the PCM itself for one on the A6000. The client picks (transport.py).
+        payload = AudioPayload(
+            pcm=pcm, ref=self.ring.publish(pcm), sample_rate=self.s.shm.sample_rate
+        )
 
         # -- primary ASR ------------------------------------------------
         history = self.store.recent_turns(self.session_id, self.s.context.history_turns)
@@ -219,12 +254,14 @@ class Orchestrator:
         ctx = build_asr_context(history, self.store.all_glossary()[:40], expect_tw)
 
         try:
-            asr = await self.asr.transcribe(ref, context=ctx, language_hint=None)
+            asr = await self.asr.run(
+                lambda c: c.transcribe(payload, context=ctx, language_hint=None)
+            )
         except (ServiceTimeout, ServiceError) as e:
             log.error("asr.failed", error=repr(e))
             self.bus.emit("error", where="asr", message=str(e))
             m.outcome = "empty_asr"
-            self._finish(m, None, None, None)
+            self._finish(m, None, None, None, failover_base)
             return
         m.mark("asr_done")
         m.asr_avg_logprob = round(asr.best_avg_logprob, 4)
@@ -233,7 +270,7 @@ class Orchestrator:
             # §10: an empty result is treated as silence. Back to IDLE, nothing played.
             m.outcome = "empty_asr"
             self.bus.emit("asr", text="", empty=True)
-            self._finish(m, None, None, None)
+            self._finish(m, None, None, None, failover_base)
             return
 
         # -- LID decision (§5, §10) ---------------------------------------
@@ -257,17 +294,21 @@ class Orchestrator:
         # -- conditional cross-verification (§5.5) -------------------------
         verify_text: str | None = None
         if self.s.asr_verify.enabled:
-            fire, why = should_cross_verify(
-                asr.best_avg_logprob,
-                self.s.asr.avg_logprob_threshold,
-                n_best,
-                m.audio_seconds or 0.0,
-            )
+            if self.s.asr_verify.mode == "always":
+                # Affordable on the A6000, so take the accuracy for free.
+                fire, why = True, "mode=always"
+            else:
+                fire, why = should_cross_verify(
+                    asr.best_avg_logprob,
+                    self.s.asr.avg_logprob_threshold,
+                    n_best,
+                    m.audio_seconds or 0.0,
+                )
             if fire:
                 m.cross_verify_fired = True
                 self.bus.emit("verify", state="running", reason=why)
                 try:
-                    v = await self.verify.transcribe(ref, language=dec.lang)
+                    v = await self.verify.run(lambda c: c.transcribe(payload, language=dec.lang))
                     verify_text = self._maybe_tw(v.text, dec.lang, "asr")
                     m.cross_verify_divergent = is_divergent(
                         n_best[0], verify_text, self.s.asr_verify.divergence_cer
@@ -289,7 +330,7 @@ class Orchestrator:
         if not targets:
             m.outcome = "ok"
             m.notes["no_target"] = True
-            self._finish(m, n_best[0], None, None)
+            self._finish(m, n_best[0], None, None, failover_base)
             return
         m.target_lang = ",".join(targets)
         m.llm_profile = self.s.llm.profile
@@ -300,7 +341,7 @@ class Orchestrator:
                 m, n_best, verify_text, dec.lang, tgt, history, first=(i == 0)
             )
 
-        self._finish(m, n_best[0], translation, dec.lang)
+        self._finish(m, n_best[0], translation, dec.lang, failover_base)
 
     # -- translation + TTS -------------------------------------------------
     async def _translate_and_speak(
@@ -377,6 +418,7 @@ class Orchestrator:
 
         m.output_tokens = stats.tokens
         m.tok_per_s = stats.tok_per_s
+        m.placement = dict(self.svc.placement)
         text = self._maybe_tw(streamer.translation, tgt_lang, "translation")
         self.bus.emit("translation", text=text, lang=tgt_lang, tok_per_s=stats.tok_per_s)
         return text
@@ -391,7 +433,7 @@ class Orchestrator:
         stats: StreamStats,
         tgt_lang: str,
     ) -> None:
-        async for delta in self.llm.stream_chat(messages, stats):
+        async for delta in self.llm.stream(lambda c: c.stream_chat(messages, stats)):
             for c in streamer.push(delta):
                 if not first_clause.is_set():
                     m.mark("first_clause")
@@ -419,7 +461,10 @@ class Orchestrator:
                 continue
             self.bus.emit("clause", text=clause)
             try:
-                async for chunk in self.tts.synthesize(clause, lang):
+                # Bind the clause explicitly: the router may re-invoke this
+                # factory on the fallback, and by then the loop has moved on.
+                make = lambda c, text=clause: c.synthesize(text, lang)  # noqa: E731
+                async for chunk in self.tts.stream(make):
                     self.playback.enqueue(chunk, self.s.tts.sample_rate)
             except (ServiceTimeout, ServiceError) as e:
                 # §10 TTS failure — reached only when the service's own MeloTTS
@@ -473,9 +518,20 @@ class Orchestrator:
         return out
 
     # -- wrap-up -----------------------------------------------------------
+    def _failover_total(self) -> int:
+        return sum(r.failover_count for r in self.svc.all())
+
     def _finish(
-        self, m: TurnMetrics, source_text: str | None, translation: str | None, src_lang: str | None
+        self,
+        m: TurnMetrics,
+        source_text: str | None,
+        translation: str | None,
+        src_lang: str | None,
+        failover_base: int = 0,
     ) -> None:
+        # Report failovers for *this* turn, not the session total.
+        m.failovers = max(0, self._failover_total() - failover_base)
+        m.placement = dict(self.svc.placement)
         rec = self.turnlog.write(m)
         self.store.add_turn(
             turn_id=m.turn_id,

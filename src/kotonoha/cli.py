@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import json
 import sys
+import time
 import wave
 from pathlib import Path
 
@@ -169,6 +170,11 @@ def cmd_doctor(args) -> int:
     print(f"config      {args.config or 'config/default.yaml'}")
     print(f"asr backend {s.asr.backend} / llm profile {s.llm.profile} / tts {s.tts.backend}")
     print(f"gguf        {s.resolve(s.llm.gguf_path)}")
+    placement = s.resolved_placement()
+    print(f"perf_mode   {s.perf_mode}  remote={'on' if s.remote.enabled else 'off'}")
+    print("placement   " + "  ".join(f"{k}={v}" for k, v in placement.items()))
+    if s.audio_leaves_device:
+        print("            ! 이 모드에서는 발화 오디오가 기기 밖으로 나간다")
     print()
 
     mods = [
@@ -190,23 +196,130 @@ def cmd_doctor(args) -> int:
     print(f"  silero_vad.onnx  {'ok' if vad_path.exists() else 'MISSING'}  {vad_path}")
 
     async def probe() -> None:
-        from .clients import AsrClient, AsrVerifyClient, LlmClient, TtsClient
+        from .clients import build_service_group
 
-        cs = [
-            AsrClient(s.services.asr, s.asr),
-            AsrVerifyClient(s.services.asr_verify, s.asr_verify),
-            LlmClient(s.services.llm, s.llm),
-            TtsClient(s.services.tts, s.tts),
-        ]
+        group = build_service_group(s)
         print("\n서비스:")
-        for c in cs:
-            h = await c.health()
-            state = "UP" if h.get("ok") else "DOWN"
-            print(f"  {c.name:<11} {state:<4} {json.dumps(h, ensure_ascii=False)[:96]}")
-            await c.aclose()
+        for role in group.all():
+            for client in filter(None, (role.preferred, role.fallback)):
+                h = await client.health()
+                state = "UP" if h.get("ok") else "DOWN"
+                tag = f"{role.role}@{client.side}"
+                print(f"  {tag:<20} {state:<4} {json.dumps(h, ensure_ascii=False)[:80]}")
+        await group.aclose()
 
     asyncio.run(probe())
     return 0
+
+
+def cmd_netcheck(args) -> int:
+    """Measure what the link to the A6000 actually costs.
+
+    Every remote stage pays the round trip, and the utterance audio pays the
+    upload on top. §6 has 2.9 s total with no slack, so this gets measured
+    rather than assumed.
+    """
+    import statistics
+
+    import httpx
+
+    from .clients.base import remote_transport_kwargs
+    from .transport import encode_pcm
+
+    s = load_settings(args.config)
+    if not s.remote.enabled:
+        print("remote.enabled 가 false 다. config/performance.yaml 을 쓰거나 켜고 다시 실행할 것.")
+        return 1
+
+    placement = s.resolved_placement()
+    remote_roles = [r for r, side in placement.items() if side == "remote"]
+    if not remote_roles:
+        print(f"perf_mode={s.perf_mode} 에서 원격으로 가는 역할이 없다.")
+        return 1
+
+    tk = remote_transport_kwargs(s.remote)
+    seconds = args.seconds
+    pcm = np.zeros(int(seconds * s.shm.sample_rate), dtype=np.float32)
+    blob = encode_pcm(pcm, s.remote.audio_encoding)
+
+    async def go() -> int:
+        print(f"perf_mode   {s.perf_mode}")
+        print("placement   " + "  ".join(f"{k}={v}" for k, v in placement.items()))
+        print(f"probe       {seconds}s utterance, {s.remote.audio_encoding}, {len(blob)} bytes\n")
+
+        rtts: dict[str, float] = {}
+        uploads: dict[str, float] = {}
+        failed: list[str] = []
+
+        async with httpx.AsyncClient(
+            headers=tk["headers"],
+            verify=tk["verify"],
+            timeout=httpx.Timeout(10.0, connect=tk["connect_timeout"]),
+        ) as client:
+            for role in remote_roles:
+                url = s.url_for(role, "remote").rstrip("/")
+                samples = []
+                for _ in range(args.samples):
+                    t0 = time.perf_counter()
+                    try:
+                        r = await client.get(f"{url}/health")
+                        r.raise_for_status()
+                    except Exception as e:  # noqa: BLE001
+                        print(f"  {role:<11} DOWN  {e!r}")
+                        failed.append(role)
+                        break
+                    samples.append((time.perf_counter() - t0) * 1000)
+                if not samples:
+                    continue
+                p50 = statistics.median(samples)
+                p95 = max(samples) if len(samples) < 20 else statistics.quantiles(samples, n=20)[18]
+                rtts[role] = p50
+                print(f"  {role:<11} UP    rtt p50 {p50:6.1f}ms   p95 {p95:6.1f}ms   {url}")
+
+            # Only the roles that receive audio pay the upload.
+            for role in [r for r in ("asr", "asr_verify") if r in rtts]:
+                url = s.url_for(role, "remote").rstrip("/")
+                samples = []
+                for _ in range(args.samples):
+                    t0 = time.perf_counter()
+                    try:
+                        r = await client.post(
+                            f"{url}/echo",
+                            files={"audio": ("probe.pcm", blob, "application/octet-stream")},
+                        )
+                        r.raise_for_status()
+                    except Exception as e:  # noqa: BLE001
+                        print(f"  {role:<11} upload FAILED  {e!r}")
+                        break
+                    samples.append((time.perf_counter() - t0) * 1000)
+                if not samples:
+                    continue
+                med = statistics.median(samples)
+                uploads[role] = med
+                mbps = (len(blob) / 1e6) / (med / 1000)
+                print(f"  {role:<11} upload median {med:6.1f}ms   {mbps:5.1f} MB/s")
+
+        if failed:
+            print(f"\n연결 실패: {', '.join(failed)} — 이 역할은 온보드로 폴백된다.")
+
+        # What the link adds to one turn, stage by stage.
+        verify_always = s.asr_verify.mode == "always"
+        overhead = uploads.get("asr", rtts.get("asr", 0.0))
+        if verify_always:
+            overhead += uploads.get("asr_verify", rtts.get("asr_verify", 0.0))
+        overhead += rtts.get("llm", 0.0) + rtts.get("tts", 0.0)
+
+        b = s.budget_ms
+        slack = b.total - b.silence
+        print(f"\n턴당 링크 오버헤드 추정  {overhead:.0f}ms")
+        print(f"§6 EOU→첫 음성 예산       {slack}ms")
+        if overhead > slack * 0.25:
+            print("  ! 링크가 예산의 25% 를 넘게 먹는다. hybrid(LLM 만 원격) 를 검토할 것.")
+        else:
+            print("  링크 자체는 예산 안에 든다. 남은 것은 모델 추론 시간이다.")
+        return 0 if not failed else 1
+
+    return asyncio.run(go())
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -235,6 +348,11 @@ def main(argv: list[str] | None = None) -> int:
     g.set_defaults(fn=cmd_glossary)
 
     sub.add_parser("doctor", help="환경 점검").set_defaults(fn=cmd_doctor)
+
+    nc = sub.add_parser("netcheck", help="외부 A6000 링크 지연·대역폭 측정")
+    nc.add_argument("--samples", type=int, default=10)
+    nc.add_argument("--seconds", type=float, default=6.0, help="probe 발화 길이")
+    nc.set_defaults(fn=cmd_netcheck)
 
     args = p.parse_args(argv)
     return args.fn(args)

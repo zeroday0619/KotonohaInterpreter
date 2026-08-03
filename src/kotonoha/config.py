@@ -88,6 +88,55 @@ class ServicesCfg(BaseModel):
     tts: str = "http://127.0.0.1:8004"
 
 
+ROLES = ("asr", "asr_verify", "llm", "tts")
+Placement = Literal["local", "remote"]
+
+# Which side runs each role, per performance mode.
+#
+#   onboard  everything on the Orin. The original design.
+#   hybrid   only the LLM goes to the A6000. It is the single biggest latency
+#            win and it is text-only, so no audio ever leaves the device.
+#   remote   ASR, verification and TTS move too. Fastest when the link is good,
+#            but utterance audio now crosses the network.
+PERF_PLACEMENT: dict[str, dict[str, Placement]] = {
+    "onboard": {"asr": "local", "asr_verify": "local", "llm": "local", "tts": "local"},
+    "hybrid": {"asr": "local", "asr_verify": "local", "llm": "remote", "tts": "local"},
+    "remote": {"asr": "remote", "asr_verify": "remote", "llm": "remote", "tts": "remote"},
+}
+
+
+class RemoteCfg(BaseModel):
+    """The external RTX A6000 box.
+
+    This is our own machine on our own network, not a cloud API, so §12 still
+    holds. But in `remote` mode the utterance audio does leave the device —
+    that is a deliberate trade, and `hybrid` exists for when it is not acceptable.
+    """
+
+    enabled: bool = False
+    services: ServicesCfg = ServicesCfg(
+        asr="http://a6000.lan:8001",
+        asr_verify="http://a6000.lan:8002",
+        llm="http://a6000.lan:8003",
+        tts="http://a6000.lan:8004",
+    )
+    token: str | None = None  # bearer token; prefer KOTONOHA__REMOTE__TOKEN
+    verify_tls: bool = True
+    ca_bundle: Path | None = None
+    connect_timeout_s: float = 1.5
+
+    # Failover (§10 applied to the link): drop to the on-board service after
+    # this many consecutive transport failures, and only return once the remote
+    # has been healthy again for recover_after_s.
+    failover_after: int = 2
+    recover_after_s: float = 30.0
+    health_interval_s: float = 10.0
+
+    # Audio upload encoding. s16le halves the bytes on the wire against f32le
+    # and costs nothing in ASR quality at 16 kHz.
+    audio_encoding: Literal["s16le", "f32le"] = "s16le"
+
+
 class LidCfg(BaseModel):
     min_confidence: float = 0.60
     min_duration_s: float = 1.0
@@ -108,6 +157,10 @@ class AsrCfg(BaseModel):
 
 class AsrVerifyCfg(BaseModel):
     enabled: bool = True
+    # §5.5 makes verification conditional because it costs 0.8 s on the Orin.
+    # On the A6000 it is cheap enough to run every turn, which strictly improves
+    # accuracy — so the policy is configurable rather than hard-coded.
+    mode: Literal["conditional", "always"] = "conditional"
     backend: Literal["faster_whisper", "whisper_cpp"] = "faster_whisper"
     model_id: str = "large-v3"
     compute_type: str = "int8_float16"
@@ -199,11 +252,17 @@ class Settings(BaseSettings):
         extra="forbid",
     )
 
+    # onboard | hybrid | remote — see PERF_PLACEMENT.
+    perf_mode: Literal["onboard", "hybrid", "remote"] = "onboard"
+    # Explicit per-role override. Anything omitted follows perf_mode.
+    placement: dict[str, Placement] = {}
+
     session: SessionCfg = SessionCfg()
     audio: AudioCfg = AudioCfg()
     frontend: FrontendCfg = FrontendCfg()
     shm: ShmCfg = ShmCfg()
     services: ServicesCfg = ServicesCfg()
+    remote: RemoteCfg = RemoteCfg()
     asr: AsrCfg = AsrCfg()
     asr_verify: AsrVerifyCfg = AsrVerifyCfg()
     llm: LlmCfg
@@ -219,6 +278,33 @@ class Settings(BaseSettings):
 
     def resolve(self, p: Path) -> Path:
         return p if p.is_absolute() else (self.root / p).resolve()
+
+    # -- role placement ----------------------------------------------------
+    def resolved_placement(self) -> dict[str, Placement]:
+        """Where each role actually runs.
+
+        With the remote disabled everything collapses to local, whatever
+        perf_mode says. A mode that silently points at an unreachable box would
+        just turn into a per-turn timeout.
+        """
+        base = dict(PERF_PLACEMENT[self.perf_mode])
+        for role, side in self.placement.items():
+            if role not in ROLES:
+                raise ValueError(f"unknown role in placement: {role}")
+            base[role] = side
+        if not self.remote.enabled:
+            return dict.fromkeys(ROLES, "local")
+        return base
+
+    def url_for(self, role: str, side: Placement) -> str:
+        svc = self.remote.services if side == "remote" else self.services
+        return getattr(svc, role)
+
+    @property
+    def audio_leaves_device(self) -> bool:
+        """True when utterance audio is sent off the box. Surfaced in the TUI."""
+        p = self.resolved_placement()
+        return p["asr"] == "remote" or p["asr_verify"] == "remote"
 
     @classmethod
     def settings_customise_sources(
@@ -243,22 +329,39 @@ def _deep_merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _read_yaml(p: Path) -> dict[str, Any]:
+    return yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+
+
 def load_settings(path: str | Path | None = None) -> Settings:
-    """Read the YAML and build Settings.
+    """Read the YAML layers and build Settings.
 
-    With no path, falls back to KOTONOHA_CONFIG and then the default file.
+    Layers, each merged over the previous:
+
+      1. config/default.yaml       the full baseline
+      2. the file given by --config or KOTONOHA_CONFIG, if it is a different one
+      3. config/local.yaml         per-device overrides, if present
+
+    Layer 2 exists so files like performance.yaml can be small overlays that say
+    only what differs, instead of duplicating the whole baseline and drifting
+    from it. Environment variables still beat all three.
     """
-    cfg_path = Path(path or os.environ.get("KOTONOHA_CONFIG") or DEFAULT_CONFIG)
-    data: dict[str, Any] = {}
-    if cfg_path.exists():
-        data = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
-    elif path is not None:
-        raise FileNotFoundError(f"config not found: {cfg_path}")
+    chosen = Path(path or os.environ.get("KOTONOHA_CONFIG") or DEFAULT_CONFIG)
+    if not chosen.exists() and (path is not None or os.environ.get("KOTONOHA_CONFIG")):
+        raise FileNotFoundError(f"config not found: {chosen}")
 
-    # A local.yaml next to it wins, for per-device things like audio device indices.
-    local = cfg_path.parent / "local.yaml"
+    layers: list[Path] = []
+    if DEFAULT_CONFIG.exists():
+        layers.append(DEFAULT_CONFIG)
+    if chosen.exists() and chosen.resolve() != DEFAULT_CONFIG.resolve():
+        layers.append(chosen)
+    local = DEFAULT_CONFIG.parent / "local.yaml"
     if local.exists():
-        data = _deep_merge(data, yaml.safe_load(local.read_text(encoding="utf-8")) or {})
+        layers.append(local)
+
+    data: dict[str, Any] = {}
+    for layer in layers:
+        data = _deep_merge(data, _read_yaml(layer))
 
     data.setdefault("root", str(REPO_ROOT))
     return Settings(**data)

@@ -7,24 +7,27 @@ put this thin proxy in front of it.
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from contextlib import asynccontextmanager
 from typing import Any
 
 import numpy as np
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from ..config import load_settings
 from ..logging_setup import setup_logging
 from ..shmring import AudioRef, StaleSlotError, attach_cached
+from ..transport import decode_pcm
+from .auth import install_auth
 
 log = setup_logging(service="asr-verify", console=True)
 
 
 class VerifyReq(BaseModel):
-    audio: dict[str, Any]
+    audio: dict[str, Any] | None = None
     language: str | None = None
     beam_size: int = 5
 
@@ -131,6 +134,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="kotonoha-asr-verify", lifespan=lifespan)
+install_auth(app, "asr-verify")
 
 
 @app.get("/health")
@@ -144,14 +148,49 @@ def health() -> dict:
     }
 
 
-@app.post("/transcribe")
-def transcribe(req: VerifyReq) -> dict:
+def _backend():
     b = STATE["backend"]
     if b is None:
         raise HTTPException(503, f"verify backend not loaded: {STATE['error']}")
+    return b
+
+
+@app.post("/transcribe")
+def transcribe(req: VerifyReq) -> dict:
+    b = _backend()
+    if req.audio is None:
+        raise HTTPException(400, "missing audio reference; use /transcribe/upload instead")
     ref = AudioRef.from_json(req.audio)
     try:
         audio = attach_cached(ref.name).read(ref)
     except StaleSlotError as e:
         raise HTTPException(409, str(e)) from e
     return b.transcribe(audio, req)
+
+
+@app.post("/transcribe/upload")
+async def transcribe_upload(params: str = Form("{}"), audio: UploadFile = File(...)) -> dict:
+    """Upload path, for an orchestrator running on another machine."""
+    b = _backend()
+    try:
+        d = json.loads(params or "{}")
+    except json.JSONDecodeError as e:
+        raise HTTPException(400, f"bad params json: {e}") from e
+
+    encoding = d.pop("encoding", "s16le")
+    d.pop("sample_rate", None)
+    raw = await audio.read()
+    if not raw:
+        raise HTTPException(400, "empty audio")
+    pcm = decode_pcm(raw, encoding)
+
+    known = set(VerifyReq.model_fields)
+    req = VerifyReq(**{k: v for k, v in d.items() if k in known and k != "audio"})
+    return b.transcribe(pcm, req)
+
+
+@app.post("/echo")
+async def echo(audio: UploadFile = File(...)) -> dict:
+    """Transport probe for `kotonoha netcheck`."""
+    raw = await audio.read()
+    return {"bytes": len(raw)}

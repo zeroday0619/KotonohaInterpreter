@@ -41,6 +41,12 @@ class TurnMetrics:
     target_lang: str | None = None
     llm_profile: str | None = None
     tok_per_s: float | None = None
+    # High-performance mode: which side ran each role this turn, and whether the
+    # link forced a failover. Without these, a turn that quietly ran on the
+    # on-board fallback is indistinguishable from one that used the A6000.
+    perf_mode: str | None = None
+    placement: dict[str, str] | None = None
+    failovers: int = 0
     outcome: str = "ok"  # ok | empty_asr | llm_timeout | tts_failed | oom | aborted
     notes: dict[str, Any] = field(default_factory=dict)
 
@@ -108,6 +114,9 @@ class TurnMetrics:
             "target_lang": self.target_lang,
             "llm_profile": self.llm_profile,
             "tok_per_s": self.tok_per_s,
+            "perf_mode": self.perf_mode,
+            "placement": self.placement,
+            "failovers": self.failovers,
             "outcome": self.outcome,
         }
         if budget is not None:

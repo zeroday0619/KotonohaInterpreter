@@ -41,6 +41,8 @@ class StatusBar(Static):
     lang_source = reactive("")
     mic = reactive(True)
     level = reactive(0.0)
+    perf = reactive("onboard")
+    offbox_audio = reactive(False)
 
     def render(self) -> Text:
         t = Text()
@@ -58,6 +60,11 @@ class StatusBar(Static):
         t.append(self.lang, style="bold")
         if self.lang_source and self.lang_source != "lid":
             t.append(f" ({self.lang_source})", style="yellow bold")
+        t.append(" │ ", style="dim")
+        t.append(self.perf, style="bold blue" if self.perf != "onboard" else "dim")
+        if self.offbox_audio:
+            # The operator should never have to guess whether audio is leaving.
+            t.append(" ⇗audio", style="yellow bold")
         return t
 
 
@@ -151,8 +158,9 @@ class ServicePanel(Static):
         self.services: dict[str, dict] = {}
         self.errors: list[str] = []
 
-    def set_service(self, name: str, ok: bool, detail: dict) -> None:
-        self.services[name] = {"ok": ok, "detail": detail}
+    def set_service(self, name: str, ok: bool, detail: dict, side: str = "local",
+                    degraded: bool = False) -> None:
+        self.services[name] = {"ok": ok, "detail": detail, "side": side, "degraded": degraded}
         self.refresh()
 
     def push_error(self, where: str, message: str) -> None:
@@ -170,10 +178,16 @@ class ServicePanel(Static):
                 continue
             t.append(f"  {name:<11}")
             t.append("UP  " if s["ok"] else "DOWN", style="green" if s["ok"] else "red bold")
+            side = s.get("side", "local")
+            if s.get("degraded"):
+                side_style = "yellow bold"  # fell back off the A6000
+            else:
+                side_style = "blue" if side == "remote" else "dim"
+            t.append(f" {side:<6}", style=side_style)
             d = s["detail"] or {}
             tag = d.get("backend") or d.get("error")
             if tag:
-                t.append(f"  {str(tag)[:34]}", style="dim")
+                t.append(f" {str(tag)[:26]}", style="dim")
             t.append("\n")
         if self.errors:
             t.append("\n최근 오류\n", style="bold underline red")
@@ -226,6 +240,8 @@ class KotonohaApp(App):
         self.sub_title = f"session {self.orch.session_id}"
         self.status.mode = self.orch.s.session.mode
         self.status.routing = self.orch.s.session.routing
+        self.status.perf = self.orch.s.perf_mode
+        self.status.offbox_audio = self.orch.s.audio_leaves_device
         await self.orch.start()
         self.run_worker(self._drain(), exclusive=False)
 
@@ -281,7 +297,19 @@ class KotonohaApp(App):
         elif ev.kind == "turn":
             self.lat.update_turn(p)
         elif ev.kind == "service":
-            self.svc.set_service(p["name"], p["ok"], p.get("detail", {}))
+            self.svc.set_service(
+                p["name"],
+                p["ok"],
+                p.get("detail", {}),
+                side=p.get("side", "local"),
+                degraded=bool(p.get("degraded")),
+            )
+        elif ev.kind == "placement":
+            # A role moved between the A6000 and the on-board service.
+            self.svc.push_error("placement", f"{p['role']} → {p['side']} ({p['reason']})")
+            self.status.offbox_audio = self.orch.s.audio_leaves_device
+        elif ev.kind == "privacy":
+            self.status.offbox_audio = bool(p.get("audio_leaves_device"))
         elif ev.kind == "error":
             self.svc.push_error(p.get("where", "?"), p.get("message", ""))
 

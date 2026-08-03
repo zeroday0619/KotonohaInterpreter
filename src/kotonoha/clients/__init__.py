@@ -1,7 +1,9 @@
 from .asr import AsrClient, AsrResult, Hypothesis
 from .asr_verify import AsrVerifyClient, VerifyResult
-from .base import ServiceError, ServiceTimeout
+from .base import ServiceError, ServiceTimeout, remote_transport_kwargs
+from .build import ServiceGroup, build_service_group
 from .llm import LlmClient, StreamStats
+from .router import AllEndpointsFailed, FailoverClient
 from .tts import TtsClient
 
 __all__ = [
@@ -15,4 +17,9 @@ __all__ = [
     "TtsClient",
     "ServiceError",
     "ServiceTimeout",
+    "remote_transport_kwargs",
+    "FailoverClient",
+    "AllEndpointsFailed",
+    "ServiceGroup",
+    "build_service_group",
 ]

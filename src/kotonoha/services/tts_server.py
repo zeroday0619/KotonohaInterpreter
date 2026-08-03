@@ -18,7 +18,7 @@ import asyncio
 import os
 import time
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 from fastapi import FastAPI, HTTPException
@@ -27,6 +27,8 @@ from pydantic import BaseModel
 
 from ..config import load_settings
 from ..logging_setup import setup_logging
+from ..transport import encode_pcm
+from .auth import install_auth
 
 log = setup_logging(service="tts", console=True)
 
@@ -40,6 +42,8 @@ class SynthReq(BaseModel):
     voice: str | None = None
     speaker: str | None = None
     sample_rate: int = 24000
+    # f32le for a local hop; s16le halves the bytes when the client is remote.
+    encoding: Literal["s16le", "f32le"] = "f32le"
 
 
 class Qwen3TtsBackend:
@@ -139,6 +143,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="kotonoha-tts", lifespan=lifespan)
+install_auth(app, "tts")
 
 
 @app.get("/health")
@@ -196,7 +201,7 @@ async def synthesize(req: SynthReq) -> StreamingResponse:
 
     def gen():
         for i in range(0, wav.size, chunk):
-            yield wav[i : i + chunk].astype("<f4").tobytes()
+            yield encode_pcm(wav[i : i + chunk], req.encoding)
 
     return StreamingResponse(
         gen(),
@@ -205,5 +210,8 @@ async def synthesize(req: SynthReq) -> StreamingResponse:
             "X-TTS-Backend": used,
             "X-Synth-Ms": str(synth_ms),
             "X-Sample-Rate": str(req.sample_rate),
+            # The client trusts this over what it asked for, so an older or
+            # misconfigured service cannot silently corrupt the stream.
+            "X-Encoding": req.encoding,
         },
     )
