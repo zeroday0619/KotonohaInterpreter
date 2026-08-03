@@ -916,6 +916,7 @@ requests. Treat this as a deployment failure on the A6000.
 | Service returns `ok: false` | Service log and `error` field | Correct model path, dependency, CUDA, or memory failure; restart the service |
 | Python services restart with missing `pydantic_settings` | Inspect x86_64 markers in `uv.lock` and the common image build check | Regenerate the lock with Linux x86_64 support and rebuild all three Python images |
 | LLM restarts with exit code 127 | Inspect LLM mounts and `/app/llama-server` | Remove any bind mount targeting `/app`, then recreate the LLM container |
+| LLM cannot load `libllama-server-impl.so` | Inspect `LD_LIBRARY_PATH` and run `ldd /app/llama-server` in the image | Set `/app` as the first library path and recreate the LLM container |
 | ASR cannot find the model offline | Inspect `asr.model_id` | Set `/models/Qwen3-ASR-1.7B-hf` in the host override |
 | Verification downloads `large-v3` | Inspect `asr_verify.model_id` | Set `/models/faster-whisper-large-v3` |
 | LLM reports `GGUF missing` | Inspect `/models/gguf` and `remote-llm.env` | Correct `MODELS_DIR`, profile, or profile file name; restart `llm` |

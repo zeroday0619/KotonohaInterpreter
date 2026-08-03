@@ -91,6 +91,8 @@ services:
       - LLM_PORT=8003
       - LLM_CTX=${LLM_CTX:-4096}
       - KOTONOHA_LLM_CONFIG_ENV=/config/remote-llm.env
+      # Current llama.cpp server builds load libllama-server-impl.so from /app.
+      - LD_LIBRARY_PATH=/app
     volumes:
       # Mounting the repository at /app would hide the image's /app/llama-server binary.
       - ../scripts/run_llm.sh:/opt/kotonoha/run_llm.sh:ro

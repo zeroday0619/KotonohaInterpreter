@@ -13,6 +13,7 @@ from kotonoha.config_store import validate_candidate
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEPLOY_SCRIPT = PROJECT_ROOT / "scripts" / "deploy.sh"
+LLM_SCRIPT = PROJECT_ROOT / "scripts" / "run_llm.sh"
 
 
 def test_deploy_script_has_valid_shell_syntax_and_help() -> None:
@@ -123,3 +124,83 @@ def test_python_service_containers_force_uvloop() -> None:
     for dockerfile_path in dockerfile_paths:
         dockerfile = dockerfile_path.read_text(encoding="utf-8")
         assert '"--loop", "uvloop"' in dockerfile
+
+
+def _write_executable(path: Path, source: str) -> None:
+    path.write_text(source, encoding="utf-8")
+    path.chmod(0o755)
+
+
+def test_llama_launcher_adds_binary_directory_to_library_path(tmp_path: Path) -> None:
+    binary_directory = tmp_path / "bin"
+    model_directory = tmp_path / "models"
+    tool_directory = tmp_path / "tools"
+    binary_directory.mkdir()
+    model_directory.mkdir()
+    tool_directory.mkdir()
+    model_path = model_directory / "model.gguf"
+    model_path.touch()
+    capture_path = tmp_path / "environment.txt"
+
+    _write_executable(
+        binary_directory / "llama-server",
+        '#!/bin/sh\nprintf "%s\\n" "$LD_LIBRARY_PATH" > "$CAPTURE_PATH"\n',
+    )
+    _write_executable(tool_directory / "ldd", "#!/bin/sh\nexit 0\n")
+
+    environment = {
+        **os.environ,
+        "PATH": f"{tool_directory}:{os.environ['PATH']}",
+        "LLAMA_BIN": str(binary_directory),
+        "LLM_MODEL": str(model_path),
+        "CAPTURE_PATH": str(capture_path),
+        "LD_LIBRARY_PATH": "/existing/library/path",
+        "KOTONOHA_LLM_CONFIG_ENV": str(tmp_path / "missing.env"),
+    }
+    result = subprocess.run(
+        ["bash", str(LLM_SCRIPT)],
+        cwd=PROJECT_ROOT,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert capture_path.read_text(encoding="utf-8").strip() == (
+        f"{binary_directory}:/existing/library/path"
+    )
+
+
+def test_llama_launcher_rejects_unresolved_shared_libraries(tmp_path: Path) -> None:
+    binary_directory = tmp_path / "bin"
+    binary_directory.mkdir()
+    model_path = tmp_path / "model.gguf"
+    model_path.touch()
+    _write_executable(binary_directory / "llama-server", "#!/bin/sh\nexit 0\n")
+    tool_directory = tmp_path / "tools"
+    tool_directory.mkdir()
+    _write_executable(
+        tool_directory / "ldd",
+        "#!/bin/sh\necho 'libllama-server-impl.so => not found'\n",
+    )
+
+    environment = {
+        **os.environ,
+        "PATH": f"{tool_directory}:{os.environ['PATH']}",
+        "LLAMA_BIN": str(binary_directory),
+        "LLM_MODEL": str(model_path),
+        "KOTONOHA_LLM_CONFIG_ENV": str(tmp_path / "missing.env"),
+    }
+    result = subprocess.run(
+        ["bash", str(LLM_SCRIPT)],
+        cwd=PROJECT_ROOT,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "libllama-server-impl.so" in result.stdout
+    assert "LD_LIBRARY_PATH" in result.stdout
