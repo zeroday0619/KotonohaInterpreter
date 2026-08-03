@@ -1,4 +1,4 @@
-"""오케스트레이터 → UI 이벤트."""
+"""Events from the orchestrator to the UI."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ class UiEvent:
 
 
 class EventBus:
-    """단일 소비자(TUI) 전제. 소비자가 없으면 조용히 버린다."""
+    """Assumes a single consumer (the TUI). Drops silently when nobody listens."""
 
     def __init__(self, maxsize: int = 512):
         self.q: asyncio.Queue[UiEvent] = asyncio.Queue(maxsize=maxsize)

@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-"""Spike 2 — flash-attn 이 sm_87 (Orin) 에서 빌드/동작하는가.
+"""Spike 2 — does flash-attn build and run on sm_87 (Orin)?
 
-판정할 것:
-  · flash_attn import 및 실제 커널 실행 가능 여부 (import 만으로는 부족하다.
-    aarch64 wheel 이 import 는 되면서 커널에서 죽는 경우가 있다.)
-  · Qwen3-TTS 를 flash_attention_2 / sdpa / eager 각각으로 로드 가능한지
-  · 각 구성의 합성 소요 시간 → §6 TTS 첫 패킷 300ms 예산과 대조
-  · 실패 시 MeloTTS 로 시작할지 판단할 근거
+What this decides:
+  · whether flash_attn imports AND its kernel actually runs. Import alone is
+    not enough: an aarch64 wheel can import fine and then die in the kernel.
+  · whether Qwen3-TTS loads with flash_attention_2, sdpa or eager
+  · how long synthesis takes in each configuration, against the 300 ms
+    first-packet budget in §6
+  · if it all fails, the evidence for starting on MeloTTS instead
 
-Jetson 에서:
+On the Jetson:
     python3 spikes/spike2_flash_attn.py --out spikes/out/spike2.json
 
-jetson-containers 의 flash-attention 이미지로 먼저 시도할 것:
+Try the flash-attention image from jetson-containers first:
     jetson-containers run $(autotag flash-attention)
 """
 
@@ -48,7 +49,7 @@ def env_info() -> dict:
 
 
 def probe_flash_attn() -> dict:
-    """import 만으로 판정하지 않는다. 실제 커널을 한 번 돌려본다."""
+    """Do not judge on the import alone; actually run the kernel once."""
     out: dict = {}
     try:
         import flash_attn
@@ -97,7 +98,7 @@ def probe_qwen3_tts(attn: str, runs: int) -> dict:
 
     try:
         for lang, text in PROBE_TEXT.items():
-            model.generate_custom_voice(text=text, language=lang, speaker="Vivian")  # 워밍업
+            model.generate_custom_voice(text=text, language=lang, speaker="Vivian")  # warm-up
             durs = []
             for _ in range(runs):
                 t = time.perf_counter()

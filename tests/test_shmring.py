@@ -14,7 +14,7 @@ def test_publish_and_read_across_attach():
         pcm = np.linspace(-1, 1, 8000, dtype=np.float32)
         ref = ring.publish(pcm)
 
-        # 서비스 쪽에서 참조만 받아 attach 하는 상황
+        # A service receiving only the reference and attaching to the segment.
         consumer = AudioRing.attach(NAME)
         got = consumer.read(AudioRef.from_json(ref.to_json()))
         assert got.shape == pcm.shape

@@ -1,8 +1,9 @@
-"""TTS 재생 큐.
+"""TTS playback queue.
 
-절 단위로 도착하는 오디오 청크를 끊김 없이 이어 붙인다(§5.4). 계측에 필요한
-'첫 오디오 패킷' 시각과 '큐 소진' 시각은 여기서 나온다 — 오케스트레이터가
-enqueue 한 시각이 아니라, 실제로 스피커로 나간 시각이어야 의미가 있다.
+Stitches together the audio chunks that arrive clause by clause (§5.4). The
+"first audio packet" and "queue drained" timestamps come from here — they are
+only meaningful if they mark when audio actually reached the speaker, not when
+the orchestrator enqueued it.
 """
 
 from __future__ import annotations
@@ -37,13 +38,13 @@ class Playback:
         self.drained.set()
         self._closing = False
 
-    # ── 수명주기 ────────────────────────────────────────────────────────
+    # -- lifecycle -------------------------------------------------------
     def start(self, loop: asyncio.AbstractEventLoop | None = None) -> None:
         import sounddevice as sd
 
         self._loop = loop or asyncio.get_event_loop()
 
-        def _cb(outdata, frames_n, time_info, status):  # noqa: ANN001 - portaudio 시그니처
+        def _cb(outdata, frames_n, time_info, status):  # noqa: ANN001 - portaudio signature
             if status:
                 log.debug("playback.status", status=str(status))
             written = 0
@@ -81,14 +82,14 @@ class Playback:
             self._stream.close()
             self._stream = None
 
-    # ── 큐 ──────────────────────────────────────────────────────────────
+    # -- queue -----------------------------------------------------------
     def begin_turn(self) -> None:
-        """새 턴 시작 — 계측 이벤트를 되돌린다."""
+        """New turn — rearm the instrumentation events."""
         self.first_packet.clear()
         self.drained.clear()
 
     def enqueue(self, pcm: np.ndarray, rate: int | None = None) -> None:
-        """TTS 청크 투입. rate 를 주면 그 레이트에서 출력 레이트로 맞춘다."""
+        """Push a TTS chunk. Given a rate, resample from it to the output rate."""
         x = np.asarray(pcm, dtype=np.float32).reshape(-1)
         if x.size == 0:
             return
@@ -105,7 +106,7 @@ class Playback:
         self.drained.clear()
 
     def flush(self) -> None:
-        """재생 중단(취소·오류). 큐를 비운다."""
+        """Abort playback (cancellation or error) and empty the queue."""
         with self._lock:
             self._q.clear()
         self._cur = None
@@ -127,7 +128,7 @@ class Playback:
         except asyncio.TimeoutError:
             return False
 
-    # ── 콜백 스레드 → 이벤트 루프 ───────────────────────────────────────
+    # -- callback thread -> event loop -----------------------------------
     def _signal_first(self) -> None:
         if self._loop and not self._loop.is_closed():
             self._loop.call_soon_threadsafe(self.first_packet.set)
@@ -138,7 +139,7 @@ class Playback:
 
 
 class NullPlayback(Playback):
-    """오디오 장치 없는 환경(CI, 원격 셸)용."""
+    """For environments with no audio output device (CI, remote shells)."""
 
     def start(self, loop: asyncio.AbstractEventLoop | None = None) -> None:
         self._loop = loop or asyncio.get_event_loop()

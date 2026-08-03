@@ -25,13 +25,13 @@ def test_cjk_terminators():
 
 
 def test_first_clause_is_allowed_short():
-    """첫 절만 짧게 허용한다 — 첫 음성을 빨리 내보내기 위해서다."""
+    """Only the first clause may be short, so the first audio goes out sooner."""
     out, _ = feed("네, 알겠습니다. 그럼 다음 주에 뵙겠습니다.")
     assert out[0] == "네, 알겠습니다."
 
 
 def test_marker_stops_stream_even_when_split_across_deltas():
-    """⟦SRC⟧ 뒤(정정된 원문)는 절대 TTS 로 나가면 안 된다."""
+    """Nothing after ⟦SRC⟧ (the reconstructed source) may reach TTS."""
     body = "Please send it by Tuesday."
     src = "다음 주 화요일까지 보내주세요."
     out, cs = feed(body + "\n" + SRC_MARKER + "\n" + src, chunk=1)

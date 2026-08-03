@@ -1,16 +1,20 @@
-"""마이크 캡처 + 반이중 게이팅.
+"""Microphone capture and half-duplex gating.
 
-캡처는 48kHz 로 받는다. 이유는 두 가지다.
-  1. DeepFilterNet3 는 48kHz 전용이다. 16k로 먼저 내리면 쓸 수 없다.
-  2. 대부분의 USB 마이크 기본 레이트가 48k라 리샘플이 커널 밖에서 한 번만 일어난다.
+Capture runs at 48 kHz for two reasons:
+  1. DeepFilterNet3 is 48 kHz only. Downsample to 16k first and it is unusable.
+  2. Most USB microphones default to 48k, so resampling happens exactly once
+     outside the kernel.
 
-VAD 는 16k 프레임으로 돌리고, 원본 48k 는 별도 링에 남겨둔다. EOU 가 나면
-16k 인덱스 기준 발화 길이를 3배 해서 48k 링에서 잘라내 잡음 제거에 넘긴다.
-(스트리밍 리샘플러의 몇 ms 지연이 있지만 프리롤 300ms 안에 충분히 묻힌다.)
+The VAD runs on 16k frames while the original 48k audio is kept in a separate
+ring. When EOU fires, the utterance length in 16k samples is multiplied by three
+and that many samples are pulled from the 48k ring for noise suppression. (The
+streaming resampler adds a few ms of skew, which is comfortably absorbed by the
+300 ms preroll.)
 
-§4 반이중 게이팅: SPEAKING 상태에서 gate 를 닫으면 들어오는 블록을 그 자리에서
-버리고 리샘플러·VAD 상태까지 리셋한다. TTS 출력이 마이크로 되돌아와 새 발화로
-인식되면 무한 루프가 된다 — 이 게이팅은 타협 불가다.
+Half-duplex gating (§4): closing the gate in SPEAKING drops incoming blocks on
+the spot and resets the resampler and VAD state. If TTS output leaks back into
+the microphone and is heard as a new utterance, the result is an infinite loop —
+this gate is not negotiable.
 """
 
 from __future__ import annotations
@@ -31,14 +35,14 @@ log = get_logger(__name__)
 
 @dataclass
 class Frame:
-    """VAD 한 스텝 분량의 16k 프레임."""
+    """One 16k frame, sized for a single VAD step."""
 
-    index: int  # 16k 샘플 기준 시작 인덱스 (게이트 열린 이후 누적)
+    index: int  # start index in 16k samples, counted since the gate opened
     pcm: np.ndarray
 
 
 class RawRing:
-    """48k 원본을 담아두는 고정 길이 링. 발화 뒤쪽 N 샘플을 꺼내는 용도."""
+    """Fixed-length ring holding the original 48k audio, for pulling the tail back."""
 
     def __init__(self, capacity: int):
         self._buf = np.zeros(capacity, dtype=np.float32)
@@ -81,7 +85,7 @@ class MicCapture:
         self.audio = audio
         self.vad_cfg = vad
         self.loop = loop
-        self.window16 = 512  # silero 창 크기
+        self.window16 = 512  # silero window size
         self.frames: asyncio.Queue[Frame] = asyncio.Queue(maxsize=256)
 
         self._raw_q: queue.Queue[np.ndarray | None] = queue.Queue(maxsize=64)
@@ -101,17 +105,17 @@ class MicCapture:
         self.dropped_blocks = 0
         self.overflows = 0
 
-    # ── 게이팅 (§4) ─────────────────────────────────────────────────────
+    # -- gating (§4) -----------------------------------------------------
     @property
     def gate_open(self) -> bool:
         return self._gate_open.is_set()
 
     def close_gate(self) -> None:
-        """SPEAKING 진입. 마이크 차단."""
+        """Entering SPEAKING. Microphone shut."""
         self._gate_open.clear()
 
     def open_gate(self) -> None:
-        """IDLE 복귀. 큐에 남은 TTS 잔향까지 버리고 연다."""
+        """Back to IDLE. Discard any TTS tail still queued, then open."""
         self._drain_raw_queue()
         while not self.frames.empty():
             try:
@@ -123,13 +127,13 @@ class MicCapture:
         self._resampler.reset()
         self._gate_open.set()
 
-    # ── 수명주기 ────────────────────────────────────────────────────────
+    # -- lifecycle -------------------------------------------------------
     def start(self) -> None:
         import sounddevice as sd
 
         self.loop = self.loop or asyncio.get_event_loop()
 
-        def _cb(indata, frames_n, time_info, status):  # noqa: ANN001 - portaudio 시그니처
+        def _cb(indata, frames_n, time_info, status):  # noqa: ANN001 - portaudio signature
             if status:
                 self.overflows += 1
             if not self._gate_open.is_set():
@@ -170,12 +174,12 @@ class MicCapture:
             self._worker = None
         log.info("mic.stopped", dropped_blocks=self.dropped_blocks, overflows=self.overflows)
 
-    # ── 원본 48k 회수 ───────────────────────────────────────────────────
+    # -- pulling the original 48k back -----------------------------------
     def tail48(self, samples16: int) -> np.ndarray:
         ratio = self.audio.capture_sample_rate / self.audio.work_sample_rate
         return self._raw48.tail(int(samples16 * ratio))
 
-    # ── 내부 ────────────────────────────────────────────────────────────
+    # -- internals -------------------------------------------------------
     def _drain_raw_queue(self) -> None:
         while True:
             try:
@@ -213,7 +217,10 @@ class MicCapture:
 
 
 class FileCapture:
-    """WAV 파일을 마이크처럼 흘려보낸다. EOU 회귀 테스트와 macOS 개발용."""
+    """Streams a WAV file as if it were the microphone.
+
+    Used for EOU regression tests and for development on macOS.
+    """
 
     def __init__(self, pcm16k: np.ndarray, window: int = 512):
         self.frames: asyncio.Queue[Frame] = asyncio.Queue()
@@ -238,7 +245,7 @@ class FileCapture:
         while idx + self._window <= self._pcm.size:
             self.frames.put_nowait(Frame(idx, self._pcm[idx : idx + self._window]))
             idx += self._window
-        # 무음 꼬리를 붙여 EOU 가 확실히 발동하게 한다
+        # Append a silent tail so EOU definitely fires.
         for _ in range(40):
             self.frames.put_nowait(Frame(idx, np.zeros(self._window, dtype=np.float32)))
             idx += self._window

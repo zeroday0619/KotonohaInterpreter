@@ -1,13 +1,16 @@
 """TUI (Textual).
 
-화면에 반드시 있어야 하는 것:
-  · 현재 상태 — SPEAKING 중에 마이크가 닫혀 있다는 사실이 눈에 보여야 한다.
-  · 판정 언어와 그 출처(lid / inherited) — §10 이 요구한다. 승계된 언어로
-    통역 중인데 화면에 표시가 없으면 사용자는 기기가 고장난 줄 안다.
-  · 다섯 지점 지연과 예산 초과 여부 — 없으면 어디서 새는지 알 수 없다(§11).
+What the screen has to show:
+  · The current state — that the microphone is shut during SPEAKING must be
+    visible.
+  · The detected language and where it came from (lid / inherited), as §10
+    requires. Interpreting from an inherited language with no indication on
+    screen makes users think the device is broken.
+  · The five latency marks and whether the budget was blown — without them
+    there is no way to see where time is going (§11).
 
-터미널은 키를 뗀 이벤트를 주지 않는다. 그래서 push-to-talk 은 스페이스 토글로
-구현한다(누르면 시작, 다시 누르면 종료).
+Terminals do not deliver key-release events, so push-to-talk is a space-bar
+toggle: press to start, press again to finish.
 """
 
 from __future__ import annotations
@@ -59,7 +62,7 @@ class StatusBar(Static):
 
 
 class Pane(Static):
-    """스크롤 없는 단순 텍스트 패널. 최근 N턴만 보여준다."""
+    """Plain text panel, no scrolling. Shows only the last N turns."""
 
     def __init__(self, title: str, style: str = "white", **kw):
         super().__init__(**kw)
@@ -88,7 +91,7 @@ class Pane(Static):
 
 
 class LatencyPanel(Static):
-    """§6 예산 대조 + §11 다섯 지점."""
+    """§6 budget comparison and the five §11 marks."""
 
     def __init__(self, budget, **kw):
         super().__init__(**kw)
@@ -229,7 +232,7 @@ class KotonohaApp(App):
     async def on_unmount(self) -> None:
         await self.orch.stop()
 
-    # ── 이벤트 소비 ─────────────────────────────────────────────────────
+    # -- event consumption -------------------------------------------------
     async def _drain(self) -> None:
         while True:
             try:
@@ -282,7 +285,7 @@ class KotonohaApp(App):
         elif ev.kind == "error":
             self.svc.push_error(p.get("where", "?"), p.get("message", ""))
 
-    # ── 키 ──────────────────────────────────────────────────────────────
+    # -- keys ----------------------------------------------------------------
     def action_talk(self) -> None:
         if self.orch.s.session.mode != "push_to_talk":
             return

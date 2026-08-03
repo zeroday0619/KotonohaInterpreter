@@ -1,6 +1,6 @@
-"""교차 검증 ASR 클라이언트 (faster-whisper large-v3).
+"""Cross-verification ASR client (faster-whisper large-v3).
 
-§5.5 조건부 호출. 상시 호출하면 매 턴 0.8초가 그냥 붙는다.
+Called conditionally, per §5.5. Calling it every turn simply adds 0.8 s each time.
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ class AsrVerifyClient(BaseClient):
 
 
 def _to_whisper_lang(lang: str | None) -> str | None:
-    """내부 언어코드 → whisper 언어코드. zh-TW 는 whisper 에 zh 로 준다."""
+    """Our language code to whisper's. zh-TW is handed to whisper as zh."""
     if lang is None:
         return None
     return {"ko": "ko", "en": "en", "ja": "ja", "zh-TW": "zh"}.get(lang)

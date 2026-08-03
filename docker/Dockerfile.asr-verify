@@ -1,6 +1,6 @@
-# 교차 검증 ASR — faster-whisper large-v3 (CTranslate2)
-# CTranslate2 의 aarch64 CUDA 빌드가 깨지면 whisper.cpp CUDA 로 폴백한다(§7).
-# 그 경우 asr_verify.backend: whisper_cpp 로 바꾸고 WHISPER_CPP_URL 을 준다.
+# Cross-verification ASR — faster-whisper large-v3 (CTranslate2)
+# If the aarch64 CUDA build of CTranslate2 is broken, fall back to whisper.cpp
+# with CUDA (§7): set asr_verify.backend: whisper_cpp and supply WHISPER_CPP_URL.
 ARG BASE_IMAGE=dustynv/faster-whisper:r36.4.0
 FROM ${BASE_IMAGE}
 
@@ -19,8 +19,8 @@ RUN uv export --frozen --no-dev --no-emit-project --no-hashes -o /tmp/req.txt \
 COPY src ./src
 RUN uv pip install --no-cache --no-deps -e .
 
-# CTranslate2 는 베이스 이미지의 aarch64 CUDA 빌드를 그대로 쓴다. PyPI 에서 다시
-# 끌어오면 CPU 빌드로 바뀔 수 있으므로 설치하지 않고 존재만 확인한다.
+# Use the base image's aarch64 CUDA build of CTranslate2 as-is. Pulling it from
+# PyPI again could swap in a CPU build, so only check that it is present.
 RUN python3 -c "import ctranslate2, faster_whisper; print('ct2', ctranslate2.__version__, '| fw', faster_whisper.__version__)"
 
 EXPOSE 8002

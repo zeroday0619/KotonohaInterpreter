@@ -1,8 +1,9 @@
-"""언어 판별 정규화 · 폴백 · 타깃 라우팅 (§5, §10).
+"""Language-ID normalisation, fallback, and target routing (§5, §10).
 
-핵심은 폴백이다. 어떤 모델도 "네 / OK / はい" 한 마디의 언어는 맞히지 못한다.
-1초 미만 발화나 저신뢰 판정에서는 직전 판정 언어를 그대로 승계하고, 그 사실을
-화면에 표시한다 — 조용히 틀린 언어로 통역하는 것보다 낫다.
+The fallback is the important part. No model can tell you the language of a
+single "네 / OK / はい". For utterances under a second, or low-confidence
+verdicts, we inherit the previously detected language and show that on screen —
+better than quietly interpreting from the wrong language.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ from dataclasses import dataclass
 
 from ..config import LidCfg, SessionCfg
 
-# Qwen3-ASR / whisper 가 내는 다양한 표기를 내부 코드로 정규화
+# Normalise the various spellings Qwen3-ASR and whisper emit into our codes.
 _ALIASES: dict[str, str] = {
     "ko": "ko", "kor": "ko", "korean": "ko", "한국어": "ko",
     "en": "en", "eng": "en", "english": "en",
@@ -22,8 +23,8 @@ _ALIASES: dict[str, str] = {
     "yue": "zh-TW", "cantonese": "zh-TW",
     "中文": "zh-TW", "繁體中文": "zh-TW", "简体中文": "zh-TW",
 }
-# 주의: zh-CN 도 zh-TW 로 접는다. 이 기기는 대만 번체만 다룬다(§1).
-# 대륙 화자의 발화도 입력으로는 받되 출력은 번체로 낸다.
+# Note: zh-CN folds into zh-TW as well. This device only deals in Taiwan
+# Traditional (§1). Mainland speech is accepted as input, but output is Traditional.
 
 
 def normalize_lang(raw: str | None) -> str | None:
@@ -32,7 +33,7 @@ def normalize_lang(raw: str | None) -> str | None:
     key = raw.strip().lower().replace("_", "-")
     if key in _ALIASES:
         return _ALIASES[key]
-    # "Chinese (Taiwan)" 같은 형태
+    # Forms like "Chinese (Taiwan)".
     for alias, code in _ALIASES.items():
         if alias in key:
             return code
@@ -78,14 +79,14 @@ def decide_language(
 
 
 def route_targets(src_lang: str, cfg: SessionCfg) -> list[str]:
-    """§9 Phase 4 — 타깃 언어 라우팅 3종."""
+    """The three target-routing modes (§9, Phase 4)."""
     if cfg.routing == "pair":
         a, b = cfg.pair
         if src_lang == a:
             return [b]
         if src_lang == b:
             return [a]
-        # 페어 밖 언어가 들어오면 페어의 첫 언어로 보낸다
+        # A language outside the pair goes to the pair's first language.
         return [a]
     if cfg.routing == "fixed":
         return [] if src_lang == cfg.fixed_target else [cfg.fixed_target]

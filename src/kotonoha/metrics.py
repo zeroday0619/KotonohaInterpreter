@@ -1,9 +1,10 @@
-"""§11 계측 — 매 턴 다섯 지점 타임스탬프.
+"""Instrumentation (§11) — five timestamps per turn.
 
-    EOU 감지 → ASR 완료 → 첫 절 → 첫 오디오 패킷 → 큐 소진
+    EOU detected -> ASR done -> first clause -> first audio packet -> queue drained
 
-이 다섯 개가 없으면 지연이 어디서 새는지 알 수 없다.
-모든 시각은 time.perf_counter() 기준 단조 초. 로그에는 EOU 기준 상대 ms로 적는다.
+Without these five there is no way to tell where the latency is leaking.
+Times come from time.perf_counter(); the log records them as milliseconds
+relative to EOU.
 """
 
 from __future__ import annotations
@@ -25,10 +26,10 @@ class TurnMetrics:
     turn_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
     wall_start: float = field(default_factory=time.time)
 
-    # 다섯 지점 (perf_counter 단조 시각)
+    # The five marks, as monotonic perf_counter values.
     t: dict[str, float] = field(default_factory=dict)
 
-    # 함께 기록하는 부가 정보 (§11)
+    # Everything else §11 asks to record alongside them.
     lang_detected: str | None = None
     lang_source: str = "lid"  # lid | inherited | forced
     lid_confidence: float | None = None
@@ -43,7 +44,7 @@ class TurnMetrics:
     outcome: str = "ok"  # ok | empty_asr | llm_timeout | tts_failed | oom | aborted
     notes: dict[str, Any] = field(default_factory=dict)
 
-    # ── 마킹 ────────────────────────────────────────────────────────────
+    # -- marking ---------------------------------------------------------
     def mark(self, name: str) -> float:
         now = time.perf_counter()
         self.t.setdefault(name, now)
@@ -53,7 +54,7 @@ class TurnMetrics:
         return name in self.t
 
     def rel_ms(self, name: str) -> float | None:
-        """EOU 기준 상대 ms."""
+        """Milliseconds since EOU."""
         if name not in self.t or "eou" not in self.t:
             return None
         return round((self.t[name] - self.t["eou"]) * 1000, 1)
@@ -63,7 +64,7 @@ class TurnMetrics:
             return None
         return round((self.t[b] - self.t[a]) * 1000, 1)
 
-    # ── 예산 대조 (§6) ──────────────────────────────────────────────────
+    # -- budget comparison (§6) ------------------------------------------
     def stage_ms(self) -> dict[str, float | None]:
         return {
             "asr": self.span_ms("eou", "asr_done"),
@@ -74,7 +75,7 @@ class TurnMetrics:
         }
 
     def over_budget(self, budget: BudgetCfg) -> dict[str, float]:
-        """예산을 넘긴 단계와 초과량(ms)만 돌려준다. 비어 있으면 예산 내."""
+        """Stages that blew the budget, and by how many ms. Empty means we fit."""
         stages = self.stage_ms()
         limits = {
             "asr": budget.asr + budget.verify,
@@ -89,7 +90,7 @@ class TurnMetrics:
                 out[k] = round(v - lim, 1)
         return out
 
-    # ── 직렬화 ──────────────────────────────────────────────────────────
+    # -- serialisation ---------------------------------------------------
     def to_dict(self, budget: BudgetCfg | None = None) -> dict[str, Any]:
         d: dict[str, Any] = {
             "turn_id": self.turn_id,
@@ -119,7 +120,7 @@ class TurnMetrics:
 
 
 class TurnLog:
-    """턴 메트릭을 JSONL 한 줄로 append."""
+    """Appends one JSONL line per turn."""
 
     def __init__(self, path: Path, budget: BudgetCfg):
         self.path = path
@@ -127,10 +128,10 @@ class TurnLog:
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
     def write(self, m: TurnMetrics) -> dict[str, Any]:
-        """JSONL 한 줄을 쓰고, 호출자가 재사용할 수 있게 레코드를 돌려준다.
+        """Write one JSONL line and hand the record back for reuse.
 
-        파일에는 event 키를 붙이지만 반환값에는 넣지 않는다 — structlog 의
-        `log.info("turn", **rec)` 와 키가 충돌하기 때문이다.
+        The file gets an "event" key; the returned record does not, because it
+        would collide with structlog's own key in `log.info("turn", **rec)`.
         """
         rec = m.to_dict(self.budget)
         with self.path.open("a", encoding="utf-8") as f:

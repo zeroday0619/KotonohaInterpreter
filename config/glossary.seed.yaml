@@ -1,15 +1,16 @@
-# 초기 용어집 시드. `kotonoha glossary import config/glossary.seed.yaml` 로 넣는다.
+# Initial glossary seed. Load with `kotonoha glossary import config/glossary.seed.yaml`.
 #
-# §5 대만 어휘 고정: 번역 LLM 은 방치하면 대륙 어휘(软件/视频/信息/鼠标)를
-# 자형만 번체로 바꿔 軟件/視頻/信息/鼠標 로 낸다. 대만 화자에게는 어색하다.
-# src_lang: '*' 는 모든 소스 언어에 적용.
+# §5, pinning Taiwanese vocabulary: left alone, the translation LLM takes the
+# Mainland words (软件/视频/信息/鼠标) and merely converts the glyphs, producing
+# 軟件/視頻/信息/鼠標. That reads wrong to a Taiwanese speaker.
+# src_lang: '*' applies to every source language.
 
 glossary:
-  # --- 대만 어휘: 각 소스 언어 → zh-TW ---
+  # --- Taiwanese vocabulary: each source language -> zh-TW ---
   - { src_lang: en, src_term: software, tgt_lang: zh-TW, tgt_term: 軟體, kind: vocab, priority: 10 }
   - { src_lang: en, src_term: video, tgt_lang: zh-TW, tgt_term: 影片, kind: vocab, priority: 10 }
   - { src_lang: en, src_term: information, tgt_lang: zh-TW, tgt_term: 資訊, kind: vocab, priority: 10 }
-  - { src_lang: en, src_term: mouse, tgt_lang: zh-TW, tgt_term: 滑鼠, kind: vocab, priority: 10, note: "포인팅 장치" }
+  - { src_lang: en, src_term: mouse, tgt_lang: zh-TW, tgt_term: 滑鼠, kind: vocab, priority: 10, note: "the pointing device" }
   - { src_lang: en, src_term: network, tgt_lang: zh-TW, tgt_term: 網路, kind: vocab, priority: 10 }
   - { src_lang: en, src_term: program, tgt_lang: zh-TW, tgt_term: 程式, kind: vocab, priority: 10 }
   - { src_lang: en, src_term: printer, tgt_lang: zh-TW, tgt_term: 印表機, kind: vocab, priority: 10 }
@@ -30,13 +31,14 @@ glossary:
   - { src_lang: ja, src_term: ネットワーク, tgt_lang: zh-TW, tgt_term: 網路, kind: vocab, priority: 10 }
   - { src_lang: ja, src_term: プログラム, tgt_lang: zh-TW, tgt_term: 程式, kind: vocab, priority: 10 }
 
-# OpenCC s2twp 이후 마지막으로 적용되는 치환. 자형만 바뀌고 어휘가 안 바뀐 경우를 잡는다.
+# Applied after OpenCC s2twp, to catch cases where the glyphs converted but the
+# vocabulary did not.
 zh_rules:
-  - { pattern: 軟件, replacement: 軟體, note: "s2twp가 놓치는 케이스" }
+  - { pattern: 軟件, replacement: 軟體, note: "a case s2twp misses" }
   - { pattern: 視頻, replacement: 影片 }
   - { pattern: 鼠標, replacement: 滑鼠 }
   - { pattern: 網絡, replacement: 網路 }
   - { pattern: 打印機, replacement: 印表機 }
   - { pattern: 硬盤, replacement: 硬碟 }
   - { pattern: 內存, replacement: 記憶體 }
-  - { pattern: 質量, replacement: 品質, note: "물리 '질량'이 아닌 품질 문맥에서" }
+  - { pattern: 質量, replacement: 品質, note: "quality, not physical mass" }

@@ -1,13 +1,15 @@
-"""정정 + 번역 단일 LLM 패스 (§5.3).
+"""Correction and translation in a single LLM pass (§5.3).
 
-두 단계로 나누면 오류가 누적된다. 전사 정정을 먼저 시키고 그 결과를 다시
-번역기에 넣으면, 정정 단계가 만든 오류를 번역 단계가 확대한다. 그래서
-N-best 후보 + 교차검증 가설 + 히스토리 + 용어집을 한꺼번에 주고
-"문맥으로 정정한 뒤 번역"까지 한 번에 시킨다.
+Splitting this into two stages compounds the errors: correct the transcript
+first, feed the result to a translator, and the translator amplifies whatever
+the correction stage got wrong. So the N-best candidates, the cross-verification
+hypothesis, the history and the glossary all go in at once, and the model is
+asked to reconstruct from context *and* translate in one shot.
 
-출력 형식이 중요하다. 번역문을 **먼저** 흘려야 절 단위로 TTS 에 넘길 수 있다.
-정정된 원문은 화면 표시·히스토리용이라 급하지 않으므로 맨 뒤 마커 뒤에 붙인다.
-5 tok/s 환경에서 원문을 앞에 두면 첫 음성이 그만큼 통째로 밀린다.
+The output format matters. The translation has to stream **first** so it can be
+handed to TTS clause by clause. The reconstructed source is only needed for the
+display and the history, so it goes last, behind a marker. At 5 tok/s, putting
+the source first would delay the first audio by exactly its length.
 """
 
 from __future__ import annotations
@@ -114,7 +116,10 @@ def build_translate_messages(
 
 
 def parse_llm_output(text: str) -> tuple[str, str | None]:
-    """(번역문, 정정된 원문 or None). 스트리밍이 끝난 뒤 전체 문자열에 대해 호출."""
+    """Returns (translation, reconstructed source or None).
+
+    Call this on the complete string once streaming has finished.
+    """
     if SRC_MARKER not in text:
         return text.strip(), None
     head, _, tail = text.partition(SRC_MARKER)

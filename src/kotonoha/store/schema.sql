@@ -1,12 +1,12 @@
--- Kotonoha 로컬 저장소. 단일 SQLite 파일.
--- 벡터DB/임베딩은 도입하지 않는다(§12). 용어집은 프롬프트 프리픽스로만 주입한다.
+-- Kotonoha local store. A single SQLite file.
+-- No vector DB or embeddings (§12). The glossary is injected as a prompt prefix only.
 
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
 
--- 용어집 · 고유명사 -------------------------------------------------------
--- src_term 이 전사에 등장하면 tgt_term 으로 고정한다.
--- kind: term(일반 용어) | name(고유명사) | vocab(지역 어휘, 예: 軟體/影片)
+-- Glossary and proper nouns ------------------------------------------------
+-- When src_term appears in the transcript, pin the translation to tgt_term.
+-- kind: term (general) | name (proper noun) | vocab (regional, e.g. 軟體/影片)
 CREATE TABLE IF NOT EXISTS glossary (
     id         INTEGER PRIMARY KEY,
     src_lang   TEXT NOT NULL,
@@ -25,7 +25,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_glossary
 CREATE INDEX IF NOT EXISTS ix_glossary_lookup
     ON glossary (src_lang, tgt_lang, enabled, priority);
 
--- 대화 히스토리 (§3: 6턴 주입) --------------------------------------------
+-- Conversation history (§3: six turns are injected) ------------------------
 CREATE TABLE IF NOT EXISTS turns (
     id               INTEGER PRIMARY KEY,
     turn_id          TEXT NOT NULL UNIQUE,
@@ -45,8 +45,8 @@ CREATE TABLE IF NOT EXISTS turns (
 
 CREATE INDEX IF NOT EXISTS ix_turns_recent ON turns (session_id, ts DESC);
 
--- 번체 변환 후처리 규칙 ---------------------------------------------------
--- OpenCC s2twp 로도 안 잡히는 대만 관용 표현을 여기서 마지막에 치환한다.
+-- Traditional Chinese post-processing rules --------------------------------
+-- Final substitutions for Taiwanese usage that OpenCC s2twp does not catch.
 CREATE TABLE IF NOT EXISTS zh_rules (
     id          INTEGER PRIMARY KEY,
     pattern     TEXT NOT NULL UNIQUE,
@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS zh_rules (
     enabled     INTEGER NOT NULL DEFAULT 1
 );
 
--- 세션 설정 스냅샷 --------------------------------------------------------
+-- Snapshot of the session configuration ------------------------------------
 CREATE TABLE IF NOT EXISTS sessions (
     session_id TEXT PRIMARY KEY,
     started_at REAL NOT NULL DEFAULT (unixepoch('subsec')),

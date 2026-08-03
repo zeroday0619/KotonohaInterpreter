@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""번역 채점 — COMET. **개발 PC 에서만 실행한다. Orin 에 올리지 않는다(§11).**
+"""Translation scoring — COMET. **Development machine only; never on the Orin (§11).**
 
-COMET 은 XLM-R large 급 모델을 통째로 올린다. 통역기가 돌아야 할 기기의
-메모리 대역폭을 채점기가 먹으면 안 된다.
+COMET loads an XLM-R large-sized model. The scorer must not eat the memory
+bandwidth of the machine that has to run the interpreter.
 
-BLEU 는 쓰지 않는다. 한국어·일본어 품질과 상관이 낮다.
+BLEU is not used: it correlates poorly with Korean and Japanese quality.
 
-    pip install 'unbabel-comet>=2.2'
-    python3 eval/score_comet.py --hyp eval/out/ko2en.jsonl --model Unbabel/wmt22-comet-da
+    uv sync --group eval
+    uv run eval/score_comet.py --hyp eval/out/ko2en.jsonl --model Unbabel/wmt22-comet-da
 
-입력 JSONL 각 줄: {"id", "src", "mt", "ref"}
+Each line of the input JSONL: {"id", "src", "mt", "ref"}
 """
 
 from __future__ import annotations
@@ -32,8 +32,8 @@ def main() -> int:
 
     if platform.machine() == "aarch64" and not a.force_on_device:
         raise SystemExit(
-            "aarch64 에서 실행하려 하고 있다. COMET 은 개발 PC 에서 오프라인 배치로 돌린다(§11).\n"
-            "정말 필요하면 --force-on-device."
+            "Running on aarch64. COMET belongs in an offline batch on the "
+            "development machine (§11).\nUse --force-on-device only if you really mean it."
         )
 
     from comet import download_model, load_from_checkpoint

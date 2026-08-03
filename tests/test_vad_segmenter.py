@@ -1,7 +1,8 @@
-"""§5.1 프리롤과 EOU 회귀 테스트.
+"""Regression tests for §5.1 preroll and for EOU.
 
-프리롤은 타협 불가 항목이라 회귀가 나면 즉시 알아야 한다. 첫 음절 절단은
-'ASR 품질 문제'처럼 보이기 때문에 원인을 찾는 데 며칠이 걸린다.
+Preroll is a non-negotiable item, so a regression has to surface immediately.
+A clipped first syllable looks like an ASR quality problem, and tracking that
+down takes days.
 """
 
 from __future__ import annotations
@@ -12,11 +13,11 @@ import numpy as np
 
 from kotonoha.audio.vad import SILERO_WINDOW, UtteranceSegmenter
 
-FRAME_MS = 1000.0 * SILERO_WINDOW / 16000  # 32ms
+FRAME_MS = 1000.0 * SILERO_WINDOW / 16000  # 32 ms
 
 
 class ScriptedVad:
-    """프레임의 첫 샘플 값을 그대로 확률로 쓰는 가짜 VAD."""
+    """Fake VAD that reports the frame's first sample as the probability."""
 
     name = "scripted"
     window = SILERO_WINDOW
@@ -47,9 +48,9 @@ def make(**kw) -> UtteranceSegmenter:
 
 def test_preroll_is_prepended():
     seg = make()
-    n_pre = math.ceil(300 / FRAME_MS)  # 10 프레임 = 320ms ≥ 300ms
+    n_pre = math.ceil(300 / FRAME_MS)  # 10 frames = 320 ms >= 300 ms
 
-    # 발화 전 무음 20프레임. 프리롤 링은 마지막 9개만 들고 있어야 한다.
+    # 20 frames of silence before speech; the ring should hold only the last few.
     for _ in range(20):
         assert seg.feed(frame(0.1)).kind == "none"
 
@@ -66,13 +67,13 @@ def test_preroll_is_prepended():
             end = e
             break
 
-    assert end is not None, "EOU 가 발동하지 않았다"
+    assert end is not None, "EOU never fired"
     u = end.utterance
     assert u is not None
 
-    # 프리롤 프레임(0.1)이 발화 앞에 실제로 붙어 있어야 한다.
+    # The preroll frames (0.1) must actually be in front of the utterance.
     head = u.pcm[: n_pre * SILERO_WINDOW]
-    assert np.allclose(head, 0.1), "프리롤이 버려졌다 — 첫 음절이 잘린다"
+    assert np.allclose(head, 0.1), "preroll was dropped — the first syllable gets clipped"
     assert 200 <= u.preroll_ms <= 320
 
 
@@ -103,13 +104,13 @@ def test_eou_fires_at_configured_silence():
 
 
 def test_short_noise_is_not_an_utterance():
-    """기침 한 번으로 턴이 시작되면 안 된다."""
+    """A single cough must not start a turn."""
     seg = make(min_speech_ms=200)
-    seg.feed(frame(0.9))  # 32ms 짜리 소리 하나
+    seg.feed(frame(0.9))  # one 32 ms burst
     for _ in range(int(800 / FRAME_MS) + 2):
         e = seg.feed(frame(0.0))
         if e.kind == "speech_end":
-            raise AssertionError("짧은 잡음이 발화로 인정됐다")
+            raise AssertionError("a short noise was accepted as an utterance")
     assert seg.state.value == "idle"
 
 
@@ -126,7 +127,7 @@ def test_max_utterance_cuts():
 
 
 def test_ptt_keeps_preroll():
-    """PTT 라도 프리롤은 살아 있어야 한다. 사람은 키보다 먼저 말한다."""
+    """Preroll must survive in PTT mode too — people speak before the key."""
     seg = make()
     for _ in range(20):
         seg.prime_preroll(frame(0.1))
@@ -136,5 +137,5 @@ def test_ptt_keeps_preroll():
         seg.feed(frame(0.9))
     end = seg.force_end()
     assert end.utterance is not None
-    assert np.isclose(end.utterance.pcm[0], 0.1), "PTT 경로에서 프리롤이 빠졌다"
+    assert np.isclose(end.utterance.pcm[0], 0.1), "preroll was lost on the PTT path"
     assert end.utterance.ended_by == "manual"

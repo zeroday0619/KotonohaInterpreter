@@ -1,10 +1,10 @@
-"""DeepFilterNet3 잡음 제거 (CPU).
+"""DeepFilterNet3 noise suppression (CPU).
 
-DFN3 은 48kHz 전용이다. 캡처를 48k로 받아 여기서 처리하고, 그 다음에 16k로
-내리는 순서를 지켜야 한다. 16k로 먼저 내리면 DFN3 을 못 쓴다.
+DFN3 is 48 kHz only. Capture has to arrive at 48k, get cleaned here, and only
+then be resampled down to 16k. Downsample first and DFN3 is off the table.
 
-실기(aarch64)에서 deepfilternet 설치가 실패할 수 있다. 그 경우 NoopDenoiser 로
-떨어지되 **조용히 넘어가지 않고** 로그와 TUI에 상태를 남긴다.
+On the device (aarch64) the deepfilternet install may fail. In that case we fall
+back to NoopDenoiser, but never silently — the state is logged and shown in the TUI.
 """
 
 from __future__ import annotations
@@ -65,6 +65,6 @@ def build_denoiser(enabled: bool, backend: str, post_filter_beta: float) -> Deno
         return NoopDenoiser()
     try:
         return DeepFilterNet3(post_filter_beta=post_filter_beta)
-    except Exception as e:  # noqa: BLE001 — 어떤 실패든 통역은 계속돼야 한다
+    except Exception as e:  # noqa: BLE001 - interpreting must survive any failure here
         log.warning("denoiser.fallback", requested=backend, error=repr(e))
         return NoopDenoiser()

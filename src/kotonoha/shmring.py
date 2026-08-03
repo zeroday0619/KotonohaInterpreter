@@ -1,10 +1,11 @@
-"""공유 메모리 오디오 링버퍼 (§3).
+"""Shared-memory audio ring buffer (§3).
 
-오디오를 HTTP body에 태우지 않기 위한 장치. 6초 PCM을 base64로 왕복시키면
-100~200ms가 그냥 사라진다. 오케스트레이터가 발화 PCM을 슬롯에 쓰고,
-서비스에는 {name, slot, seq, frames} 같은 작은 참조만 JSON으로 넘긴다.
+This exists so audio never rides in an HTTP body. Round-tripping six seconds of
+PCM through base64 costs 100-200 ms per turn. The orchestrator writes the
+utterance into a slot and services receive only a small reference —
+{name, slot, seq, frames} — as JSON.
 
-레이아웃 (little endian, float32 mono):
+Layout (little endian, float32 mono):
 
     [ header 32B ][ slot descriptors 16B * N ][ data: N * slot_frames * 4B ]
 
@@ -12,10 +13,11 @@
             sample_rate(u32) write_seq(u64) pad(4)
     descriptor: seq(u64) nframes(u32) flags(u32)
 
-단일 생산자(오케스트레이터) / 다중 소비자(ASR·검증 ASR). 소비자는 읽은 뒤
-descriptor의 seq를 재확인해서 읽는 도중 덮어써졌는지 판별한다. 슬롯 수 * 30초면
-순차식 통역의 왕복 시간보다 훨씬 길므로 실사용에서 덮어쓰기는 발생하지 않지만,
-발생하면 조용히 틀린 오디오를 쓰는 대신 StaleSlot으로 실패시킨다.
+Single producer (the orchestrator), multiple consumers (ASR and the verifier).
+A consumer re-checks the descriptor's seq after reading to detect an overwrite
+mid-read. With slots * 30 s of capacity that is far longer than a consecutive
+turn takes, so it should never happen in practice — but if it does, we fail with
+StaleSlot instead of quietly transcribing the wrong audio.
 """
 
 from __future__ import annotations
@@ -36,12 +38,12 @@ DTYPE = np.float32
 
 
 class StaleSlotError(RuntimeError):
-    """참조한 슬롯이 이미 다른 발화로 덮어써졌다."""
+    """The referenced slot has already been overwritten by a later utterance."""
 
 
 @dataclass(frozen=True)
 class AudioRef:
-    """서비스로 넘기는 작은 참조. 그대로 JSON 직렬화된다."""
+    """The small reference handed to services. Serialises straight to JSON."""
 
     name: str
     slot: int
@@ -89,7 +91,7 @@ class AudioRing:
         self.sample_rate = sr
         self._data_off = HEADER_SIZE + DESC_SIZE * slots
 
-    # ── 생성 / 접속 ─────────────────────────────────────────────────────
+    # -- create / attach -------------------------------------------------
     @staticmethod
     def _size(slots: int, slot_frames: int) -> int:
         return HEADER_SIZE + DESC_SIZE * slots + slots * slot_frames * 4
@@ -124,7 +126,7 @@ class AudioRing:
         shm = shared_memory.SharedMemory(name=name)
         return cls(shm, owner=False)
 
-    # ── 쓰기 (오케스트레이터 전용) ──────────────────────────────────────
+    # -- writing (orchestrator only) -------------------------------------
     def publish(self, pcm: np.ndarray) -> AudioRef:
         if pcm.ndim != 1:
             pcm = pcm.reshape(-1)
@@ -132,14 +134,15 @@ class AudioRing:
             pcm = pcm.astype(DTYPE, copy=False)
         n = int(pcm.shape[0])
         if n > self.slot_frames:
-            # §4의 max_utterance_ms 로 상류에서 잘리지만, 방어적으로 뒤를 버린다.
+            # max_utterance_ms (§4) already caps this upstream; drop the tail
+            # defensively rather than corrupting the next slot.
             n = self.slot_frames
             pcm = pcm[:n]
 
         wseq = self._write_seq() + 1
         slot = (wseq - 1) % self.slots
 
-        # 데이터를 먼저 쓰고, 그 다음 descriptor를 갱신한다(소비자가 반쪽을 보지 않도록).
+        # Write the data first, then the descriptor, so a consumer never sees half.
         self._slot_view(slot)[:n] = pcm
         struct.pack_into(DESC_FMT, self._shm.buf, self._desc_off(slot), wseq, n, 0)
         self._set_write_seq(wseq)
@@ -152,7 +155,7 @@ class AudioRing:
             sample_rate=self.sample_rate,
         )
 
-    # ── 읽기 (서비스) ───────────────────────────────────────────────────
+    # -- reading (services) ----------------------------------------------
     def read(self, ref: AudioRef) -> np.ndarray:
         if not (0 <= ref.slot < self.slots):
             raise ValueError(f"slot out of range: {ref.slot}")
@@ -165,12 +168,13 @@ class AudioRing:
             raise StaleSlotError(f"slot {ref.slot} overwritten during read")
         return out
 
-    # ── 내부 ────────────────────────────────────────────────────────────
+    # -- internals -------------------------------------------------------
     def _desc_off(self, slot: int) -> int:
         return HEADER_SIZE + DESC_SIZE * slot
 
     def _slot_view(self, slot: int) -> np.ndarray:
-        # np.frombuffer 는 읽기 전용 배열을 준다. 쓰기가 필요하므로 ndarray(buffer=)를 쓴다.
+        # np.frombuffer hands back a read-only array; we need to write, so use
+        # ndarray(buffer=) instead.
         start = self._data_off + slot * self.slot_frames * 4
         return np.ndarray((self.slot_frames,), dtype=DTYPE, buffer=self._shm.buf, offset=start)
 
@@ -180,7 +184,7 @@ class AudioRing:
     def _set_write_seq(self, v: int) -> None:
         struct.pack_into("<Q", self._shm.buf, 20, v)
 
-    # ── 정리 ────────────────────────────────────────────────────────────
+    # -- teardown --------------------------------------------------------
     def close(self) -> None:
         try:
             self._shm.close()
@@ -202,7 +206,7 @@ _attached: dict[str, AudioRing] = {}
 
 
 def attach_cached(name: str) -> AudioRing:
-    """서비스 프로세스용 — 이름당 한 번만 attach 하고 재사용한다."""
+    """For service processes — attach once per name and reuse."""
     ring = _attached.get(name)
     if ring is None:
         ring = AudioRing.attach(name)

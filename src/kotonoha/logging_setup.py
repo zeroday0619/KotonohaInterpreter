@@ -1,6 +1,7 @@
-"""structlog 설정 — JSON 파일 로깅.
+"""structlog setup — JSON to a file.
 
-TUI가 터미널을 점유하므로 콘솔 출력은 기본 off. 서비스 프로세스에서는 켠다.
+The TUI owns the terminal, so console output is off by default. Service
+processes turn it back on.
 """
 
 from __future__ import annotations

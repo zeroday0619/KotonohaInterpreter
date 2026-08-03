@@ -29,7 +29,7 @@ def test_illegal_transition_is_rejected():
 
 
 def test_processing_can_bail_to_idle():
-    """빈 전사·LLM 타임아웃은 SPEAKING 을 거치지 않고 IDLE 로 돌아간다(§10)."""
+    """Empty transcripts and LLM timeouts return to IDLE without SPEAKING (§10)."""
     m = Machine()
     m.to(State.LISTENING)
     m.to(State.PROCESSING)
@@ -64,7 +64,7 @@ def test_metrics_five_marks_and_budget():
     assert s["tts_first_packet"] == pytest.approx(250.0, abs=1)
     assert s["total_to_first_audio"] == pytest.approx(1650.0, abs=1)
 
-    assert m.over_budget(BudgetCfg()) == {}  # 2.9초 예산 안
+    assert m.over_budget(BudgetCfg()) == {}  # inside the 2.9 s budget
 
 
 def test_metrics_reports_which_stage_blew_the_budget():

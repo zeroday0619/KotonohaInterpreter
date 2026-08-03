@@ -1,12 +1,13 @@
-"""Silero VAD + 프리롤 + 발화 종료(EOU) 판정.
+"""Silero VAD, preroll, and end-of-utterance detection.
 
-§5.1 은 타협 불가다. 프리롤 200~300ms 가 없으면 한국어 초성 파열음(ㅃ/ㄲ/ㅌ)과
-일본어 촉음(っ) 앞의 짧은 무음 구간이 통째로 잘려 나가고, 그러면 ASR 품질 문제로
-오진하게 된다. 그래서 프리롤 버퍼는 VAD가 발화 시작을 알리기 *이전* 프레임을
-항상 들고 있다가 발화 앞에 붙인다.
+§5.1 is non-negotiable. Without 200-300 ms of preroll, the Korean tense-stop
+onsets and the short pause before a Japanese sokuon get cut off entirely, and
+the symptom looks exactly like an ASR quality problem. So the preroll buffer
+always holds the frames from *before* the VAD reports speech, and prepends them.
 
-VAD 자체는 순수 상태 기계로 두었다(I/O 없음). 덕분에 마이크 없이 WAV 파일만으로도
-EOU 오작동 패턴을 재현·회귀 테스트할 수 있다 — Phase 1의 목표가 바로 그것이다.
+The VAD itself is a pure state machine with no I/O. That means EOU misbehaviour
+can be reproduced and regression-tested from WAV files with no microphone —
+which is precisely the Phase 1 goal.
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ from ..logging_setup import get_logger
 
 log = get_logger(__name__)
 
-SILERO_WINDOW = 512  # 16kHz 기준 32ms. silero v5 는 이 크기를 강제한다.
+SILERO_WINDOW = 512  # 32 ms at 16 kHz; silero v5 requires exactly this size.
 
 
 class VadModel(Protocol):
@@ -36,7 +37,7 @@ class VadModel(Protocol):
 
 
 class SileroVadOnnx:
-    """onnxruntime CPU 로 silero-vad 를 직접 돌린다 (torch 의존 없음)."""
+    """Runs silero-vad directly through onnxruntime on CPU, with no torch dependency."""
 
     name = "silero_onnx"
     window = SILERO_WINDOW
@@ -46,8 +47,8 @@ class SileroVadOnnx:
 
         if not model_path.exists():
             raise FileNotFoundError(
-                f"silero_vad.onnx 없음: {model_path}\n"
-                f"  scripts/fetch_models.sh 를 실행해 받아둘 것"
+                f"silero_vad.onnx missing: {model_path}\n"
+                f"  fetch it with scripts/fetch_models.sh"
             )
         opts = ort.SessionOptions()
         opts.inter_op_num_threads = threads
@@ -58,7 +59,7 @@ class SileroVadOnnx:
         )
         self.sample_rate = sample_rate
         names = {i.name for i in self.sess.get_inputs()}
-        self._v5 = "state" in names  # v5: state / v4: h,c
+        self._v5 = "state" in names  # v5 takes `state`; v4 takes `h` and `c`.
         self.reset()
         log.info("vad.loaded", backend=self.name, v5=self._v5, path=str(model_path))
 
@@ -72,7 +73,7 @@ class SileroVadOnnx:
     def prob(self, frame: np.ndarray) -> float:
         x = frame.astype(np.float32, copy=False).reshape(1, -1)
         if x.shape[1] != self.window:
-            # 마지막 자투리는 0 패딩
+            # Zero-pad a short trailing frame.
             pad = np.zeros((1, self.window), dtype=np.float32)
             pad[0, : x.shape[1]] = x[0, : self.window]
             x = pad
@@ -87,9 +88,9 @@ class SileroVadOnnx:
 
 
 class EnergyVad:
-    """개발 PC 폴백. onnxruntime 없이 파이프라인을 굴려보기 위한 것.
+    """Development-machine fallback, so the pipeline can run without onnxruntime.
 
-    실기에서는 절대 쓰지 않는다 — 잡음에 취약해 EOU 가 엉망이 된다.
+    Never use this on the device — it is far too noise-sensitive and EOU falls apart.
     """
 
     name = "energy"
@@ -104,7 +105,7 @@ class EnergyVad:
     def prob(self, frame: np.ndarray) -> float:
         rms = float(np.sqrt(np.mean(np.square(frame, dtype=np.float64)) + 1e-12))
         db = 20.0 * np.log10(rms + 1e-12)
-        # floor_db 에서 0, floor+25dB 에서 1 로 선형 매핑
+        # Map linearly: 0 at floor_db, 1 at floor_db + 25 dB.
         return float(np.clip((db - self.floor_db) / 25.0, 0.0, 1.0))
 
 
@@ -119,13 +120,13 @@ def build_vad(backend: str, model_path: Path, sample_rate: int = 16000) -> VadMo
         return EnergyVad()
 
 
-# ── 발화 절단 ────────────────────────────────────────────────────────────
+# -- segmentation --------------------------------------------------------
 
 
 class SegState(str, Enum):
     IDLE = "idle"
     SPEECH = "speech"
-    TRAILING = "trailing"  # 발화 중 침묵 카운트 중
+    TRAILING = "trailing"  # in speech, counting silence towards EOU
 
 
 @dataclass
@@ -146,7 +147,7 @@ class SegEvent:
 
 @dataclass
 class UtteranceSegmenter:
-    """프레임 단위로 먹여주면 발화를 잘라 돌려주는 순수 상태 기계."""
+    """Pure state machine: feed it frames, get utterances back."""
 
     vad: VadModel
     sample_rate: int = 16000
@@ -166,13 +167,13 @@ class UtteranceSegmenter:
 
     def __post_init__(self) -> None:
         self.frame_ms = 1000.0 * self.vad.window / self.sample_rate
-        # 올림한다. 프리롤은 '최소' 요구사항이라 프레임 양자화로 200ms 아래로
-        # 내려가면 안 된다. +1 은 발화를 촉발한 프레임이 링의 한 칸을 쓰기 때문 —
-        # 그 프레임은 프리롤이 아니라 발화의 일부다.
+        # Round up: preroll is a *minimum*, and frame quantisation must not drag
+        # it below 200 ms. The +1 is for the frame that triggered speech onset —
+        # that one belongs to the utterance, not to the preroll.
         n_preroll = max(1, math.ceil(self.preroll_ms / self.frame_ms)) + 1
         self._preroll = deque(maxlen=n_preroll)
 
-    # ── 공개 API ───────────────────────────────────────────────────────
+    # -- public API ------------------------------------------------------
     def reset(self) -> None:
         self.state = SegState.IDLE
         self._preroll.clear()
@@ -183,16 +184,16 @@ class UtteranceSegmenter:
         self.vad.reset()
 
     def prime_preroll(self, frame: np.ndarray) -> None:
-        """push-to-talk 모드에서 IDLE 동안 프리롤 링만 채운다.
+        """Keep the preroll ring filled while idle in push-to-talk mode.
 
-        PTT 라도 프리롤은 필요하다. 사람은 키를 누르는 것과 거의 동시에,
-        때로는 조금 먼저 말하기 시작한다.
+        Preroll matters even with PTT: people start speaking at the same moment
+        they press the key, sometimes a little before.
         """
         if self.state is SegState.IDLE:
             self._preroll.append(frame)
 
     def feed(self, frame: np.ndarray) -> SegEvent:
-        """길이 vad.window 의 16k float32 프레임 하나."""
+        """One 16 kHz float32 frame of length vad.window."""
         p = self.vad.prob(frame)
         speaking = p >= self.threshold if self.state is SegState.IDLE else p >= self.neg_threshold
 
@@ -223,21 +224,21 @@ class UtteranceSegmenter:
         return SegEvent("none", p)
 
     def force_end(self) -> SegEvent:
-        """push-to-talk 에서 키를 뗐을 때."""
+        """Push-to-talk key released."""
         if self.state is SegState.IDLE:
             return SegEvent("none")
         return self._finish("manual", 0.0)
 
     def force_start(self) -> SegEvent:
-        """push-to-talk 에서 키를 눌렀을 때. 프리롤은 그대로 살려 쓴다."""
+        """Push-to-talk key pressed. The preroll is kept and used as-is."""
         if self.state is not SegState.IDLE:
             return SegEvent("none")
         self._start(None)
         return SegEvent("speech_start", 1.0)
 
-    # ── 내부 ───────────────────────────────────────────────────────────
+    # -- internals -------------------------------------------------------
     def _start(self, first_frame: np.ndarray | None) -> None:
-        # §5.1 프리롤: VAD 가 반응하기 *전* 프레임을 발화 앞에 붙인다.
+        # §5.1 preroll: prepend the frames from *before* the VAD reacted.
         pre = list(self._preroll)
         if first_frame is not None and pre and pre[-1] is first_frame:
             pre = pre[:-1]
@@ -259,7 +260,7 @@ class UtteranceSegmenter:
         self.reset()
 
         if speech_ms < self.min_speech_ms and reason != "manual":
-            # 기침·문 닫는 소리 같은 짧은 잡음. 발화로 세지 않는다.
+            # A cough, a door closing. Not an utterance.
             log.debug("vad.too_short", speech_ms=round(speech_ms, 1))
             return SegEvent("none", p)
 

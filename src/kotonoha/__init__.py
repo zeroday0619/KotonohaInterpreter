@@ -1,4 +1,4 @@
-"""Kotonoha Interpreter — 순차식 4언어 오프라인 통역기."""
+"""Kotonoha Interpreter — a consecutive, four-language, offline speech interpreter."""
 
 __version__ = "0.1.0"
 

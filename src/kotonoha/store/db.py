@@ -1,7 +1,8 @@
-"""SQLite 저장소 — 용어집, 6턴 히스토리, 번체 후처리 규칙.
+"""SQLite store — glossary, six-turn history, Traditional Chinese rules.
 
-번역 요청을 조립하는 시점에만 읽는다. 동기 sqlite3 를 쓰되, 호출은 모두
-수 ms 짜리 인덱스 조회라 asyncio 루프를 막지 않는다(측정해서 아니면 to_thread 로 뺀다).
+Read only when a translation request is assembled. sqlite3 is synchronous, but
+every call here is a few-millisecond indexed lookup, so it does not stall the
+asyncio loop. If measurement ever says otherwise, move these to to_thread.
 """
 
 from __future__ import annotations
@@ -48,7 +49,7 @@ class Store:
     def close(self) -> None:
         self.conn.close()
 
-    # ── 용어집 ──────────────────────────────────────────────────────────
+    # -- glossary --------------------------------------------------------
     def upsert_glossary(self, entries: list[GlossaryEntry]) -> int:
         sql = """
         INSERT INTO glossary (src_lang, src_term, tgt_lang, tgt_term, kind, note, priority)
@@ -73,10 +74,10 @@ class Store:
     def glossary_for(
         self, src_lang: str, tgt_lang: str, text: str, limit: int = 64
     ) -> list[GlossaryEntry]:
-        """전사에 실제로 등장하는 항목만 골라 온다.
+        """Return only the entries that actually appear in the transcript.
 
-        용어집 전체를 프롬프트에 붙이면 컨텍스트 2048 을 금방 잡아먹고, 관계없는
-        용어가 번역을 오염시킨다. 매칭된 것만 넣는다.
+        Pasting the whole glossary into the prompt eats the 2048-token context
+        fast, and unrelated terms contaminate the translation. Only matches go in.
         """
         rows = self.conn.execute(
             """
@@ -103,7 +104,7 @@ class Store:
         ).fetchall()
         return [GlossaryEntry(**dict(r)) for r in rows]
 
-    # ── 히스토리 ────────────────────────────────────────────────────────
+    # -- history ---------------------------------------------------------
     def add_turn(
         self,
         turn_id: str,
@@ -158,7 +159,7 @@ class Store:
         return [TurnRecord(**dict(r)) for r in reversed(rows)]
 
     def last_language(self, session_id: str) -> str | None:
-        """§5 짧은 발화 LID 폴백 — 직전 판정 언어 승계."""
+        """§5 short-utterance LID fallback — inherit the previous verdict."""
         row = self.conn.execute(
             "SELECT src_lang FROM turns WHERE session_id = ? AND src_lang IS NOT NULL "
             "ORDER BY ts DESC LIMIT 1",
@@ -166,7 +167,7 @@ class Store:
         ).fetchone()
         return row["src_lang"] if row else None
 
-    # ── 번체 규칙 ───────────────────────────────────────────────────────
+    # -- Traditional Chinese rules ----------------------------------------
     def zh_rules(self) -> list[tuple[str, str, bool]]:
         rows = self.conn.execute(
             "SELECT pattern, replacement, is_regex FROM zh_rules WHERE enabled = 1 "
@@ -190,7 +191,7 @@ class Store:
             )
         return len(rules)
 
-    # ── 세션 ────────────────────────────────────────────────────────────
+    # -- sessions ----------------------------------------------------------
     def start_session(self, session_id: str, routing: str, config: dict) -> None:
         with self.conn:
             self.conn.execute(

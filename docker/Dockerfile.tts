@@ -1,6 +1,6 @@
-# TTS — Qwen3-TTS 0.6B, MeloTTS 폴백
-# Qwen3-TTS 모델 카드 예시는 flash_attention_2 를 쓴다. sm_87 빌드 가능 여부가
-# Spike 2 의 질문이므로 여기서는 flash-attn 설치를 강제하지 않는다.
+# TTS — Qwen3-TTS 0.6B with a MeloTTS fallback
+# The Qwen3-TTS model card uses flash_attention_2. Whether that builds for sm_87
+# is what Spike 2 asks, so flash-attn is not forced here.
 ARG BASE_IMAGE=dustynv/pytorch:r36.4.0
 FROM ${BASE_IMAGE}
 
@@ -22,13 +22,14 @@ RUN uv export --frozen --no-dev --no-emit-project --no-hashes -o /tmp/req.txt \
 COPY src ./src
 RUN uv pip install --no-cache --no-deps -e .
 
-# 두 TTS 백엔드 모두 best-effort. 어느 쪽이 뜨는지는 /health 가 알려준다.
-# 잠금 파일을 거치지 않는 이유는 orchestrator 와 같다 — aarch64 해석이 다르다.
-RUN (uv pip install --no-cache qwen-tts || echo "!! qwen-tts 실패 — Melo 폴백으로 기동") \
- && (uv pip install --no-cache melotts   || echo "!! melotts 실패 — 폴백 없음")
+# Both TTS backends are best-effort; /health reports which one came up.
+# They stay outside the lockfile for the same reason as in the orchestrator:
+# aarch64 resolves them differently.
+RUN (uv pip install --no-cache qwen-tts || echo "!! qwen-tts failed — starting on the Melo fallback") \
+ && (uv pip install --no-cache melotts   || echo "!! melotts failed — no fallback available")
 
 RUN python3 -c "import torch; print('torch', torch.__version__, 'cuda', torch.version.cuda)" \
-    || echo "!! torch 확인 불가"
+    || echo "!! could not check torch"
 
 EXPOSE 8004
 CMD ["uvicorn", "kotonoha.services.tts_server:app", "--host", "0.0.0.0", "--port", "8004"]

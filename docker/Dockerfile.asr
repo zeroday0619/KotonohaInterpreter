@@ -1,6 +1,6 @@
-# 1차 ASR — Qwen3-ASR 1.7B (transformers 경로)
-# Spike 1 에서 vLLM 이 확인되면 ghcr.io/nvidia-ai-iot/vllm:r36.4-tegra-aarch64-cu126-22.04
-# 기반으로 별도 Dockerfile 을 만든다. 확인 전에는 만들지 않는다.
+# Primary ASR — Qwen3-ASR 1.7B (the transformers path)
+# If Spike 1 confirms vLLM, add a separate Dockerfile based on
+# ghcr.io/nvidia-ai-iot/vllm:r36.4-tegra-aarch64-cu126-22.04. Not before.
 ARG BASE_IMAGE=dustynv/transformers:r36.4.0
 FROM ${BASE_IMAGE}
 
@@ -22,8 +22,8 @@ RUN uv export --frozen --no-dev --no-emit-project --no-hashes -o /tmp/req.txt \
 COPY src ./src
 RUN uv pip install --no-cache --no-deps -e .
 
-# transformers 는 베이스 이미지가 이미 갖고 있다. 버전이 모자랄 때만 올린다.
-# --no-deps 로 torch 가 딸려 올라오는 것을 막는다.
+# The base image already ships transformers; only upgrade if it is too old.
+# --no-deps keeps torch from being dragged along.
 RUN python3 -c "import transformers, sys; sys.exit(0 if tuple(map(int, transformers.__version__.split('.')[:2])) >= (4, 57) else 1)" \
  || uv pip install --no-cache --no-deps "transformers>=4.57"
 RUN python3 -c "import torch, transformers; print('torch', torch.__version__, 'cuda', torch.version.cuda, '| transformers', transformers.__version__)"

@@ -1,14 +1,15 @@
-"""TTS 상주 서버 — Qwen3-TTS 0.6B, MeloTTS 폴백 (§7, §10).
+"""TTS server — Qwen3-TTS 0.6B with a MeloTTS fallback (§7, §10).
 
-Qwen3-TTS 모델 카드의 예시는 `attn_implementation="flash_attention_2"` 를 쓴다.
-flash-attn 이 sm_87 에서 빌드되는지가 Spike 2 의 질문이다. 여기서는
-flash_attention_2 → sdpa → eager 순으로 시도하고 무엇으로 떴는지 /health 에
-노출한다. 실기에서 어느 경로로 떴는지 추측하지 않아도 되게 하기 위함이다.
+The Qwen3-TTS model card uses `attn_implementation="flash_attention_2"`.
+Whether flash-attn builds for sm_87 is exactly what Spike 2 asks. Here we try
+flash_attention_2, then sdpa, then eager, and expose which one succeeded on
+/health — so nobody has to guess how it came up on the device.
 
-스트리밍: 모델 카드에 스트리밍 합성 API 가 공개되어 있지 않다. 대신 절 단위로
-짧게 합성하고(§5.4 절 핸드오프 덕에 절은 원래 짧다) 결과를 chunk_ms 조각으로
-잘라 흘려보낸다. 첫 패킷 지연은 '절 하나의 합성 시간'이 되며, 그 값은 Phase 2
-에서 실측해 §6 의 0.3초 예산과 대조한다.
+Streaming: the model card documents no streaming synthesis API. Instead we
+synthesise one clause at a time (clauses are short anyway, thanks to the §5.4
+handoff) and emit the result in chunk_ms slices. First-packet latency therefore
+equals "time to synthesise one clause", a number Phase 2 measures against the
+0.3 s budget in §6.
 """
 
 from __future__ import annotations
@@ -123,8 +124,8 @@ async def lifespan(app: FastAPI):
             STATE["error"] = repr(e)
             log.error("tts.qwen3_failed", error=repr(e))
 
-    # §10 TTS 실패 → MeloTTS 폴백. 실패한 뒤에 로드하면 첫 폴백 턴이 통째로 날아가므로
-    # 미리 올려둔다.
+    # §10 TTS failure -> MeloTTS fallback. Load it up front: loading only after
+    # the first failure would lose that entire turn.
     if s.tts.backend == "melo" or s.tts.fallback == "melo":
         try:
             STATE["fallback"] = MeloBackend()

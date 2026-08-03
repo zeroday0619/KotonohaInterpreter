@@ -1,13 +1,14 @@
-# Kotonoha — 서비스 분리 (§3)
+# Kotonoha — service split (§3)
 #
-# 중요한 두 가지:
-#   ipc: host        공유 메모리 오디오 링버퍼가 프로세스 경계를 넘으려면 /dev/shm 을
-#                    공유해야 한다. 이게 없으면 오디오를 HTTP body 로 실어야 하고
-#                    턴마다 100~200ms 를 버린다.
-#   network_mode: host  127.0.0.1:800x 주소가 컨테이너 안팎에서 같아진다.
+# Two things matter here:
+#   ipc: host          the shared-memory audio ring needs /dev/shm shared across
+#                      process boundaries. Without it the audio would have to go
+#                      into an HTTP body, costing 100-200 ms per turn.
+#   network_mode: host  127.0.0.1:800x means the same thing inside and out.
 #
-# 베이스 이미지 태그는 임의로 올리지 않는다(§2). r36.4.0 계열로 고정하고,
-# 실제 존재하는 태그는 실기에서 `jetson-containers` 의 autotag 로 확인해 .env 에 적는다.
+# Base image tags are not bumped casually (§2). Pin to the r36.4.0 family and
+# confirm the tags that actually exist on the device with jetson-containers'
+# autotag, then record them in .env.
 
 x-jetson: &jetson
   runtime: nvidia
@@ -17,7 +18,7 @@ x-jetson: &jetson
   environment:
     - KOTONOHA_CONFIG=/app/config/default.yaml
     - HF_HOME=/models/hf
-    - TRANSFORMERS_OFFLINE=1 # 완전 오프라인(§1). 모델은 미리 받아둔다.
+    - TRANSFORMERS_OFFLINE=1 # fully offline (§1); models are fetched in advance
     - HF_HUB_OFFLINE=1
   volumes:
     - ../:/app
@@ -48,7 +49,7 @@ services:
     <<: *jetson
     image: ${LLM_IMAGE:-dustynv/llama_cpp:r36.4.0}
     environment:
-      - LLM_PROFILE=${LLM_PROFILE:-dense} # Spike 3 결과로 확정
+      - LLM_PROFILE=${LLM_PROFILE:-dense} # settled by the Spike 3 result
       - LLAMA_BIN=/opt/llama.cpp/build/bin
       - MODELS_DIR=/models/gguf
       - LLM_PORT=8003
@@ -72,7 +73,7 @@ services:
         BASE_IMAGE: ${ORCH_BASE:-dustynv/pytorch:r36.4.0}
     depends_on: [asr, asr-verify, llm, tts]
     devices:
-      - /dev/snd:/dev/snd # 브라우저 마이크는 쓰지 않는다(§12). 장치를 직접 연다.
+      - /dev/snd:/dev/snd # no browser microphone (§12); open the device directly
     group_add:
       - audio
     stdin_open: true

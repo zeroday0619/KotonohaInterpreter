@@ -1,4 +1,4 @@
-"""1차 ASR 클라이언트 (Qwen3-ASR 1.7B, N-best 5 + LID)."""
+"""Primary ASR client (Qwen3-ASR 1.7B, N-best 5 with LID)."""
 
 from __future__ import annotations
 

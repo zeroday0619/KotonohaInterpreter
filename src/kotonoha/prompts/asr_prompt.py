@@ -1,19 +1,22 @@
-"""Qwen3-ASR 컨텍스트 바이어스 프롬프트.
+"""Context-biasing prompt for Qwen3-ASR.
 
-Qwen3-ASR 은 자유 형식 컨텍스트를 받아 전사를 편향시킬 수 있다. 두 가지를 넣는다.
+Qwen3-ASR accepts free-form context to bias transcription. Two things go in:
 
-  1. 직전 턴들의 원문 — CJK 동음이의 오인식을 줄인다.
-  2. 등장 가능성이 높은 고유명사·용어.
+  1. The source text of recent turns, which cuts down CJK homophone errors.
+  2. Proper nouns and terms that are likely to come up.
 
-그리고 §5 의 번체 요구사항: **프롬프트 자체를 번체로 쓴다.** 컨텍스트가 간체면
-모델이 간체로 끌려간다. 출력 후처리(s2twp)만으로는 어휘 선택까지 되돌릴 수 없다.
+Plus the Traditional Chinese requirement from §5: **the prompt itself is written
+in Traditional characters.** Simplified context pulls the model towards
+Simplified output, and post-processing the output with s2twp cannot undo the
+vocabulary choices that follow from that.
 """
 
 from __future__ import annotations
 
 from ..store.db import GlossaryEntry, TurnRecord
 
-# 컨텍스트가 길면 오히려 전사가 컨텍스트를 따라 환각한다. 상한을 둔다.
+# Long context makes the model hallucinate towards the context instead of the
+# audio. Cap it.
 MAX_CONTEXT_CHARS = 600
 
 _TW_HINT = (
@@ -27,7 +30,7 @@ def build_asr_context(
     glossary: list[GlossaryEntry],
     expect_traditional: bool,
 ) -> str:
-    """ASR 에 넘길 컨텍스트 문자열. 비어 있으면 빈 문자열."""
+    """The context string handed to ASR. Empty string when there is nothing to say."""
     parts: list[str] = []
 
     if expect_traditional:

@@ -1,24 +1,24 @@
-# Kotonoha Interpreter — 기본 설정
+# Kotonoha Interpreter — default configuration
 #
-# Phase 0 스파이크 결과로 확정해야 하는 항목에는 [SPIKE-n] 표시를 달아두었다.
-# 스파이크 결과가 나오기 전까지는 보수적인 쪽(transformers, dense, melo)을 기본값으로 둔다.
+# Settings that Phase 0 has to decide are marked [SPIKE-n]. Until the spikes
+# report back, the defaults stay on the conservative side (transformers, dense, melo).
 
 session:
-  mode: push_to_talk # push_to_talk | auto   (§4: 초기 구현은 PTT)
-  routing: pair # pair | fixed | broadcast (§9 Phase 4)
+  mode: push_to_talk # push_to_talk | auto   (§4: start with PTT)
+  routing: pair # pair | fixed | broadcast (§9, Phase 4)
   pair: [ko, en]
   fixed_target: en
   broadcast_targets: [ko, en, zh-TW, ja]
   languages: [ko, en, zh-TW, ja]
 
 audio:
-  input_device: null # null = 시스템 기본. `kotonoha devices`로 확인
+  input_device: null # null = system default. Check with `kotonoha devices`.
   output_device: null
   capture_sample_rate: 48000
   capture_block_ms: 20
   channels: 1
-  work_sample_rate: 16000 # ASR/VAD 작업 레이트
-  playback_sample_rate: 24000 # TTS 출력 레이트
+  work_sample_rate: 16000 # working rate for ASR and VAD
+  playback_sample_rate: 24000 # TTS output rate
 
 frontend:
   denoise:
@@ -26,19 +26,20 @@ frontend:
     backend: deepfilternet3 # deepfilternet3 | none
     post_filter_beta: 0.02
   vad:
-    backend: silero_onnx # energy = 개발 PC 폴백 전용
+    backend: silero_onnx # "energy" is a development-machine fallback only
     model_path: ./models/silero_vad.onnx
     threshold: 0.5
-    neg_threshold: 0.35 # 히스테리시스
-    # [타협 불가 §5.1] 프리롤이 없으면 한국어 초성 파열음/일본어 촉음이 잘린다.
+    neg_threshold: 0.35 # hysteresis
+    # [non-negotiable, §5.1] Without preroll, Korean tense-stop onsets and the
+    # pause before a Japanese sokuon get clipped.
     preroll_ms: 300
     min_speech_ms: 120
-    silence_ms: 800 # EOU 판정
+    silence_ms: 800 # end-of-utterance
     max_utterance_ms: 30000
-    frame_ms: 32 # silero v5는 16kHz에서 512 sample(32ms) 창
+    frame_ms: 32 # silero v5 uses a 512-sample (32 ms) window at 16 kHz
 
 shm:
-  name: kotonoha_audio # POSIX shm 이름 (§3: 오디오는 HTTP body에 태우지 않는다)
+  name: kotonoha_audio # POSIX shm name (§3: audio never rides in an HTTP body)
   slots: 8
   slot_seconds: 30
   sample_rate: 16000
@@ -50,21 +51,21 @@ services:
   tts: http://127.0.0.1:8004
 
 asr:
-  # [SPIKE-1] vLLM이 Qwen3-ASR을 로드하면 backend: vllm 으로 전환
+  # [SPIKE-1] Switch to backend: vllm if vLLM loads Qwen3-ASR.
   backend: transformers # transformers | vllm
   model_id: Qwen/Qwen3-ASR-1.7B-hf
   vllm_model_id: Qwen/Qwen3-ASR-1.7B
   dtype: float16
-  # [타협 불가 §5.2] 순차식이므로 그리디를 쓸 이유가 없다
+  # [non-negotiable, §5.2] Consecutive interpreting: no reason to decode greedily.
   n_best: 5
   num_beams: 5
   max_new_tokens: 256
   timeout_s: 4.0
-  # 평균 로그확률이 이 값 미만이면 교차 검증 발동 (§5.5)
+  # Below this average log-probability, cross-verification fires (§5.5).
   avg_logprob_threshold: -0.55
   lid:
     min_confidence: 0.60
-    min_duration_s: 1.0 # 미만이면 직전 언어 승계 (§5, §10)
+    min_duration_s: 1.0 # shorter than this inherits the previous language (§5, §10)
 
 asr_verify:
   enabled: true
@@ -74,11 +75,11 @@ asr_verify:
   device: cuda
   beam_size: 5
   timeout_s: 3.0
-  # 두 가설의 문자 오류율 차이가 이 값 이상이면 LLM에 둘 다 넘긴다
+  # If the two hypotheses differ by at least this CER, hand both to the LLM.
   divergence_cer: 0.25
 
 llm:
-  # [SPIKE-3] 실측 tok/s가 5.0 미만이면 profile: dense 로 회귀
+  # [SPIKE-3] Fall back to profile: dense if measured tok/s is under 5.0.
   profile: dense # moe | dense
   profiles:
     moe:
@@ -97,19 +98,19 @@ llm:
   repeat_penalty: 1.05
   max_tokens: 512
   stream: true
-  timeout_s: 3.0 # §10: 초과 시 원문 전사만 표시하고 TTS 생략
-  # §5.4 절 단위 스트리밍 성립 조건. 미달이면 경고 로그.
+  timeout_s: 3.0 # §10: on timeout, show the transcript only and skip TTS
+  # §5.4 precondition for clause streaming. Below this we log a warning.
   min_tok_per_s: 5.0
 
 tts:
-  # [SPIKE-2] flash-attn 없이 Qwen3-TTS가 뜨면 backend: qwen3
+  # [SPIKE-2] Use backend: qwen3 if Qwen3-TTS comes up without flash-attn.
   backend: melo # qwen3 | melo
   model_id: Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice
   sample_rate: 24000
   chunk_ms: 200
   timeout_s: 5.0
   fallback: melo # §10
-  # Qwen3-TTS CustomVoice 의 프리셋 음색 이름 (Vivian / Ryan / Aiden 등 9종)
+  # Preset timbres from Qwen3-TTS CustomVoice (Vivian / Ryan / Aiden and six more).
   voices:
     ko: Vivian
     en: Vivian
@@ -122,23 +123,23 @@ tts:
     ja: JP
 
 zh:
-  opencc_config: s2twp # 간체 → 번체(대만 관용) (§5)
+  opencc_config: s2twp # Simplified -> Traditional with Taiwanese usage (§5)
   apply_to: [asr, translation]
 
 context:
   history_turns: 6 # §3
-  glossary_max_terms: 64 # 프롬프트 프리픽스로만 주입. 벡터DB 금지(§12)
+  glossary_max_terms: 64 # injected as a prompt prefix only; no vector DB (§12)
 
 store:
   path: ./data/kotonoha.db
 
 logging:
   level: INFO
-  log_path: ./data/logs/kotonoha.jsonl # 애플리케이션 로그
-  turn_log_path: ./data/logs/turns.jsonl # §11 턴 메트릭 (한 줄 = 한 턴)
-  console: false # TUI가 화면을 점유하므로 기본 off
+  log_path: ./data/logs/kotonoha.jsonl # application log
+  turn_log_path: ./data/logs/turns.jsonl # §11 turn metrics, one line per turn
+  console: false # off by default because the TUI owns the terminal
 
-# §6 지연 예산(ms). 초과 단계는 turn 로그에 over_budget으로 표시된다.
+# §6 latency budget in ms. Stages that exceed it appear in the turn log as over_budget.
 budget_ms:
   silence: 800
   frontend: 100

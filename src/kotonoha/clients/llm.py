@@ -1,4 +1,4 @@
-"""llama.cpp server 클라이언트 (OpenAI 호환 /v1/chat/completions, SSE 스트리밍)."""
+"""llama.cpp server client (OpenAI-compatible /v1/chat/completions, SSE streaming)."""
 
 from __future__ import annotations
 
@@ -39,12 +39,13 @@ class StreamStats:
 
 class LlmClient(BaseClient):
     def __init__(self, base_url: str, cfg: LlmCfg):
-        # 스트리밍 전체 시간은 길 수 있다. 첫 절 타임아웃은 오케스트레이터가 건다.
+        # A full stream can run long. The first-clause timeout is the
+        # orchestrator's job, not this timeout.
         super().__init__(base_url, timeout=120.0, name="llm")
         self.cfg = cfg
 
     async def health(self) -> dict:
-        """llama.cpp server 는 /health 를 준다."""
+        """llama.cpp server exposes /health."""
         try:
             r = await self._client.get("/health", timeout=2.0)
             if r.status_code == 200:
@@ -59,7 +60,7 @@ class LlmClient(BaseClient):
         stats: StreamStats | None = None,
         max_tokens: int | None = None,
     ) -> AsyncIterator[str]:
-        """콘텐츠 델타를 하나씩 흘린다."""
+        """Yield content deltas one at a time."""
         st = stats or StreamStats()
         payload = {
             "messages": messages,
@@ -103,7 +104,8 @@ class LlmClient(BaseClient):
         finally:
             st.t_end = time.perf_counter()
             if st.tok_per_s is not None and st.tok_per_s < self.cfg.min_tok_per_s:
-                # §5.4 성립 조건 위반. 절 스트리밍이 재생을 못 따라간다.
+                # Violates the §5.4 precondition: clause streaming can no
+                # longer keep up with playback.
                 log.warning(
                     "llm.too_slow",
                     tok_per_s=st.tok_per_s,

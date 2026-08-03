@@ -1,8 +1,8 @@
-"""TTS 클라이언트. 절 하나를 보내고 PCM 청크를 스트리밍으로 받는다.
+"""TTS client. Sends one clause and streams PCM chunks back.
 
-바디는 raw float32 LE mono. 여기서는 오디오가 서비스 → 오케스트레이터 방향으로
-한 번만 흐르고 즉시 스피커로 나가므로 공유메모리를 쓰지 않는다. 200ms 청크면
-HTTP chunked 오버헤드가 재생 간격보다 작다.
+The body is raw float32 LE mono. No shared memory here: the audio flows once,
+from service to orchestrator, and goes straight to the speaker. At 200 ms
+chunks the HTTP chunked overhead is smaller than the playback interval.
 """
 
 from __future__ import annotations

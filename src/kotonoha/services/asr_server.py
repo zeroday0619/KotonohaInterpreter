@@ -1,16 +1,17 @@
-"""1차 ASR 상주 서버 — Qwen3-ASR 1.7B, N-best 5 + LID.
+"""Primary ASR server — Qwen3-ASR 1.7B, N-best 5 with LID.
 
-API 는 모델 카드 기준이다:
+The API follows the model card:
     processor.apply_transcription_request(audio=..., prompt=..., language=...)
     processor.decode(ids, return_format="parsed") -> {"language", "transcription"}
 
-N-best 는 beam search 의 num_return_sequences 로 얻는다(§5.2). 순차식이라
-그리디를 쓸 이유가 없다.
+N-best comes from beam search via num_return_sequences (§5.2). This is
+consecutive interpreting, so there is no reason to decode greedily.
 
-LID 신뢰도에 대해: 모델이 언어 확률을 직접 주지 않는다. 여기서는 5개 후보가
-같은 언어에 동의한 비율을 신뢰도로 쓴다. 근거 있는 대리 지표이고, 짧은 발화에서
-후보들이 언어를 두고 갈리는 상황을 정확히 잡아낸다 — 그게 폴백이 필요한 바로
-그 경우다. Phase 1 에서 실제 LID 정확도와 이 지표의 상관을 확인할 것.
+On LID confidence: the model does not hand back a language probability. What we
+use instead is the fraction of the five candidates that agree on a language.
+It is a defensible proxy, and it catches precisely the case where candidates
+split over the language on a short utterance — which is exactly when the
+fallback is needed. Phase 1 should check how well this tracks real LID accuracy.
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ from ..shmring import AudioRef, StaleSlotError, attach_cached
 
 log = setup_logging(service="asr", console=True)
 
-# 내부 코드 → Qwen3-ASR 언어명
+# Our language codes to the names Qwen3-ASR expects.
 QWEN_LANG = {"ko": "Korean", "en": "English", "ja": "Japanese", "zh-TW": "Chinese"}
 
 
@@ -68,7 +69,7 @@ class TransformersBackend:
             kwargs["prompt"] = prompt
         if language:
             kwargs["language"] = language
-        # 일부 버전은 sampling_rate 를 받고, 일부는 16k 를 가정한다.
+        # Some versions accept sampling_rate; others assume 16k.
         try:
             return self.processor.apply_transcription_request(sampling_rate=16000, **kwargs)
         except TypeError:
@@ -104,7 +105,8 @@ class TransformersBackend:
         if isinstance(parsed, dict):
             parsed = [parsed]
 
-        # beam search 의 sequences_scores 는 길이 정규화된 로그확률 = 평균 로그확률
+        # Beam search sequences_scores is a length-normalised log-probability,
+        # i.e. the average log-probability.
         if getattr(out, "sequences_scores", None) is not None:
             scores = [float(s) for s in out.sequences_scores.detach().cpu().tolist()]
         else:
@@ -132,26 +134,27 @@ class TransformersBackend:
 
 
 class VllmBackend:
-    """[SPIKE-1 대기] vLLM 경로.
+    """[Blocked on Spike 1] the vLLM path.
 
-    Jetson 용 vLLM 컨테이너가 Qwen3-ASR 을 로드하는지, N-best 를 낼 수 있는지는
-    실기에서 확인해야 한다(spikes/spike1_asr_load.py). 확인 전에 추측으로 구현하면
-    지연 예산 계산이 통째로 틀어지므로, 여기서는 명시적으로 실패시킨다.
+    Whether the Jetson vLLM container loads Qwen3-ASR at all, and whether it can
+    produce N-best, has to be established on the device
+    (spikes/spike1_asr_load.py). Guessing at an implementation before that would
+    invalidate the entire latency budget, so this fails loudly instead.
     """
 
     name = "vllm"
 
     def __init__(self, *_args, **_kwargs):
         raise NotImplementedError(
-            "vLLM ASR 백엔드는 Spike 1 결과 확정 후 구현한다. "
-            "spikes/spike1_asr_load.py 를 Jetson 에서 실행하고, "
-            "N-best/로그확률 획득 방법을 확인한 뒤 이 클래스를 채울 것. "
-            "그 전까지는 config asr.backend: transformers 를 쓴다."
+            "The vLLM ASR backend is implemented once Spike 1 settles it. "
+            "Run spikes/spike1_asr_load.py on the Jetson, confirm how N-best and "
+            "log-probabilities are obtained, then fill in this class. "
+            "Until then use asr.backend: transformers in the config."
         )
 
 
 def _vote_language(langs: list[str | None]) -> tuple[str | None, float | None]:
-    """후보들의 언어 합의율을 신뢰도로 쓴다."""
+    """Use the candidates' agreement rate on a language as the confidence."""
     vals = [x for x in langs if x]
     if not vals:
         return None, None

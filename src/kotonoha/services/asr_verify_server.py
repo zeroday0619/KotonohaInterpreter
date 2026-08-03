@@ -1,7 +1,8 @@
-"""교차 검증 ASR 상주 서버 — faster-whisper large-v3 (CTranslate2).
+"""Cross-verification ASR server — faster-whisper large-v3 (CTranslate2).
 
-CTranslate2 의 aarch64 CUDA 빌드가 실패할 수 있다. 그 경우 whisper.cpp CUDA 로
-폴백한다(§7). 폴백 경로는 whisper.cpp 서버를 별도로 띄우고 그 앞에 얇게 붙인다.
+The aarch64 CUDA build of CTranslate2 may not work. If it does not, we fall
+back to whisper.cpp with CUDA (§7): run the whisper.cpp server separately and
+put this thin proxy in front of it.
 """
 
 from __future__ import annotations
@@ -50,7 +51,7 @@ class FasterWhisperBackend:
             audio,
             language=req.language,
             beam_size=req.beam_size,
-            vad_filter=False,  # 프런트엔드에서 이미 잘라 보냈다
+            vad_filter=False,  # the frontend already segmented this
             condition_on_previous_text=False,
         )
         parts, lps = [], []
@@ -67,10 +68,10 @@ class FasterWhisperBackend:
 
 
 class WhisperCppBackend:
-    """whisper.cpp CUDA 서버 프록시 폴백.
+    """Proxy fallback to a whisper.cpp CUDA server.
 
-    whisper.cpp 의 server 예제(`--port`)를 띄워두고 그 앞에 붙인다.
-    환경변수 WHISPER_CPP_URL 로 주소를 준다.
+    Run whisper.cpp's server example (`--port`) and point this at it via the
+    WHISPER_CPP_URL environment variable.
     """
 
     name = "whisper_cpp"
@@ -103,7 +104,7 @@ class WhisperCppBackend:
         d = r.json()
         return {
             "text": (d.get("text") or "").strip(),
-            "avg_logprob": -1.0,  # whisper.cpp 서버는 로그확률을 주지 않는다
+            "avg_logprob": -1.0,  # the whisper.cpp server does not expose log-probs
             "language": d.get("language"),
             "infer_ms": round((time.perf_counter() - t0) * 1000, 1),
         }

@@ -1,4 +1,4 @@
-"""서비스 클라이언트 공통."""
+"""Shared plumbing for the service clients."""
 
 from __future__ import annotations
 
@@ -42,7 +42,10 @@ class BaseClient:
             return {"ok": False, "error": repr(e), "service": self.name}
 
     async def wait_ready(self, timeout: float = 300.0, interval: float = 2.0) -> bool:
-        """서비스가 모델을 다 올릴 때까지 기다린다(§3: 매 턴 로드 금지)."""
+        """Block until the service has finished loading its model.
+
+        Models are resident (§3); nothing is loaded per turn.
+        """
         deadline = asyncio.get_event_loop().time() + timeout
         while asyncio.get_event_loop().time() < deadline:
             h = await self.health()

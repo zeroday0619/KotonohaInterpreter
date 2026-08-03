@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""세 스파이크 결과를 하나의 보고서로 합치고, 확정할 설정값을 뽑아준다.
+"""Merge the three spike results into one report and derive the settings.
 
-    python3 spikes/report.py --dir spikes/out \
+    python3 spikes/report.py --dir spikes/out \\
         --md spikes/out/PHASE0.md --patch spikes/out/local.yaml
 
---patch 로 나온 YAML 을 config/local.yaml 로 복사하면 Phase 0 결론이 그대로
-설정에 반영된다. 갈라지는 지점을 코드가 아니라 설정으로 처리한 이유가 이것이다.
+Copy the YAML produced by --patch to config/local.yaml and the Phase 0
+conclusions land directly in the configuration. This is exactly why the branch
+points live in configuration rather than in code.
+
+The generated report itself is written in Korean, since that is what gets read.
 """
 
 from __future__ import annotations

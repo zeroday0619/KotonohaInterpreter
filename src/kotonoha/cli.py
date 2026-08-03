@@ -15,7 +15,7 @@ from .config import Settings, load_settings
 from .logging_setup import setup_logging
 
 
-# ── 공통 조립 ────────────────────────────────────────────────────────────
+# -- shared wiring --------------------------------------------------------
 def _build(settings: Settings, wav: Path | None = None):
     from .audio.capture import FileCapture, MicCapture
     from .audio.denoise import build_denoiser
@@ -67,7 +67,7 @@ def load_wav(path: Path, target_rate: int) -> np.ndarray:
         width = w.getsampwidth()
         raw = w.readframes(w.getnframes())
     if width != 2:
-        raise ValueError(f"16-bit PCM WAV 만 지원: {path} ({width * 8}-bit)")
+        raise ValueError(f"only 16-bit PCM WAV is supported: {path} ({width * 8}-bit)")
     x = np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
     if ch > 1:
         x = x.reshape(-1, ch).mean(axis=1)
@@ -78,7 +78,7 @@ def load_wav(path: Path, target_rate: int) -> np.ndarray:
     return x
 
 
-# ── 서브커맨드 ───────────────────────────────────────────────────────────
+# -- subcommands ----------------------------------------------------------
 def cmd_run(args) -> int:
     s = load_settings(args.config)
     setup_logging(s.logging.level, s.resolve(s.logging.log_path), s.logging.console, "orch")
@@ -90,9 +90,13 @@ def cmd_run(args) -> int:
 
 
 def cmd_replay(args) -> int:
-    """마이크 없이 WAV 로 전체 경로를 굴린다. EOU/프리롤 회귀 확인용."""
+    """Run the whole pipeline from a WAV file, no microphone.
+
+    Used to check EOU and preroll for regressions.
+    """
     s = load_settings(args.config)
-    # 파일 재생에는 누를 키가 없다. VAD 가 발화를 잘라야 하므로 자동 모드로 강제한다.
+    # There is no key to press when replaying a file, and the VAD has to do the
+    # segmenting, so force automatic mode.
     s.session.mode = "auto"
     setup_logging(s.logging.level, s.resolve(s.logging.log_path), True, "replay")
     orch = _build(s, wav=Path(args.wav))
@@ -154,7 +158,10 @@ def cmd_glossary(args) -> int:
 
 
 def cmd_doctor(args) -> int:
-    """실기 반입 전 점검. 추측하지 말고 여기서 확인한다(작업 규칙 3)."""
+    """Pre-flight check before taking anything to the device.
+
+    Do not guess at the environment; confirm it here.
+    """
     import platform
 
     s = load_settings(args.config)

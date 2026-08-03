@@ -1,16 +1,17 @@
-"""절 단위 스트리밍 분할 (§5.4).
+"""Clause-level streaming split (§5.4).
 
-LLM 출력을 끝까지 기다리지 않고 절이 완성되는 즉시 TTS 큐에 넣는다.
-성립 조건은 명세대로 LLM 이 5 tok/s 이상일 때다. 음성 1초에 약 4~5토큰이
-필요하므로, 그 아래면 첫 절을 재생하는 동안 다음 절이 준비되지 못해 끊긴다.
+Rather than waiting for the LLM to finish, each clause goes to the TTS queue as
+soon as it is complete. As the spec notes, this only works when the LLM sustains
+at least 5 tok/s: roughly 4-5 tokens are needed per second of speech, so below
+that the next clause is not ready before the current one finishes playing.
 
-두 가지를 조심해야 한다.
-  · 너무 잘게 자르면 TTS 가 문말 억양을 매 조각마다 붙여 어색해진다.
-  · 너무 크게 자르면 첫 음성이 늦는다. 그래서 첫 절만 짧게 허용하고
-    이후는 더 크게 모은다.
+Two things to watch:
+  · Cut too finely and TTS applies sentence-final intonation to every fragment.
+  · Cut too coarsely and the first audio is late. So the first clause is allowed
+    to be short and later ones accumulate more.
 
-그리고 ⟦SRC⟧ 마커 뒤(정정된 원문)는 절대 TTS 로 보내면 안 된다. 스트리밍
-델타 경계에서 마커가 쪼개져 도착하는 경우까지 처리한다.
+And the text after the ⟦SRC⟧ marker (the reconstructed source) must never reach
+TTS. That includes the case where the marker arrives split across stream deltas.
 """
 
 from __future__ import annotations
@@ -38,7 +39,7 @@ class ClauseStreamer:
         self._count = 0
         self._stopped = False
 
-    # ── 상태 ────────────────────────────────────────────────────────────
+    # -- state -----------------------------------------------------------
     @property
     def stopped(self) -> bool:
         return self._stopped
@@ -56,7 +57,7 @@ class ClauseStreamer:
     def clause_count(self) -> int:
         return self._count
 
-    # ── 스트리밍 ────────────────────────────────────────────────────────
+    # -- streaming -------------------------------------------------------
     def push(self, delta: str) -> list[str]:
         self._all += delta
         if self._stopped:
@@ -79,9 +80,9 @@ class ClauseStreamer:
         self._stopped = True
         return self._cut(avail, final=True)
 
-    # ── 내부 ────────────────────────────────────────────────────────────
+    # -- internals -------------------------------------------------------
     def _partial_marker_len(self, text: str) -> int:
-        """마커가 델타 경계에 걸쳐 쪼개졌을 가능성이 있는 꼬리 길이."""
+        """Length of a tail that might be a marker split across delta boundaries."""
         for k in range(min(len(self.marker) - 1, len(text)), 0, -1):
             if self.marker.startswith(text[-k:]):
                 return k

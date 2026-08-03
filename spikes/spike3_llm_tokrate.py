@@ -1,22 +1,27 @@
 #!/usr/bin/env python3
-"""Spike 3 — MoE vs 밀집 14B 의 실측 토큰 생성 속도.
+"""Spike 3 — measured token generation rate, MoE versus dense 14B.
 
-조건: 컨텍스트 2048, 배치 1, 출력 60토큰.
-판정: **5 tok/s 미만이면 밀집 14B로 회귀.** MoE 가 밀집보다 빠르고 품질이 좋으면 MoE.
+Conditions: context 2048, batch 1, 60 output tokens.
+Verdict: **under 5 tok/s falls back to the dense 14B.** Adopt the MoE only if it
+is both faster than the dense model and at least as good.
 
-Orin 의 병목은 204.8GB/s 메모리 대역폭이다. MoE 는 활성 파라미터만 읽으면 되니
-이론상 유리하지만, 라우팅 때문에 매 토큰 접근하는 전문가가 달라져 지역성이 깨진다.
-Orin 대역폭에서 이게 어떻게 나오는지는 예측이 맞지 않는다 — 그래서 잰다.
+The bottleneck on Orin is the 204.8 GB/s of memory bandwidth. In theory the MoE
+wins because only the active parameters are read, but routing changes which
+experts are touched from token to token, and that destroys locality. How it
+plays out at Orin bandwidth is not something prediction gets right — hence
+measuring it.
 
-두 가지를 함께 잰다.
-  · llama-bench (순수 생성 속도)
-  · 실제 번역 프롬프트로 llama-server 스트리밍 (TTFT 포함, 우리가 겪을 값)
+Two numbers are taken:
+  · llama-bench (raw generation speed)
+  · a real translation prompt streamed through llama-server, TTFT included —
+    this is the number we will actually live with
 
-두 번째가 진짜다. 프롬프트 처리 시간이 §6 의 '정정+번역 첫 절 0.7초'에 들어간다.
+The second is the real one. Prompt processing lands inside the 0.7 s allowed for
+"correction + translation, first clause" in §6.
 
-    python3 spikes/spike3_llm_tokrate.py \
-        --bin /opt/llama.cpp/build/bin \
-        --models-dir ./models/gguf \
+    python3 spikes/spike3_llm_tokrate.py \\
+        --bin /opt/llama.cpp/build/bin \\
+        --models-dir ./models/gguf \\
         --out spikes/out/spike3.json
 """
 
@@ -36,12 +41,12 @@ PROFILES = {
     "moe": {
         "repo": "unsloth/Qwen3-30B-A3B-Instruct-2507-GGUF",
         "file": "Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf",
-        "note": "30B MoE, 활성 3B",
+        "note": "30B MoE, 3B active",
     },
     "dense": {
         "repo": "unsloth/Qwen3-14B-GGUF",
         "file": "Qwen3-14B-Q4_K_M.gguf",
-        "note": "밀집 14B",
+        "note": "dense 14B",
     },
 }
 
@@ -49,7 +54,7 @@ N_CTX = 2048
 N_PREDICT = 60
 MIN_TOK_S = 5.0
 
-# 실제 요청과 같은 모양의 프롬프트 (§5.3 단일 패스: N-best + 히스토리 + 용어집)
+# A prompt shaped like the real thing (§5.3 single pass: N-best + history + glossary)
 SYSTEM = (
     "You are a professional consecutive interpreter. Reconstruct what the speaker said "
     "from the ASR hypotheses, then translate it into English. Output the translation only."
@@ -114,7 +119,7 @@ def wait_health(url: str, timeout: float) -> bool:
 
 
 def stream_translate(url: str) -> dict:
-    """실제 번역 프롬프트로 SSE 스트리밍. TTFT 와 생성 속도를 함께 잰다."""
+    """Stream a real translation prompt over SSE, timing both TTFT and rate."""
     body = json.dumps(
         {
             "messages": [
@@ -173,7 +178,7 @@ def bench_profile(name: str, bin_dir: Path, models_dir: Path, ngl: int, port: in
     model = models_dir / spec["file"]
     res: dict = {"profile": name, "model": str(model), **spec}
     if not model.exists():
-        return {**res, "error": f"GGUF 없음: {model}. scripts/fetch_models.sh 참고"}
+        return {**res, "error": f"GGUF missing: {model}. See scripts/fetch_models.sh"}
 
     res["llama_bench"] = run_llama_bench(bin_dir, model, ngl)
 
@@ -197,7 +202,7 @@ def bench_profile(name: str, bin_dir: Path, models_dir: Path, ngl: int, port: in
             res["server"] = {"error": "health timeout"}
             return res
         res["server_load_s"] = round(time.perf_counter() - t0, 1)
-        stream_translate(url)  # 워밍업
+        stream_translate(url)  # warm-up
         runs = [stream_translate(url) for _ in range(3)]
         best = max(runs, key=lambda r: r["tok_per_s"] or 0)
         res["server"] = {"runs": runs, "best": best}
@@ -244,9 +249,9 @@ def verdict(results: dict) -> dict:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--bin", type=Path, required=True, help="llama.cpp 빌드 bin 디렉터리")
+    ap.add_argument("--bin", type=Path, required=True, help="llama.cpp build bin directory")
     ap.add_argument("--models-dir", type=Path, default=Path("./models/gguf"))
-    ap.add_argument("--ngl", type=int, default=999, help="GPU 오프로드 레이어 수")
+    ap.add_argument("--ngl", type=int, default=999, help="number of layers offloaded to GPU")
     ap.add_argument("--port", type=int, default=18003)
     ap.add_argument("--only", choices=list(PROFILES), default=None)
     ap.add_argument("--out", type=Path, default=Path("spikes/out/spike3.json"))

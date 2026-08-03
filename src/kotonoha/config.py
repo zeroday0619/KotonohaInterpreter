@@ -1,7 +1,8 @@
-"""설정 로딩 — YAML + 환경변수(pydantic-settings).
+"""Configuration loading — YAML plus environment variables (pydantic-settings).
 
-우선순위: 환경변수(KOTONOHA__*) > --config 로 준 YAML > config/default.yaml
-중첩 키는 이중 언더스코어로 덮어쓴다.  예) KOTONOHA__LLM__PROFILE=moe
+Precedence: environment (KOTONOHA__*) > the YAML given with --config >
+config/default.yaml. Nested keys are overridden with a double underscore,
+e.g. KOTONOHA__LLM__PROFILE=moe
 """
 
 from __future__ import annotations
@@ -56,12 +57,12 @@ class DenoiseCfg(BaseModel):
 
 
 class VadCfg(BaseModel):
-    # energy 는 개발 PC 전용 폴백. 실기에서는 silero_onnx 만 쓴다.
+    # "energy" is a development-machine fallback only; the device uses silero_onnx.
     backend: Literal["silero_onnx", "energy"] = "silero_onnx"
     model_path: Path = Path("./models/silero_vad.onnx")
     threshold: float = 0.5
     neg_threshold: float = 0.35
-    preroll_ms: int = Field(300, ge=200, le=500, description="§5.1 타협 불가")
+    preroll_ms: int = Field(300, ge=200, le=500, description="non-negotiable, see §5.1")
     min_speech_ms: int = 120
     silence_ms: int = 800
     max_utterance_ms: int = 30000
@@ -172,15 +173,15 @@ class StoreCfg(BaseModel):
 
 class LoggingCfg(BaseModel):
     level: str = "INFO"
-    # 애플리케이션 로그와 턴 메트릭은 파일을 나눈다. 섞이면 §11 의 턴 로그를
-    # 그대로 파싱할 수 없게 되고, 매번 필터링 코드를 짜게 된다.
+    # Application logs and turn metrics go to separate files. Mixed together, the
+    # turn log (§11) can no longer be parsed as-is and every reader needs a filter.
     log_path: Path = Path("./data/logs/kotonoha.jsonl")
     turn_log_path: Path = Path("./data/logs/turns.jsonl")
     console: bool = False
 
 
 class BudgetCfg(BaseModel):
-    """§6 지연 예산 (ms)."""
+    """Latency budget in milliseconds (§6)."""
 
     silence: int = 800
     frontend: int = 100
@@ -213,23 +214,23 @@ class Settings(BaseSettings):
     logging: LoggingCfg = LoggingCfg()
     budget_ms: BudgetCfg = BudgetCfg()
 
-    # 설정 파일이 놓인 위치 기준으로 상대경로를 풀기 위해 보관
+    # Kept so relative paths can be resolved against the repository root.
     root: Path = REPO_ROOT
+
+    def resolve(self, p: Path) -> Path:
+        return p if p.is_absolute() else (self.root / p).resolve()
 
     @classmethod
     def settings_customise_sources(
         cls, settings_cls, init_settings, env_settings, dotenv_settings, file_secret_settings
     ):
-        """환경변수가 YAML 을 이긴다.
+        """Environment variables beat the YAML file.
 
-        pydantic-settings 의 기본 순서는 init(=YAML 로드 결과)이 env 보다 우선이라
-        `KOTONOHA__LLM__PROFILE=moe` 같은 임시 오버라이드가 조용히 무시된다.
-        기기별 튜닝과 스파이크 실행에서 이 오버라이드에 계속 의존하므로 뒤집는다.
+        pydantic-settings defaults to init (i.e. the loaded YAML) outranking env,
+        which silently ignores one-off overrides like KOTONOHA__LLM__PROFILE=moe.
+        Per-device tuning and the spikes lean on those overrides, so flip the order.
         """
         return (env_settings, dotenv_settings, init_settings, file_secret_settings)
-
-    def resolve(self, p: Path) -> Path:
-        return p if p.is_absolute() else (self.root / p).resolve()
 
 
 def _deep_merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:
@@ -243,7 +244,10 @@ def _deep_merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:
 
 
 def load_settings(path: str | Path | None = None) -> Settings:
-    """YAML을 읽어 Settings를 만든다. path 미지정 시 KOTONOHA_CONFIG 또는 기본 파일."""
+    """Read the YAML and build Settings.
+
+    With no path, falls back to KOTONOHA_CONFIG and then the default file.
+    """
     cfg_path = Path(path or os.environ.get("KOTONOHA_CONFIG") or DEFAULT_CONFIG)
     data: dict[str, Any] = {}
     if cfg_path.exists():
@@ -251,7 +255,7 @@ def load_settings(path: str | Path | None = None) -> Settings:
     elif path is not None:
         raise FileNotFoundError(f"config not found: {cfg_path}")
 
-    # 같은 디렉터리의 local.yaml 이 있으면 덮어쓴다 (기기별 장치 인덱스 등)
+    # A local.yaml next to it wins, for per-device things like audio device indices.
     local = cfg_path.parent / "local.yaml"
     if local.exists():
         data = _deep_merge(data, yaml.safe_load(local.read_text(encoding="utf-8")) or {})

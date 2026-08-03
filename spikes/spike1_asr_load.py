@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
-"""Spike 1 — Jetson vLLM 이 Qwen3-ASR 을 로드하는가.
+"""Spike 1 — does the Jetson vLLM load Qwen3-ASR?
 
-판정할 것:
-  · vLLM 로드 성공 여부
-  · 6초 오디오 전사 소요 시간
-  · N-best 출력 가능 여부
-  · 실패 시 transformers 경로의 소요 시간 (지연 예산 재계산용)
+What this decides:
+  · whether vLLM loads it at all
+  · how long transcribing six seconds of audio takes
+  · whether N-best output is available
+  · if it fails, how long the transformers path takes instead (needed to
+    recompute the latency budget)
 
-Jetson 에서 실행:
+On the Jetson:
     python3 spikes/spike1_asr_load.py --wav samples/ko_6s.wav --out spikes/out/spike1.json
 
-vLLM 컨테이너 안에서 돌릴 것:
+Run the vLLM part inside
     ghcr.io/nvidia-ai-iot/vllm:r36.4-tegra-aarch64-cu126-22.04
-transformers 경로는 dustynv/jetson-containers 의 r36.4.0 계열 이미지에서.
+and the transformers part in an r36.4.0 image from dustynv/jetson-containers.
 """
 
 from __future__ import annotations
@@ -38,7 +39,7 @@ def load_wav(path: Path, rate: int = 16000) -> np.ndarray:
         sr, ch, width = w.getframerate(), w.getnchannels(), w.getsampwidth()
         raw = w.readframes(w.getnframes())
     if width != 2:
-        raise SystemExit(f"16-bit PCM WAV 만: {path}")
+        raise SystemExit(f"only 16-bit PCM WAV is supported: {path}")
     x = np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
     if ch > 1:
         x = x.reshape(-1, ch).mean(axis=1)
@@ -50,7 +51,10 @@ def load_wav(path: Path, rate: int = 16000) -> np.ndarray:
 
 
 def synthetic_6s(rate: int = 16000) -> np.ndarray:
-    """실 녹음이 없을 때의 타이밍 전용 더미. 전사 내용은 의미 없다."""
+    """Dummy audio for timing only, when no real recording is at hand.
+
+    The transcription content is meaningless.
+    """
     t = np.arange(int(6 * rate)) / rate
     env = 0.5 * (1 + np.sin(2 * np.pi * 3.1 * t))
     sig = np.sin(2 * np.pi * 180 * t) + 0.4 * np.sin(2 * np.pi * 720 * t)
@@ -73,7 +77,7 @@ def env_info() -> dict:
     return info
 
 
-# ── transformers 경로 ────────────────────────────────────────────────────
+# -- the transformers path ------------------------------------------------
 def run_transformers(audio: np.ndarray, runs: int) -> dict:
     out: dict = {"backend": "transformers", "model": TRANSFORMERS_ID}
     try:
@@ -128,7 +132,7 @@ def run_transformers(audio: np.ndarray, runs: int) -> dict:
         return dt, texts, scores
 
     try:
-        once(1)  # 워밍업
+        once(1)  # warm-up
         greedy = [once(1)[0] for _ in range(runs)]
         nb_dt, nb_texts, nb_scores = once(N_BEST)
         nbest = [nb_dt] + [once(N_BEST)[0] for _ in range(runs - 1)]
@@ -146,12 +150,13 @@ def run_transformers(audio: np.ndarray, runs: int) -> dict:
     return out
 
 
-# ── vLLM 경로 ────────────────────────────────────────────────────────────
+# -- the vLLM path ---------------------------------------------------------
 def run_vllm(audio: np.ndarray, runs: int) -> dict:
-    """vLLM 이 이 모델을 아키텍처로 인식하는지부터 본다.
+    """First: does vLLM recognise this architecture at all?
 
-    인식하더라도 N-best(n>1) 와 로그확률 획득이 되는지 반드시 함께 확인한다.
-    전사만 되고 N-best 가 안 나오면 §5.2 를 만족하지 못하므로 채택할 수 없다.
+    Even if it does, check that N-best (n > 1) and log-probabilities come out.
+    Transcription without N-best does not satisfy §5.2, so that path cannot be
+    adopted.
     """
     out: dict = {"backend": "vllm", "model": VLLM_ID}
     try:
@@ -175,7 +180,7 @@ def run_vllm(audio: np.ndarray, runs: int) -> dict:
             "prompt": "<|audio_bos|><|AUDIO|><|audio_eos|>",
             "multi_modal_data": {"audio": (audio, 16000)},
         }
-        llm.generate([prompt], sp)  # 워밍업
+        llm.generate([prompt], sp)  # warm-up
         durs = []
         for _ in range(runs):
             t = time.perf_counter()
@@ -225,7 +230,7 @@ def verdict(vllm: dict, tf: dict) -> dict:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--wav", type=Path, default=None, help="6초 내외 실 녹음 (16-bit PCM)")
+    ap.add_argument("--wav", type=Path, default=None, help="a real ~6 s recording, 16-bit PCM")
     ap.add_argument("--runs", type=int, default=3)
     ap.add_argument("--only", choices=["vllm", "transformers"], default=None)
     ap.add_argument("--out", type=Path, default=Path("spikes/out/spike1.json"))

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""ASR 채점 — CER (jiwer). §11.
+"""ASR scoring — CER via jiwer (§11).
 
-WER 이 아니라 CER 을 쓴다. 한국어·일본어·중국어에서 단어 경계 정의가 제각각이라
-WER 은 비교 가능한 수가 아니다.
+CER, not WER. Word boundaries are defined differently across Korean, Japanese
+and Chinese, so WER is not a comparable number.
 
-    # 1) 평가셋을 실제 파이프라인에 태워 가설 생성
+    # 1) run the evaluation set through the real pipeline to get hypotheses
     python3 eval/run_asr.py --manifest eval/data/ko/manifest.jsonl --out eval/out/ko.hyp.jsonl
-    # 2) 채점
+    # 2) score them
     python3 eval/score_cer.py --manifest eval/data/ko/manifest.jsonl --hyp eval/out/ko.hyp.jsonl
 """
 

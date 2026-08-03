@@ -1,18 +1,18 @@
-# 오케스트레이터 + 오디오 프런트엔드 + TUI (CPU)
+# Orchestrator, audio frontend and TUI (CPU)
 ARG BASE_IMAGE=dustynv/pytorch:r36.4.0
 FROM ${BASE_IMAGE}
 
-# uv 는 정적 바이너리 하나라 베이스 이미지의 파이썬 구성을 건드리지 않는다.
-# latest 가 아니라 고정 태그를 쓴다(§12: 검증되지 않은 버전으로 올리지 않는다).
+# uv is a single static binary, so it leaves the base image's Python alone.
+# Pin the tag rather than using latest (§12: no unverified version bumps).
 COPY --from=ghcr.io/astral-sh/uv:0.12 /uv /uvx /bin/
 
-# PortAudio 와 libsndfile 은 apt 로. 이건 pip/uv wheel 로 해결되는 게 아니다.
+# PortAudio and libsndfile come from apt; a pip/uv wheel does not cover these.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libportaudio2 portaudio19-dev libsndfile1 alsa-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# 컨테이너의 시스템 파이썬에 그대로 설치한다. uv sync 로 프로젝트 venv 를 만들면
-# 베이스 이미지에 들어 있는 CUDA 빌드 torch 가 가려진다.
+# Install into the container's system Python. A project venv from uv sync would
+# shadow the CUDA torch build that ships in the base image.
 ENV UV_SYSTEM_PYTHON=1 \
     UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1 \
@@ -20,8 +20,8 @@ ENV UV_SYSTEM_PYTHON=1 \
 
 WORKDIR /app
 
-# 런타임 의존성은 잠금 파일에서 뽑아 고정 설치한다. 소스보다 먼저 복사해야
-# 코드만 바뀌었을 때 이 레이어가 재사용된다.
+# Runtime dependencies come from the lockfile, pinned. Copy these before the
+# source so the layer is reused when only code changes.
 COPY pyproject.toml uv.lock README.md LICENSE ./
 RUN uv export --frozen --no-dev --no-emit-project --no-hashes -o /tmp/req.txt \
  && uv pip install --no-cache -r /tmp/req.txt
@@ -29,16 +29,16 @@ RUN uv export --frozen --no-dev --no-emit-project --no-hashes -o /tmp/req.txt \
 COPY src ./src
 RUN uv pip install --no-cache --no-deps -e .
 
-# onnxruntime(VAD)·deepfilternet(잡음 제거)의 aarch64 지원은 Phase 0 에서 실측
-# 확인한다(작업 규칙 3). 실패해도 빌드는 계속되고 런타임에 폴백된다.
-# 잠금 파일을 거치지 않는 이유: 두 패키지의 aarch64 해석 결과가 개발 PC 와 달라
-# 잠그면 오히려 실기에서 깨진다.
-RUN (uv pip install --no-cache onnxruntime || echo "!! onnxruntime 실패 — VAD 폴백") \
- && (uv pip install --no-cache deepfilternet || echo "!! deepfilternet 실패 — 잡음 제거 없음")
+# aarch64 support for onnxruntime (VAD) and deepfilternet (denoise) is verified
+# by measurement in Phase 0. A failure here does not stop the build; the runtime
+# falls back. These stay outside the lockfile because their aarch64 resolution
+# differs from the development machine, so locking them breaks the device.
+RUN (uv pip install --no-cache onnxruntime || echo "!! onnxruntime failed — VAD falls back") \
+ && (uv pip install --no-cache deepfilternet || echo "!! deepfilternet failed — no denoise")
 
-# 위 설치가 베이스 이미지의 CUDA torch 를 PyPI CPU 빌드로 덮어썼는지 확인한다.
-# 조용히 덮어쓰이면 실기에서야 알게 된다.
+# Check whether the installs above replaced the base image's CUDA torch with a
+# PyPI CPU build. Silently clobbered, that would only surface on the device.
 RUN python3 -c "import torch; print('torch', torch.__version__, 'cuda', torch.version.cuda)" \
-    || echo "!! torch 확인 불가"
+    || echo "!! could not check torch"
 
 CMD ["python3", "-m", "kotonoha.cli", "run"]

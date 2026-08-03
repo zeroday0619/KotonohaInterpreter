@@ -16,7 +16,7 @@ def test_normalize_lang_folds_chinese_variants_to_traditional():
 
 
 def test_short_utterance_inherits_previous_language():
-    """'네 / OK / はい' 는 어떤 모델도 못 맞힌다(§5)."""
+    """No model can call the language of "네 / OK / はい" (§5)."""
     d = decide_language(
         "English", 0.9, duration_s=0.4, cfg=LidCfg(), last_lang="ko", allowed=ALLOWED
     )
@@ -42,7 +42,7 @@ def test_routing_modes():
 
     fixed = SessionCfg(routing="fixed", fixed_target="en")
     assert route_targets("ja", fixed) == ["en"]
-    assert route_targets("en", fixed) == []  # 자기 자신으로는 통역하지 않는다
+    assert route_targets("en", fixed) == []  # never interpret into the source language
 
     bc = SessionCfg(routing="broadcast", broadcast_targets=ALLOWED)
     assert route_targets("ko", bc) == ["en", "zh-TW", "ja"]
@@ -50,7 +50,7 @@ def test_routing_modes():
 
 def test_cross_verify_only_fires_when_needed():
     fire, _ = should_cross_verify(-0.2, -0.55, ["안녕하세요 반갑습니다"], duration_s=3.0)
-    assert not fire, "고신뢰 발화에 매 턴 0.8초를 붙이면 안 된다"
+    assert not fire, "must not add 0.8 s per turn to a high-confidence utterance"
 
     fire, why = should_cross_verify(-0.9, -0.55, ["안녕하세요"], duration_s=3.0)
     assert fire and "avg_logprob" in why
@@ -74,7 +74,7 @@ def test_default_config_loads_and_is_consistent():
     assert s.asr.n_best == 5  # §5.2
     assert s.session.mode == "push_to_talk"  # §4
     assert s.llm.gguf_path.name.endswith(".gguf")
-    # §6 합계가 명세와 맞는지
+    # The §6 stage budgets must add up to the stated total.
     b = s.budget_ms
     assert (
         b.silence + b.frontend + b.asr + b.verify + b.llm_first_clause + b.tts_first_packet

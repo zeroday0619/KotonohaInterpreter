@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""평가셋을 실제 ASR 서비스에 태워 가설을 만든다 (Orin 에서 실행).
+"""Run the evaluation set through the real ASR service (on the Orin).
 
-파이프라인 전체가 아니라 ASR 만 돈다. 프런트엔드(잡음 제거·VAD)의 영향까지 보려면
-`kotonoha replay` 를 쓸 것.
+This exercises ASR only, not the whole pipeline. To include the frontend
+(denoise and VAD), use `kotonoha replay` instead.
 
     python3 eval/run_asr.py --manifest eval/data/ko/manifest.jsonl --out eval/out/ko.hyp.jsonl
 """
@@ -33,7 +33,7 @@ async def run(manifest: Path, out: Path, config: str | None) -> int:
     )
     asr = AsrClient(s.services.asr, s.asr)
     if not await asr.wait_ready(timeout=600):
-        print("ASR 서비스가 뜨지 않았다", file=sys.stderr)
+        print("the ASR service never came up", file=sys.stderr)
         return 1
 
     out.parent.mkdir(parents=True, exist_ok=True)

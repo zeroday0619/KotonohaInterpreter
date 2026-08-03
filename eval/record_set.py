@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-"""평가셋 녹음 도구 (§11).
+"""Recording tool for the evaluation set (§11).
 
-**Phase 1 과 병행해 만든다.** 이게 없으면 이후 모든 튜닝이 체감에 의존하게 되고
-반드시 퇴행한다.
+**Build this alongside Phase 1.** Without it, every later tuning decision rests
+on impressions, and regressions become inevitable.
 
-원칙: **실제 사용할 마이크로, 실제 사용할 공간에서** 녹음한다. 조용한 사무실에서
-헤드셋으로 녹음한 셋으로 튜닝하면 현장에서 그대로 무너진다.
+The rule: record **with the microphone that will be used, in the room where it
+will be used.** A set captured on a headset in a quiet office produces tuning
+that collapses in the field.
 
     python3 eval/record_set.py --lang ko --prompts eval/prompts/ko.txt --out eval/data/ko
 
-각 발화는 스페이스로 시작/종료. 결과는 16kHz 16-bit WAV + manifest.jsonl.
+Each utterance starts and stops with Enter. Output is 16 kHz 16-bit WAV plus
+a manifest.jsonl.
 """
 
 from __future__ import annotations
@@ -54,11 +56,11 @@ def write_wav(path: Path, x: np.ndarray, rate: int) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--lang", required=True, choices=["ko", "en", "zh-TW", "ja"])
-    ap.add_argument("--prompts", type=Path, required=True, help="한 줄에 발화 하나")
+    ap.add_argument("--prompts", type=Path, required=True, help="one utterance per line")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--rate", type=int, default=16000)
     ap.add_argument("--device", default=None)
-    ap.add_argument("--start", type=int, default=0, help="이어서 녹음할 인덱스")
+    ap.add_argument("--start", type=int, default=0, help="index to resume recording from")
     a = ap.parse_args()
 
     lines = [ln.strip() for ln in a.prompts.read_text(encoding="utf-8").splitlines() if ln.strip()]

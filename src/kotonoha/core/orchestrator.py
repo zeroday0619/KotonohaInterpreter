@@ -1,13 +1,15 @@
-"""오케스트레이터 — 상태 기계, 언어 라우팅, 품질 게이트, 절 스트리밍, 실패 처리.
+"""Orchestrator — state machine, language routing, quality gate, clause
+streaming, failure handling.
 
-한 턴의 흐름:
+One turn:
 
-    EOU → (잡음 제거) → shm publish → ASR(N-best 5 + LID)
-        → LID 결정/폴백 → 조건부 교차 검증
-        → 정정+번역 단일 패스 스트리밍 → 절 단위로 TTS → 재생
+    EOU -> (denoise) -> shm publish -> ASR (N-best 5 + LID)
+        -> LID decision/fallback -> conditional cross-verification
+        -> single-pass correct+translate streaming -> clause-wise TTS -> playback
 
-§10 을 그대로 옮겼다. 통역기는 틀린 답보다 멈추는 게 더 치명적이므로,
-모든 단계가 타임아웃과 폴백을 갖고 어떤 경로로 빠지든 IDLE 로 돌아온다.
+§10 is transposed here directly. For an interpreter, stopping is worse than
+being wrong, so every stage has a timeout and a fallback and every path leads
+back to IDLE.
 """
 
 from __future__ import annotations
@@ -90,7 +92,7 @@ class Orchestrator:
             {"llm_profile": settings.llm.profile, "asr_backend": settings.asr.backend},
         )
 
-    # ── 수명주기 ────────────────────────────────────────────────────────
+    # -- lifecycle -------------------------------------------------------
     async def start(self) -> None:
         loop = asyncio.get_running_loop()
         self.capture.loop = loop
@@ -122,7 +124,7 @@ class Orchestrator:
             h = await c.health()
             self.bus.emit("service", name=c.name, ok=bool(h.get("ok")), detail=h)
 
-    # ── push-to-talk (§4: 초기 구현) ────────────────────────────────────
+    # -- push-to-talk (§4: the initial implementation) ---------------------
     def ptt_down(self) -> None:
         if self.machine.state is not State.IDLE:
             return
@@ -139,14 +141,15 @@ class Orchestrator:
         else:
             self.machine.to(State.IDLE, "ptt_empty")
 
-    # ── 프레임 루프 ─────────────────────────────────────────────────────
+    # -- frame loop ------------------------------------------------------
     async def _frame_loop(self) -> None:
         auto = self.s.session.mode == "auto"
         level_tick = 0
         while self._running:
             frame = await self.capture.frames.get()
 
-            # SPEAKING 중에는 캡처 자체가 게이팅되지만, 큐에 남은 잔여 프레임도 버린다.
+            # Capture is already gated during SPEAKING, but drop any frame that
+            # was still sitting in the queue as well.
             if self.machine.state is State.SPEAKING:
                 continue
 
@@ -154,8 +157,8 @@ class Orchestrator:
                 continue
 
             if not auto and self.machine.state is State.IDLE:
-                # PTT 모드: 전이는 키 입력이 결정한다. VAD 는 돌리지 않고
-                # 프리롤 링만 채워둔다 (§5.1 은 PTT 에서도 그대로 적용된다).
+                # PTT mode: the key decides the transition. Skip the VAD and
+                # just keep the preroll ring filled (§5.1 applies to PTT too).
                 self.seg.prime_preroll(frame.pcm)
                 continue
 
@@ -179,13 +182,13 @@ class Orchestrator:
                 await self._process(utt)
             except asyncio.CancelledError:
                 raise
-            except Exception as e:  # noqa: BLE001 — 어떤 실패든 IDLE 로 복귀해야 한다
+            except Exception as e:  # noqa: BLE001 - any failure must still reach IDLE
                 log.exception("turn.crashed", error=repr(e))
                 self.bus.emit("error", where="turn", message=str(e))
             finally:
                 self._to_idle("turn_end")
 
-    # ── 한 턴 ───────────────────────────────────────────────────────────
+    # -- one turn --------------------------------------------------------
     async def _process(self, utt) -> None:
         m = TurnMetrics()
         m.mark("eou")
@@ -210,7 +213,7 @@ class Orchestrator:
 
         ref = self.ring.publish(pcm)
 
-        # ── 1차 ASR ────────────────────────────────────────────────────
+        # -- primary ASR ------------------------------------------------
         history = self.store.recent_turns(self.session_id, self.s.context.history_turns)
         expect_tw = "zh-TW" in self.s.session.languages
         ctx = build_asr_context(history, self.store.all_glossary()[:40], expect_tw)
@@ -227,13 +230,13 @@ class Orchestrator:
         m.asr_avg_logprob = round(asr.best_avg_logprob, 4)
 
         if asr.is_empty:
-            # §10: 빈 결과는 무음 처리. 재생 없이 IDLE.
+            # §10: an empty result is treated as silence. Back to IDLE, nothing played.
             m.outcome = "empty_asr"
             self.bus.emit("asr", text="", empty=True)
             self._finish(m, None, None, None)
             return
 
-        # ── LID 결정 (§5, §10) ─────────────────────────────────────────
+        # -- LID decision (§5, §10) ---------------------------------------
         dec = decide_language(
             asr.language,
             asr.language_confidence,
@@ -251,7 +254,7 @@ class Orchestrator:
         n_best = [self._maybe_tw(t, dec.lang, "asr") for t in asr.texts]
         self.bus.emit("asr", text=n_best[0], n_best=n_best, avg_logprob=m.asr_avg_logprob)
 
-        # ── 조건부 교차 검증 (§5.5) ────────────────────────────────────
+        # -- conditional cross-verification (§5.5) -------------------------
         verify_text: str | None = None
         if self.s.asr_verify.enabled:
             fire, why = should_cross_verify(
@@ -277,11 +280,11 @@ class Orchestrator:
                         cer=round(cer(n_best[0], verify_text), 3),
                     )
                 except (ServiceTimeout, ServiceError) as e:
-                    # 검증 실패는 치명적이지 않다. 1차 결과로 그냥 간다.
+                    # A failed verification is not fatal. Carry on with the primary result.
                     log.warning("verify.failed", error=repr(e))
                     self.bus.emit("verify", state="failed", message=str(e))
 
-        # ── 타깃 라우팅 ────────────────────────────────────────────────
+        # -- target routing -------------------------------------------------
         targets = route_targets(dec.lang, self.s.session)
         if not targets:
             m.outcome = "ok"
@@ -299,7 +302,7 @@ class Orchestrator:
 
         self._finish(m, n_best[0], translation, dec.lang)
 
-    # ── 번역 + TTS ──────────────────────────────────────────────────────
+    # -- translation + TTS -------------------------------------------------
     async def _translate_and_speak(
         self,
         m: TurnMetrics,
@@ -335,7 +338,7 @@ class Orchestrator:
             self._pump_llm(messages, streamer, clause_q, first_clause, m, stats, tgt_lang)
         )
 
-        # §10 LLM 타임아웃 3초 — '첫 절'까지의 시간으로 잰다.
+        # §10 LLM timeout of 3 s, measured as time-to-first-clause.
         waiter = asyncio.create_task(first_clause.wait())
         done, _ = await asyncio.wait(
             {waiter, pump}, timeout=self.s.llm.timeout_s, return_when=asyncio.FIRST_COMPLETED
@@ -365,7 +368,7 @@ class Orchestrator:
         await clause_q.put(None)
         await asyncio.gather(speaker, return_exceptions=True)
 
-        # 큐 소진까지 기다린다. 여기까지가 SPEAKING.
+        # Wait for the queue to drain. SPEAKING lasts until here.
         drained = await self.playback.wait_drained(timeout=60.0)
         if not drained:
             log.warning("playback.drain_timeout")
@@ -419,7 +422,8 @@ class Orchestrator:
                 async for chunk in self.tts.synthesize(clause, lang):
                     self.playback.enqueue(chunk, self.s.tts.sample_rate)
             except (ServiceTimeout, ServiceError) as e:
-                # §10 TTS 실패 — 서비스 내부 MeloTTS 폴백까지 실패한 경우.
+                # §10 TTS failure — reached only when the service's own MeloTTS
+                # fallback failed too.
                 log.error("tts.failed", error=repr(e), clause=clause[:40])
                 m.outcome = "tts_failed"
                 self.bus.emit("error", where="tts", message=str(e))
@@ -429,13 +433,14 @@ class Orchestrator:
         m.mark("first_audio")
         self.bus.emit("first_audio", ms=m.rel_ms("first_audio"))
 
-    # ── 잡음 제거 ───────────────────────────────────────────────────────
+    # -- noise suppression -------------------------------------------------
     def _denoise(self, utt, m: TurnMetrics) -> np.ndarray:
-        """DFN3 은 48kHz 발화 단위로 돌린다.
+        """Run DFN3 over the whole 48 kHz utterance.
 
-        스트리밍 프레임 단위 처리는 libdf 의 프레임 API 가 필요하고 상태 관리가
-        까다롭다. 발화 단위 처리의 실제 소요를 여기서 재서 로그에 남기고,
-        §6 프런트엔드 예산 100ms 를 넘기면 그때 스트리밍으로 옮긴다.
+        Per-frame streaming needs libdf's frame API and careful state handling.
+        Instead we measure what utterance-level processing actually costs, log
+        it, and move to streaming only if it exceeds the 100 ms frontend budget
+        in §6.
         """
         if self.denoiser is None or self.denoiser.name == "none":
             return utt.pcm
@@ -443,7 +448,7 @@ class Orchestrator:
         t0 = time.perf_counter()
         try:
             raw48 = self.capture.tail48(utt.pcm.size)
-            if raw48.size < self.denoiser.rate // 10:  # 0.1초도 안 되면 원본 사용
+            if raw48.size < self.denoiser.rate // 10:  # under 0.1 s, keep the original
                 return utt.pcm
             from ..audio.resample import resample_once
 
@@ -458,7 +463,7 @@ class Orchestrator:
             log.warning("denoise.over_budget", ms=round(dt, 1), budget=self.s.budget_ms.frontend)
         return out
 
-    # ── 번체 후처리 (§5) ────────────────────────────────────────────────
+    # -- Traditional Chinese post-processing (§5) -------------------------
     def _maybe_tw(self, text: str, lang: str, stage: str) -> str:
         if lang != "zh-TW" or stage not in self.s.zh.apply_to or not text:
             return text
@@ -467,7 +472,7 @@ class Orchestrator:
             log.warning("zh.simplified_leak", stage=stage, sample=out[:40])
         return out
 
-    # ── 마무리 ──────────────────────────────────────────────────────────
+    # -- wrap-up -----------------------------------------------------------
     def _finish(
         self, m: TurnMetrics, source_text: str | None, translation: str | None, src_lang: str | None
     ) -> None:
@@ -489,14 +494,14 @@ class Orchestrator:
         log.info("turn", **rec)
         self.bus.emit("turn", **rec)
         if rec.get("over_budget_ms"):
-            # §6: 예산 초과 시 어느 단계가 원인인지 특정해 보고한다.
+            # §6: when the budget is blown, report which stage caused it.
             self.bus.emit("budget", over=rec["over_budget_ms"], stages=rec["stages_ms"])
 
     def _to_idle(self, reason: str) -> None:
         self.machine.force_idle(reason)
 
     def _on_state_change(self, prev: State, cur: State, reason: str) -> None:
-        # 반이중 게이팅은 오직 여기서만 (§4)
+        # Half-duplex gating happens here and nowhere else (§4).
         if cur is State.SPEAKING:
             self.capture.close_gate()
         elif cur is State.IDLE:
