@@ -38,27 +38,38 @@ x-a6000: &a6000
             count: 1
             capabilities: [gpu]
 
+x-a6000-python-build: &a6000-python-build
+  context: ..
+  dockerfile: docker/Dockerfile.remote
+  args:
+    BASE_IMAGE: ${REMOTE_BASE:-pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime}
+
 services:
   asr:
     <<: *a6000
+    image: kotonohainterpreter-asr
     build:
-      context: ..
-      dockerfile: docker/Dockerfile.remote
-      args:
-        BASE_IMAGE: ${REMOTE_BASE:-pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime}
+      <<: *a6000-python-build
+      target: asr
     ports: ["8001:8001"]
     command: uvicorn kotonoha.services.asr_server:app --host 0.0.0.0 --port 8001
 
   asr-verify:
     <<: *a6000
-    image: kotonohainterpreter-asr # reuse the image built by the asr service
+    image: kotonohainterpreter-asr-verify
+    build:
+      <<: *a6000-python-build
+      target: asr-verify
     depends_on: [asr]
     ports: ["8002:8002"]
     command: uvicorn kotonoha.services.asr_verify_server:app --host 0.0.0.0 --port 8002
 
   tts:
     <<: *a6000
-    image: kotonohainterpreter-asr
+    image: kotonohainterpreter-tts
+    build:
+      <<: *a6000-python-build
+      target: tts
     depends_on: [asr]
     ports: ["8004:8004"]
     command: uvicorn kotonoha.services.tts_server:app --host 0.0.0.0 --port 8004
@@ -76,5 +87,10 @@ services:
       - MODELS_DIR=/models/gguf
       - LLM_PORT=8003
       - LLM_CTX=${LLM_CTX:-4096}
-      - KOTONOHA_LLM_CONFIG_ENV=/app/config/remote-llm.env
-    entrypoint: ["bash", "/app/scripts/run_llm.sh"]
+      - KOTONOHA_LLM_CONFIG_ENV=/config/remote-llm.env
+    volumes:
+      # Mounting the repository at /app would hide the image's /app/llama-server binary.
+      - ../scripts/run_llm.sh:/opt/kotonoha/run_llm.sh:ro
+      - ../config:/config
+      - ${MODELS_DIR:-../models}:/models
+    entrypoint: ["bash", "/opt/kotonoha/run_llm.sh"]

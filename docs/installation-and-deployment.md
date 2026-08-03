@@ -164,6 +164,7 @@ Available options:
 --health-timeout SEC  Change the model startup timeout from 600 seconds
 --no-build            Start already-built images
 --skip-power-setup    Do not set Jetson MAXN mode or lock clocks
+--remove-images       Remove project-built images during uninstall
 ```
 
 The script does not replace `config/local.yaml`, `config/remote-server.local.yaml`, or an
@@ -175,6 +176,28 @@ requires root privileges, it automatically uses `sudo docker` for Docker and Com
 operations. Jetson power commands also use `sudo` when the script is not running as root.
 Do not run the complete script with `sudo`; host-specific files should remain owned by
 the deployment account.
+
+### Quick uninstall
+
+Remove project containers and the Compose network:
+
+```bash
+# Jetson
+bash scripts/deploy.sh uninstall jetson
+
+# A6000
+bash scripts/deploy.sh uninstall a6000
+```
+
+Also remove images built by this project:
+
+```bash
+bash scripts/deploy.sh uninstall jetson --remove-images
+bash scripts/deploy.sh uninstall a6000 --remove-images
+```
+
+Uninstall never removes model artifacts, logs, SQLite data, `.env`, local YAML overrides,
+or upstream base images. `--remove-images` removes only images named for this project.
 
 ## macOS Development Installation
 
@@ -614,20 +637,27 @@ source .env
 set +a
 docker compose -f docker/compose.remote.yaml config --quiet
 docker compose -f docker/compose.remote.yaml config --images
-docker compose -f docker/compose.remote.yaml build asr
+docker compose -f docker/compose.remote.yaml build asr asr-verify tts
 docker compose -f docker/compose.remote.yaml pull llm
 ```
 
-The ASR build must produce `kotonohainterpreter-asr:latest`. The `asr-verify` and `tts`
-services explicitly reuse that image.
+The build must produce three role-specific images:
 
-Run `docker compose -f docker/compose.remote.yaml config --images` again and confirm that
-all three Python services resolve to `kotonohainterpreter-asr` before startup.
+| Service | Image | Dockerfile target |
+|---|---|---|
+| Primary ASR | `kotonohainterpreter-asr:latest` | `asr` |
+| Verification ASR | `kotonohainterpreter-asr-verify:latest` | `asr-verify` |
+| TTS | `kotonohainterpreter-tts:latest` | `tts` |
 
-The `asr-verify` and `tts` services reuse the ASR image. The remote Dockerfile installs
-transformers, faster-whisper, Qwen3 TTS, and MeloTTS. Flash Attention is best-effort;
-failure must appear in the build log and Qwen3 TTS must report its actual attention
-implementation through `/health`.
+The targets share a cached application layer but install and verify role-specific runtime
+dependencies. The common layer imports `pydantic_settings` during the build. A missing
+core dependency therefore fails the image build instead of entering a restart loop.
+
+The llama.cpp image stores `llama-server` under `/app`. Its Compose service mounts only
+the launcher, configuration directory, and models. Do not restore the repository-wide
+`/app` bind mount on this service because it hides the image binary and causes exit code
+127. Flash Attention remains best-effort in the TTS target; its failure must appear in
+the build log and TTS health must report the backend that loaded.
 
 ### Start and verify the remote stack
 
@@ -774,6 +804,13 @@ docker compose -f docker/compose.yaml stop
 docker compose -f docker/compose.remote.yaml stop
 ```
 
+### Uninstall service containers
+
+Use `scripts/deploy.sh uninstall` when the deployment must be removed from a host. The
+command performs `docker compose down --remove-orphans` and remains usable when GPU or
+model preflight checks fail. Add `--remove-images` only when locally built project images
+must also be deleted.
+
 ### Start existing services
 
 ```bash
@@ -861,6 +898,8 @@ requests. Treat this as a deployment failure on the A6000.
 | Symptom | Inspection | Corrective action |
 |---|---|---|
 | Service returns `ok: false` | Service log and `error` field | Correct model path, dependency, CUDA, or memory failure; restart the service |
+| Python services restart with missing `pydantic_settings` | Inspect x86_64 markers in `uv.lock` and the common image build check | Regenerate the lock with Linux x86_64 support and rebuild all three Python images |
+| LLM restarts with exit code 127 | Inspect LLM mounts and `/app/llama-server` | Remove any bind mount targeting `/app`, then recreate the LLM container |
 | ASR cannot find the model offline | Inspect `asr.model_id` | Set `/models/Qwen3-ASR-1.7B-hf` in the host override |
 | Verification downloads `large-v3` | Inspect `asr_verify.model_id` | Set `/models/faster-whisper-large-v3` |
 | LLM reports `GGUF missing` | Inspect `/models/gguf` and `remote-llm.env` | Correct `MODELS_DIR`, profile, or profile file name; restart `llm` |

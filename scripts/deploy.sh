@@ -9,10 +9,13 @@ repository_root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$repository_root"
 
 deployment_target=""
+operation="deploy"
+uninstall_requested=false
 environment_file="$repository_root/.env"
 health_timeout_seconds=600
 build_images=true
 prepare_jetson_power=true
+remove_images=false
 docker_command=(docker)
 docker_display_command="docker"
 
@@ -21,16 +24,22 @@ usage() {
 Usage:
   bash scripts/deploy.sh jetson [options]
   bash scripts/deploy.sh a6000 [options]
+  bash scripts/deploy.sh uninstall jetson [--remove-images]
+  bash scripts/deploy.sh uninstall a6000 [--remove-images]
 
 Options:
   --env-file PATH       Compose environment file for A6000 deployment (default: .env)
   --health-timeout SEC  Maximum model startup wait in seconds (default: 600)
   --no-build            Start existing images without building
   --skip-power-setup    Do not set Jetson MAXN mode or lock clocks
+  --remove-images       Also remove project-built images during uninstall
   -h, --help            Show this help
 
 The script does not start the interactive orchestrator. It prints the runtime command
 after the resident model services pass their health checks.
+
+Uninstall removes project containers and networks. Models, configuration, secrets,
+logs, and SQLite data are always preserved.
 EOF
 }
 
@@ -58,6 +67,12 @@ while [ "$#" -gt 0 ]; do
       deployment_target=$1
       shift
       ;;
+    uninstall)
+      [ "$uninstall_requested" = false ] || fail "uninstall specified more than once"
+      operation="uninstall"
+      uninstall_requested=true
+      shift
+      ;;
     --env-file)
       [ "$#" -ge 2 ] || fail "--env-file requires a path"
       environment_file=$(cd "$(dirname "$2")" && pwd)/$(basename "$2")
@@ -74,6 +89,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --skip-power-setup)
       prepare_jetson_power=false
+      shift
+      ;;
+    --remove-images)
+      remove_images=true
       shift
       ;;
     -h|--help)
@@ -95,10 +114,10 @@ case "$health_timeout_seconds" in
   ''|*[!0-9]*) fail "--health-timeout must be a positive integer" ;;
 esac
 [ "$health_timeout_seconds" -gt 0 ] || fail "--health-timeout must be greater than zero"
+[ "$remove_images" = false ] || [ "$operation" = "uninstall" ] \
+  || fail "--remove-images is valid only with uninstall"
 
 require_command docker
-require_command curl
-require_command python3
 
 configure_docker_access() {
   if docker info >/dev/null 2>&1; then
@@ -117,6 +136,11 @@ configure_docker_access() {
 }
 
 configure_docker_access
+
+if [ "$operation" = "deploy" ]; then
+  require_command curl
+  require_command python3
+fi
 
 ensure_override() {
   local example_path=$1
@@ -334,7 +358,7 @@ deploy_a6000() {
 
   "${compose_command[@]}" config --quiet
   if [ "$build_images" = true ]; then
-    "${compose_command[@]}" build asr
+    "${compose_command[@]}" build asr asr-verify tts
   fi
   if [ "$build_images" = false ]; then
     "${compose_command[@]}" up -d --no-build asr asr-verify llm tts
@@ -352,7 +376,58 @@ deploy_a6000() {
   printf '%s\n' "$environment_file"
 }
 
-case "$deployment_target" in
-  jetson) deploy_jetson ;;
-  a6000) deploy_a6000 ;;
+remove_project_image() {
+  local image_name=$1
+  if "${docker_command[@]}" image inspect "$image_name" >/dev/null 2>&1; then
+    "${docker_command[@]}" image rm "$image_name"
+  else
+    printf 'Image not present: %s\n' "$image_name"
+  fi
+}
+
+uninstall_jetson() {
+  local compose_file="$repository_root/docker/compose.yaml"
+  printf 'Removing Jetson project containers and network.\n'
+  "${docker_command[@]}" compose -f "$compose_file" down --remove-orphans
+
+  if [ "$remove_images" = true ]; then
+    remove_project_image kotonohainterpreter-asr
+    remove_project_image kotonohainterpreter-asr-verify
+    remove_project_image kotonohainterpreter-tts
+    remove_project_image kotonohainterpreter-orchestrator
+  fi
+
+  printf 'Preserved: config/local.yaml, models/, data/, and upstream base images.\n'
+}
+
+uninstall_a6000() {
+  local compose_file="$repository_root/docker/compose.remote.yaml"
+  local environment_arguments=()
+  if [ -e "$environment_file" ]; then
+    environment_arguments=(--env-file "$environment_file")
+  elif [ -z "${KOTONOHA_SERVICE_TOKEN:-}" ]; then
+    # Compose requires token interpolation even though down does not start a service.
+    export KOTONOHA_SERVICE_TOKEN="uninstall-only"
+  fi
+  local compose_command=(
+    "${docker_command[@]}" compose "${environment_arguments[@]}" -f "$compose_file"
+  )
+
+  printf 'Removing A6000 project containers and network.\n'
+  "${compose_command[@]}" down --remove-orphans
+
+  if [ "$remove_images" = true ]; then
+    remove_project_image kotonohainterpreter-asr
+    remove_project_image kotonohainterpreter-asr-verify
+    remove_project_image kotonohainterpreter-tts
+  fi
+
+  printf 'Preserved: config/remote-server.local.yaml, config/remote-llm.env, .env, models/, and upstream llama.cpp image.\n'
+}
+
+case "$operation:$deployment_target" in
+  deploy:jetson) deploy_jetson ;;
+  deploy:a6000) deploy_a6000 ;;
+  uninstall:jetson) uninstall_jetson ;;
+  uninstall:a6000) uninstall_a6000 ;;
 esac

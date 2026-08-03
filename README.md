@@ -403,17 +403,23 @@ bash scripts/deploy.sh jetson
 
 # RTX A6000 host
 bash scripts/deploy.sh a6000
+
+# Remove containers and the Compose network while preserving data
+bash scripts/deploy.sh uninstall jetson
+bash scripts/deploy.sh uninstall a6000
 ```
 
 The script validates the host and model layout, preserves existing local configuration,
 builds and starts resident services, and waits for model health checks. It does not start
 the interactive orchestrator. When the Docker socket requires root privileges, the
 script automatically uses `sudo docker`; do not run the complete script with `sudo`.
+Add `--remove-images` to an uninstall command to remove project-built images. Models,
+configuration, secrets, logs, and SQLite data remain preserved.
 
 Dependencies are managed with uv. `uv.lock` is committed so that the development
 workstation and the target device resolve identical versions. Lock environments are
-restricted to `darwin-arm64` and `linux-aarch64`, which prevents x86-only wheels from
-entering the lock file.
+restricted to `darwin-arm64`, `linux-aarch64`, and `linux-x86_64`. The x86_64 environment
+is required by the A6000 service images.
 
 ### Development workstation
 

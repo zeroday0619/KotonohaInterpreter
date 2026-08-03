@@ -73,11 +73,11 @@ packages = ["src/kotonoha"]
 [tool.uv]
 # uv sync 는 기본으로 dev 만 넣는다. 평가 도구는 필요할 때 --group eval.
 default-groups = ["dev"]
-# eval 은 개발 PC 전용, device 는 aarch64 전용이라 함께 잠글 일이 없다.
-# 잠금 파일이 macOS 에서 CUDA 휠을 해석하려다 깨지는 것을 막는다.
+# Keep the lock scoped to the development workstation and both deployment architectures.
 environments = [
   "sys_platform == 'darwin' and platform_machine == 'arm64'",
   "sys_platform == 'linux' and platform_machine == 'aarch64'",
+  "sys_platform == 'linux' and platform_machine == 'x86_64'",
 ]
 
 [tool.ruff]

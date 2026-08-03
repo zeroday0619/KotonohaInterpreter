@@ -25,9 +25,11 @@ verified by measurement on the Orin, not by inspection.
 | Link measurement | `uv run kotonoha netcheck` |
 | Deploy Jetson services | `bash scripts/deploy.sh jetson` |
 | Deploy A6000 services | `bash scripts/deploy.sh a6000` |
+| Uninstall Jetson services | `bash scripts/deploy.sh uninstall jetson` |
+| Uninstall A6000 services | `bash scripts/deploy.sh uninstall a6000` |
 
 `uv run ruff check .` and `uv run pytest -q` must both pass before any change is reported
-as complete. Current baseline: 100 tests, zero lint findings.
+as complete. Current baseline: 103 tests, zero lint findings.
 
 Dependencies are managed with uv. Use `uv add`, `uv add --group dev`, and
 `uv lock --upgrade-package`. Do not edit `uv.lock` by hand. Do not invoke `pip`.
