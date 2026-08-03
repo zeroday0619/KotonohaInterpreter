@@ -90,17 +90,37 @@ N-best 를 내는지가 Spike 1 의 질문 그 자체이므로, 답이 나오기
 
 ## 설치
 
+패키지 관리는 [uv](https://docs.astral.sh/uv/)로 한다. `uv.lock` 을 커밋해 두었으므로
+개발 PC와 실기가 같은 버전을 쓴다.
+
 ### 개발 PC (macOS / Linux)
 
 모델 없이 프런트엔드·상태기계·프롬프트·계측을 돌려볼 수 있다.
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
-.venv/bin/python -m pytest -q
-.venv/bin/kotonoha doctor
+uv sync                     # .python-version(3.12) 기준으로 venv 생성 + dev 그룹까지
+uv run pytest -q
+uv run ruff check .
+uv run kotonoha doctor
 ```
 
-`device` extra 는 macOS 에서 설치하지 말 것 (aarch64/CUDA 전용).
+`uv sync` 는 `dev` 그룹까지만 넣는다. 평가 도구(COMET 등)는 무거우니 필요할 때만:
+
+```bash
+uv sync --group eval
+```
+
+`device` extra 는 macOS 에서 설치하지 말 것 (aarch64/CUDA 전용). 잠금 파일의 대상
+환경도 `darwin-arm64` 와 `linux-aarch64` 둘로 제한해 두었다 — x86 휠이 섞여
+들어오지 않는다.
+
+의존성을 바꿨다면:
+
+```bash
+uv add <pkg>                # 런타임
+uv add --group dev <pkg>    # 개발 도구
+uv lock --upgrade-package <pkg>
+```
 
 ### Jetson AGX Orin
 
@@ -114,18 +134,28 @@ docker compose -f docker/compose.yaml run --rm orchestrator
 베이스 이미지 태그는 `r36.4.0` 계열로 고정한다. 검증된 조합이므로 임의로 올리지
 않는다. 실제 존재하는 태그는 `jetson-containers` 의 `autotag` 로 확인해 `.env` 에 적는다.
 
+컨테이너 안에서는 `uv sync` 로 별도 venv 를 만들지 않는다. 베이스 이미지의 시스템
+파이썬에 `uv pip install` 로 얹는다(`UV_SYSTEM_PYTHON=1`). venv 를 만들면 이미지에
+들어 있는 CUDA 빌드 torch 가 가려지기 때문이다. 런타임 의존성은
+`uv export --frozen` 으로 잠금 파일에서 뽑아 고정 설치하고, aarch64 해석이 개발 PC 와
+다른 패키지(`onnxruntime`, `deepfilternet`, `qwen-tts`, `melotts`)만 잠금 밖에서
+best-effort 로 설치한다. 각 이미지는 빌드 마지막에 `torch.version.cuda` 를 찍어,
+그 설치가 CUDA 빌드를 PyPI CPU 빌드로 덮어썼는지 그 자리에서 드러나게 해 두었다.
+
 ---
 
 ## 사용
 
 ```bash
-kotonoha run                     # TUI
-kotonoha doctor                  # 환경·서비스 점검
-kotonoha devices                 # 오디오 장치 목록
-kotonoha replay foo.wav          # 마이크 없이 WAV 로 전 구간 재생 (EOU 회귀 확인)
-kotonoha glossary import config/glossary.seed.yaml
-kotonoha serve asr               # 개별 서비스 기동 (도커 없이)
+uv run kotonoha run                     # TUI
+uv run kotonoha doctor                  # 환경·서비스 점검
+uv run kotonoha devices                 # 오디오 장치 목록
+uv run kotonoha replay foo.wav          # 마이크 없이 WAV 로 전 구간 재생 (EOU 회귀 확인)
+uv run kotonoha glossary import config/glossary.seed.yaml
+uv run kotonoha serve asr               # 개별 서비스 기동 (도커 없이)
 ```
+
+컨테이너 안에서는 시스템 파이썬에 설치돼 있으므로 `uv run` 없이 `kotonoha ...` 로 쓴다.
 
 TUI 키: `space` 말하기(토글) · `a` PTT/자동 · `r` 라우팅 · `c` 지우기 · `q` 종료.
 
@@ -179,10 +209,10 @@ TUI 하단에도 실측/예산이 같이 뜬다.
 **Phase 1 과 병행해 만든다.** 없으면 이후 튜닝이 전부 체감에 의존하고 반드시 퇴행한다.
 
 ```bash
-python3 eval/record_set.py --lang ko --prompts eval/prompts/ko.txt --out eval/data/ko
-python3 eval/run_asr.py --manifest eval/data/ko/manifest.jsonl --out eval/out/ko.hyp.jsonl
-python3 eval/score_cer.py --manifest eval/data/ko/manifest.jsonl --hyp eval/out/ko.hyp.jsonl
-python3 eval/score_comet.py --hyp eval/out/ko2en.jsonl     # 개발 PC 에서만
+uv run eval/record_set.py --lang ko --prompts eval/prompts/ko.txt --out eval/data/ko
+uv run eval/run_asr.py    --manifest eval/data/ko/manifest.jsonl --out eval/out/ko.hyp.jsonl
+uv run eval/score_cer.py  --manifest eval/data/ko/manifest.jsonl --hyp eval/out/ko.hyp.jsonl
+uv run --group eval eval/score_comet.py --hyp eval/out/ko2en.jsonl   # 개발 PC 에서만
 ```
 
 - 4개 언어 각 100발화. **실제 사용할 마이크로, 실제 사용할 공간에서** 녹음한다.

@@ -64,8 +64,15 @@ python3 spikes/spike3_llm_tokrate.py \
 
 ## 보고서 생성
 
+세 스파이크는 각자 맞는 컨테이너 안에서 시스템 `python3` 로 돌린다(그 이미지의
+torch·CUDA 를 그대로 써야 하므로 uv venv 를 만들지 않는다). 보고서 병합은 표준
+라이브러리만 쓰므로 개발 PC 에서 `uv run` 으로 돌려도 된다.
+
 ```bash
 python3 spikes/report.py --dir spikes/out --md spikes/out/PHASE0.md --patch spikes/out/local.yaml
+# 개발 PC 라면
+uv run spikes/report.py --dir spikes/out --md spikes/out/PHASE0.md --patch spikes/out/local.yaml
+
 cp spikes/out/local.yaml config/local.yaml     # 결론을 설정에 반영
 ```
 

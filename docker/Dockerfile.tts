@@ -4,16 +4,31 @@
 ARG BASE_IMAGE=dustynv/pytorch:r36.4.0
 FROM ${BASE_IMAGE}
 
+COPY --from=ghcr.io/astral-sh/uv:0.12 /uv /uvx /bin/
+
 RUN apt-get update && apt-get install -y --no-install-recommends libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
-COPY pyproject.toml README.md LICENSE ./
-COPY src ./src
-RUN pip3 install --no-cache-dir -e . soundfile \
- && (pip3 install --no-cache-dir qwen-tts || echo "!! qwen-tts 실패 — Melo 폴백으로 기동") \
- && (pip3 install --no-cache-dir melotts || echo "!! melotts 실패 — 폴백 없음")
+ENV UV_SYSTEM_PYTHON=1 \
+    UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
-ENV PYTHONUNBUFFERED=1
+WORKDIR /app
+COPY pyproject.toml uv.lock README.md LICENSE ./
+RUN uv export --frozen --no-dev --no-emit-project --no-hashes -o /tmp/req.txt \
+ && uv pip install --no-cache -r /tmp/req.txt soundfile
+
+COPY src ./src
+RUN uv pip install --no-cache --no-deps -e .
+
+# 두 TTS 백엔드 모두 best-effort. 어느 쪽이 뜨는지는 /health 가 알려준다.
+# 잠금 파일을 거치지 않는 이유는 orchestrator 와 같다 — aarch64 해석이 다르다.
+RUN (uv pip install --no-cache qwen-tts || echo "!! qwen-tts 실패 — Melo 폴백으로 기동") \
+ && (uv pip install --no-cache melotts   || echo "!! melotts 실패 — 폴백 없음")
+
+RUN python3 -c "import torch; print('torch', torch.__version__, 'cuda', torch.version.cuda)" \
+    || echo "!! torch 확인 불가"
+
 EXPOSE 8004
 CMD ["uvicorn", "kotonoha.services.tts_server:app", "--host", "0.0.0.0", "--port", "8004"]

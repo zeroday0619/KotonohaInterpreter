@@ -25,9 +25,12 @@ if [ ! -f "$VAD" ]; then
 fi
 
 # --- HF 저장소 ---
-if command -v hf >/dev/null; then HFCLI="hf download"
+# uv 가 있으면 uvx 로 일회성 실행한다. 프로젝트 의존성에 huggingface_hub 를
+# 넣을 이유가 없다 — 런타임에는 쓰지 않고 모델 내려받을 때만 필요하다.
+if command -v uvx >/dev/null; then HFCLI="uvx --from huggingface_hub hf download"
+elif command -v hf >/dev/null; then HFCLI="hf download"
 elif command -v huggingface-cli >/dev/null; then HFCLI="huggingface-cli download"
-else echo "huggingface_hub CLI 필요: pip install -U huggingface_hub"; exit 1; fi
+else echo "uv 또는 huggingface_hub CLI 필요"; exit 1; fi
 
 echo "== Qwen3-ASR 1.7B =="
 $HFCLI Qwen/Qwen3-ASR-1.7B-hf --local-dir "$MODELS/Qwen3-ASR-1.7B-hf"

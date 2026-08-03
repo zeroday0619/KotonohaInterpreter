@@ -24,16 +24,13 @@ dependencies = [
   "uvicorn>=0.30",
 ]
 
+# --- Jetson 실기 전용 ---
+# aarch64 wheel 존재 여부는 Phase 0에서 실측 확인한다. macOS에서 설치하지 말 것.
+#
+# 그룹이 아니라 extra 로 둔 이유: 실기 컨테이너에서는 uv sync 로 venv 를 만들지 않고
+# 베이스 이미지의 시스템 파이썬에 `uv pip install --system -e ".[device]"` 로 얹는다.
+# 그래야 컨테이너에 이미 들어 있는 torch/CUDA 빌드를 그대로 쓴다.
 [project.optional-dependencies]
-# --- 개발 PC(macOS)에서 설치 가능한 것들 ---
-dev = [
-  "pytest>=8.2",
-  "pytest-asyncio>=0.23",
-  "ruff>=0.5",
-  "jiwer>=3.0",
-]
-# --- Jetson 실기 전용. aarch64 wheel 존재 여부는 Phase 0에서 실측 확인한다. ---
-# macOS에서 이 extra를 설치하려 하지 말 것.
 device = [
   "onnxruntime>=1.18",          # silero-vad
   "deepfilternet>=0.5.6",       # DeepFilterNet3
@@ -42,7 +39,18 @@ device = [
   "accelerate>=0.33",
   "soundfile>=0.12",
 ]
-# --- 평가는 개발 PC에서만. Orin에 올리지 않는다(§11). ---
+
+# --- 개발 PC 전용 도구 (PEP 735 dependency-groups) ---
+# 런타임 기능이 아니라 작업 도구이므로 extra 가 아니라 그룹이다.
+# 배포 아티팩트에 새어 들어가지 않는다.
+[dependency-groups]
+dev = [
+  "pytest>=8.2",
+  "pytest-asyncio>=0.23",
+  "ruff>=0.5",
+  "jiwer>=3.0",
+]
+# 평가는 개발 PC에서만. COMET 을 Orin 에 올리지 않는다(§11).
 eval = [
   "jiwer>=3.0",
   "unbabel-comet>=2.2",
@@ -58,6 +66,16 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/kotonoha"]
+
+[tool.uv]
+# uv sync 는 기본으로 dev 만 넣는다. 평가 도구는 필요할 때 --group eval.
+default-groups = ["dev"]
+# eval 은 개발 PC 전용, device 는 aarch64 전용이라 함께 잠글 일이 없다.
+# 잠금 파일이 macOS 에서 CUDA 휠을 해석하려다 깨지는 것을 막는다.
+environments = [
+  "sys_platform == 'darwin' and platform_machine == 'arm64'",
+  "sys_platform == 'linux' and platform_machine == 'aarch64'",
+]
 
 [tool.ruff]
 line-length = 100

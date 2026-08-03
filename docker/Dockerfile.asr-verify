@@ -4,12 +4,24 @@
 ARG BASE_IMAGE=dustynv/faster-whisper:r36.4.0
 FROM ${BASE_IMAGE}
 
-WORKDIR /app
-COPY pyproject.toml README.md LICENSE ./
-COPY src ./src
-RUN pip3 install --no-cache-dir -e . \
- && python3 -c "import ctranslate2, faster_whisper; print('ct2', ctranslate2.__version__)"
+COPY --from=ghcr.io/astral-sh/uv:0.12 /uv /uvx /bin/
 
-ENV PYTHONUNBUFFERED=1
+ENV UV_SYSTEM_PYTHON=1 \
+    UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+COPY pyproject.toml uv.lock README.md LICENSE ./
+RUN uv export --frozen --no-dev --no-emit-project --no-hashes -o /tmp/req.txt \
+ && uv pip install --no-cache -r /tmp/req.txt
+
+COPY src ./src
+RUN uv pip install --no-cache --no-deps -e .
+
+# CTranslate2 는 베이스 이미지의 aarch64 CUDA 빌드를 그대로 쓴다. PyPI 에서 다시
+# 끌어오면 CPU 빌드로 바뀔 수 있으므로 설치하지 않고 존재만 확인한다.
+RUN python3 -c "import ctranslate2, faster_whisper; print('ct2', ctranslate2.__version__, '| fw', faster_whisper.__version__)"
+
 EXPOSE 8002
 CMD ["uvicorn", "kotonoha.services.asr_verify_server:app", "--host", "0.0.0.0", "--port", "8002"]

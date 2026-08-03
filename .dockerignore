@@ -1,0 +1,23 @@
+# 빌드 컨텍스트를 작게. models/ 는 수십 GB라 반드시 제외해야 한다
+# (컨테이너에는 compose 의 volume 으로 마운트된다).
+.venv/
+.git/
+models/
+data/
+spikes/out/
+eval/data/
+eval/out/
+
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.DS_Store
+
+# 기기별 설정은 이미지에 굽지 않는다. compose 가 ../ 를 마운트하므로
+# 실행 시점의 파일이 그대로 보인다.
+config/local.yaml
