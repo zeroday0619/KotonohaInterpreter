@@ -25,6 +25,7 @@ from typing import Annotated
 import numpy as np
 import typer
 
+from .async_runtime import run as run_async
 from .config import Settings, load_settings
 from .i18n import available_locales, set_locale
 from .i18n import t as _
@@ -161,7 +162,7 @@ def run(ctx: typer.Context) -> None:
     setup_logging(s.logging.level, s.resolve(s.logging.log_path), s.logging.console, "orch")
     from .tui import KotonohaApp
 
-    KotonohaApp(_build(s)).run()
+    run_async(KotonohaApp(_build(s)).run_async())
 
 
 @app.command(help=_("cli.replay.help"))
@@ -186,7 +187,7 @@ def replay(
         await asyncio.sleep(seconds)
         await orch.stop()
 
-    asyncio.run(go())
+    run_async(go())
     print(_("cli.replay.turn_log", path=s.resolve(s.logging.turn_log_path)))
 
 
@@ -207,7 +208,14 @@ def serve(
     import uvicorn
 
     target, default_port = SERVICE_TARGETS[service]
-    uvicorn.run(target, host=host, port=port or default_port, log_level="info", workers=1)
+    uvicorn.run(
+        target,
+        host=host,
+        port=port or default_port,
+        log_level="info",
+        loop="uvloop",
+        workers=1,
+    )
 
 
 @glossary_app.command("import", help=_("cli.glossary.import.help"))
@@ -265,6 +273,7 @@ def doctor(ctx: typer.Context) -> None:
 
     mods = [
         ("numpy", True), ("httpx", True), ("structlog", True), ("textual", True),
+        ("uvloop", True),
         ("soxr", True), ("sounddevice", False), ("opencc", False),
         ("onnxruntime", False), ("torch", False), ("transformers", False),
         ("faster_whisper", False), ("df", False), ("qwen_tts", False), ("melo", False),
@@ -294,7 +303,7 @@ def doctor(ctx: typer.Context) -> None:
                 print(f"  {tag:<20} {state:<4} {json.dumps(h, ensure_ascii=False)[:80]}")
         await group.aclose()
 
-    asyncio.run(probe())
+    run_async(probe())
 
 
 @app.command(help=_("cli.netcheck.help"))
@@ -417,7 +426,7 @@ def netcheck(
         )
         return not failed
 
-    if not asyncio.run(go()):
+    if not run_async(go()):
         raise typer.Exit(code=1)
 
 
@@ -425,7 +434,7 @@ def netcheck(
 def config(ctx: typer.Context) -> None:
     from .tui.config_app import ConfigApp
 
-    ConfigApp(config_path=ctx.obj.config).run()
+    run_async(ConfigApp(config_path=ctx.obj.config).run_async())
 
 
 def main() -> None:

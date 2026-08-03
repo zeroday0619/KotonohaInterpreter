@@ -25,6 +25,7 @@ dependencies = [
   "uvicorn>=0.30",
   # Multipart parsing for the /transcribe/upload path used in remote mode.
   "python-multipart>=0.0.9",
+  "uvloop>=0.22.1,<0.23",
 ]
 
 # --- Jetson 실기 전용 ---

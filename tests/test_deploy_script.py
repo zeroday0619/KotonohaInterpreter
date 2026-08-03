@@ -102,3 +102,24 @@ def test_remote_tts_image_builds_and_verifies_required_dependencies() -> None:
     assert "|| echo" not in dockerfile
     assert "TTS_BUILD_IMAGE" in compose["services"]["tts"]["build"]["args"]
     assert remote_config["tts"]["fallback"] == "none"
+
+
+def test_python_service_containers_force_uvloop() -> None:
+    compose_paths = (
+        PROJECT_ROOT / "docker" / "compose.yaml",
+        PROJECT_ROOT / "docker" / "compose.remote.yaml",
+    )
+    for compose_path in compose_paths:
+        compose = yaml.safe_load(compose_path.read_text(encoding="utf-8"))
+        for role in ("asr", "asr-verify", "tts"):
+            assert "--loop uvloop" in compose["services"][role]["command"]
+
+    dockerfile_paths = (
+        PROJECT_ROOT / "docker" / "Dockerfile.asr",
+        PROJECT_ROOT / "docker" / "Dockerfile.asr-verify",
+        PROJECT_ROOT / "docker" / "Dockerfile.tts",
+        PROJECT_ROOT / "docker" / "Dockerfile.remote",
+    )
+    for dockerfile_path in dockerfile_paths:
+        dockerfile = dockerfile_path.read_text(encoding="utf-8")
+        assert '"--loop", "uvloop"' in dockerfile

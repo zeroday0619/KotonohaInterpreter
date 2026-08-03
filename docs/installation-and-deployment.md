@@ -233,6 +233,11 @@ uv run kotonoha doctor
 do not represent Jetson compatibility. Unit tests must continue to run without models,
 microphones, or network access.
 
+`kotonoha doctor` must report `uvloop` as available. The orchestrator, both Textual
+applications, CLI network probes, and all Python model services require uvloop. Uvicorn
+commands set `--loop uvloop` explicitly, so a missing wheel fails during installation or
+startup instead of changing the event-loop implementation silently.
+
 ## Model Artifact Preparation
 
 ### Download artifacts

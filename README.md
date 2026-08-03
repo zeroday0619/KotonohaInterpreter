@@ -74,6 +74,7 @@ sudo jetson_clocks
 | CUDA | 12.6 | |
 | Python | 3.10 on device, 3.12 on workstation | Source targets 3.10 syntax |
 | Package manager | uv 0.12 | `uv.lock` is committed |
+| Async event loop | uvloop 0.22.1 | Required by the orchestrator, TUI, CLI probes, and Python services |
 | Base images | `dustynv/*:r36.4.0` | Verified combination; do not upgrade without revalidation |
 | vLLM container | `ghcr.io/nvidia-ai-iot/vllm:r36.4-tegra-aarch64-cu126-22.04` | Spike 1 only |
 
@@ -94,7 +95,7 @@ Audio frontend (CPU)              audio/capture.py, denoise.py, vad.py
   End-of-utterance: 800 ms silence
    |
    v  shared-memory ring          shmring.py
-Orchestrator (asyncio)            core/orchestrator.py
+Orchestrator (asyncio/uvloop)     core/orchestrator.py
   State machine, language routing, quality gate
    |
    +--> :8001 asr          Qwen3-ASR 1.7B, N-best 5, language identification
@@ -492,6 +493,10 @@ validated before the command body runs, and shell completion is installed with
 
 Prefix commands with `uv run` on the development workstation. Inside containers the
 package is installed into the system Python and the prefix is unnecessary.
+
+Top-level asynchronous command handlers and both Textual applications run through
+`uvloop.run()`. Uvicorn services set `--loop uvloop` explicitly. Startup fails when
+uvloop is unavailable instead of silently selecting the standard asyncio event loop.
 
 ### Terminal UI
 

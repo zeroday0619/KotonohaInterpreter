@@ -24,4 +24,4 @@ RUN uv pip install --no-cache --no-deps -e .
 RUN python3 -c "import ctranslate2, faster_whisper; print('ct2', ctranslate2.__version__, '| fw', faster_whisper.__version__)"
 
 EXPOSE 8002
-CMD ["uvicorn", "kotonoha.services.asr_verify_server:app", "--host", "0.0.0.0", "--port", "8002"]
+CMD ["uvicorn", "kotonoha.services.asr_verify_server:app", "--host", "0.0.0.0", "--port", "8002", "--loop", "uvloop"]

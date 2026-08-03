@@ -52,7 +52,7 @@ services:
       <<: *a6000-python-build
       target: asr
     ports: ["8001:8001"]
-    command: uvicorn kotonoha.services.asr_server:app --host 0.0.0.0 --port 8001
+    command: uvicorn kotonoha.services.asr_server:app --host 0.0.0.0 --port 8001 --loop uvloop
 
   asr-verify:
     <<: *a6000
@@ -62,7 +62,7 @@ services:
       target: asr-verify
     depends_on: [asr]
     ports: ["8002:8002"]
-    command: uvicorn kotonoha.services.asr_verify_server:app --host 0.0.0.0 --port 8002
+    command: uvicorn kotonoha.services.asr_verify_server:app --host 0.0.0.0 --port 8002 --loop uvloop
 
   tts:
     <<: *a6000
@@ -75,7 +75,7 @@ services:
         TTS_BUILD_IMAGE: ${REMOTE_TTS_BUILD_BASE:-pytorch/pytorch:2.6.0-cuda12.6-cudnn9-devel}
     depends_on: [asr]
     ports: ["8004:8004"]
-    command: uvicorn kotonoha.services.tts_server:app --host 0.0.0.0 --port 8004
+    command: uvicorn kotonoha.services.tts_server:app --host 0.0.0.0 --port 8004 --loop uvloop
 
   llm:
     <<: *a6000
