@@ -1,8 +1,9 @@
 """Optional bearer-token check for services exposed on the network.
 
-On the Orin every service listens on loopback, so this stays off. The A6000
-box is reachable from the LAN, and an open /transcribe there is an open
-microphone-transcription endpoint for anyone on the network.
+The default Orin deployment leaves authentication disabled and relies on host firewall
+policy around the host-networked service ports. The A6000 is reachable from the LAN, and
+an open /transcribe there is an open microphone-transcription endpoint for anyone on the
+network.
 
 Set KOTONOHA_SERVICE_TOKEN on the service and KOTONOHA__REMOTE__TOKEN on the
 orchestrator. With the variable unset the check is disabled and that fact is

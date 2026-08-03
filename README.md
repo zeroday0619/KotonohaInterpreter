@@ -9,6 +9,10 @@ The system converts a completed utterance into speech in a target language. It i
 consecutive, not simultaneous: translation begins after end-of-utterance is detected.
 All inference runs on hardware owned by the operator. No cloud service is contacted.
 
+Detailed environment preparation, installation, deployment, security, update, rollback,
+and acceptance procedures are defined in
+[`docs/installation-and-deployment.md`](docs/installation-and-deployment.md).
+
 | Property | Value |
 |---|---|
 | Languages | Korean, English, Traditional Chinese (Taiwan), Japanese |
@@ -37,7 +41,7 @@ output into `config/local.yaml`, which is layered over the defaults without code
 Whether vLLM loads Qwen3-ASR on sm_87 and whether it exposes N-best output is the question
 Spike 1 answers. Implementing it beforehand would invalidate the latency budget.
 
-Verified on a macOS development workstation: 86 unit tests pass, `ruff` reports no
+Verified on a macOS development workstation: 97 unit tests pass, `ruff` reports no
 findings, and end-to-end smoke runs against mock services exercise the on-board path, the
 remote upload path, and link failover. These runs validate control flow and
 instrumentation. They do not measure model inference time.
@@ -304,6 +308,10 @@ the value is changed only after Spike 1 is executed on the A6000 itself.
 
 ### Deployment
 
+The commands below are a summary. Use the complete procedure in
+[`docs/installation-and-deployment.md`](docs/installation-and-deployment.md) for model
+paths, authentication, health checks, restart scope, and deployment acceptance.
+
 On the RTX A6000 host:
 
 ```bash
@@ -347,6 +355,13 @@ endpoint is an open transcription service for any host that can reach it.
 - When the variable is unset, the service logs `auth.disabled` at startup. Absence of
   authentication is never silent.
 - `remote.verify_tls` and `remote.ca_bundle` control certificate validation on the client.
+- The llama.cpp service on port 8003 does not use the project FastAPI authentication
+  middleware. Restrict the port to the Jetson or protect it with an authenticated reverse
+  proxy.
+
+Jetson services also use host networking and bind to `0.0.0.0`. The default Jetson
+Compose environment does not enable bearer authentication. Restrict ports 8001-8004 at
+the Jetson host firewall.
 
 The mechanism is a shared secret on a trusted network. It does not replace network
 isolation of the A6000 host.
@@ -375,6 +390,10 @@ environment variables outrank the loaded YAML. The default ordering places initi
 values first, which silently discards these overrides.
 
 ## Installation
+
+This section provides the minimal installation path. Use
+[`docs/installation-and-deployment.md`](docs/installation-and-deployment.md) for the
+complete workstation, Jetson, and A6000 runbook.
 
 Dependencies are managed with uv. `uv.lock` is committed so that the development
 workstation and the target device resolve identical versions. Lock environments are
@@ -662,6 +681,7 @@ model size.
 
 ## References
 
+- `docs/installation-and-deployment.md` — installation and deployment runbook
 - `spikes/README.md` — Phase 0 procedure and acceptance criteria
 - `config/default.yaml` — complete configuration baseline
 - `config/performance.yaml` — high-performance mode overlay
