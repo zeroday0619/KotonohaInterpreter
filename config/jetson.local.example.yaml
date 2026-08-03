@@ -1,0 +1,18 @@
+# Jetson-specific paths for an offline deployment.
+# scripts/deploy.sh copies this file to config/local.yaml only when no local override exists.
+
+frontend:
+  vad:
+    model_path: /app/models/silero_vad.onnx
+
+asr:
+  model_id: /models/Qwen3-ASR-1.7B-hf
+
+asr_verify:
+  model_id: /models/faster-whisper-large-v3
+
+llm:
+  models_dir: /models/gguf
+
+tts:
+  model_id: /models/Qwen3-TTS-0.6B

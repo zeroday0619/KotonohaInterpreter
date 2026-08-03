@@ -1,0 +1,14 @@
+# A6000-specific paths for an offline deployment.
+# scripts/deploy.sh copies this file only when no remote server override exists.
+
+asr:
+  model_id: /models/Qwen3-ASR-1.7B-hf
+
+asr_verify:
+  model_id: /models/faster-whisper-large-v3
+
+llm:
+  models_dir: /models/gguf
+
+tts:
+  model_id: /models/Qwen3-TTS-0.6B

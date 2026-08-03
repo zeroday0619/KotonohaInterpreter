@@ -23,9 +23,11 @@ verified by measurement on the Orin, not by inspection.
 | Configuration editor | `uv run kotonoha config` |
 | Pipeline without a microphone | `uv run kotonoha replay <wav> --seconds 12` |
 | Link measurement | `uv run kotonoha netcheck` |
+| Deploy Jetson services | `bash scripts/deploy.sh jetson` |
+| Deploy A6000 services | `bash scripts/deploy.sh a6000` |
 
 `uv run ruff check .` and `uv run pytest -q` must both pass before any change is reported
-as complete. Current baseline: 97 tests, zero lint findings.
+as complete. Current baseline: 100 tests, zero lint findings.
 
 Dependencies are managed with uv. Use `uv add`, `uv add --group dev`, and
 `uv lock --upgrade-package`. Do not edit `uv.lock` by hand. Do not invoke `pip`.
@@ -147,6 +149,7 @@ that property.
 | `test_state_and_metrics.py` | State transitions, five-point instrumentation, budget overrun reporting |
 | `test_remote_mode.py` | Role placement, PCM encoding, failover behavior |
 | `test_config_admin.py` | Remote configuration authorization, allowlist, validation, persistence |
+| `test_deploy_script.py` | Deployment script interface and host override templates |
 | `test_i18n.py` | Catalog parity, placeholder parity, locale resolution, configuration editor persistence |
 | `test_tui.py` | Both interfaces compose, bindings and labels follow the locale |
 

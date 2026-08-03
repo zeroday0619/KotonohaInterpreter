@@ -395,6 +395,21 @@ This section provides the minimal installation path. Use
 [`docs/installation-and-deployment.md`](docs/installation-and-deployment.md) for the
 complete workstation, Jetson, and A6000 runbook.
 
+Quick deployment after model artifacts are present:
+
+```bash
+# Jetson AGX Orin
+bash scripts/deploy.sh jetson
+
+# RTX A6000 host
+bash scripts/deploy.sh a6000
+```
+
+The script validates the host and model layout, preserves existing local configuration,
+builds and starts resident services, and waits for model health checks. It does not start
+the interactive orchestrator. When the Docker socket requires root privileges, the
+script automatically uses `sudo docker`; do not run the complete script with `sudo`.
+
 Dependencies are managed with uv. `uv.lock` is committed so that the development
 workstation and the target device resolve identical versions. Lock environments are
 restricted to `darwin-arm64` and `linux-aarch64`, which prevents x86-only wheels from

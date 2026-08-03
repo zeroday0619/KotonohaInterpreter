@@ -135,6 +135,47 @@ git status --short
 Record the commit hash in the deployment record. Continue only when `git status --short`
 is empty, or when every local file is an intentional host-specific ignored file.
 
+## Quick Deployment
+
+The deployment script performs host validation, verifies required model artifacts,
+creates missing host-specific configuration from committed templates, builds images,
+starts resident model services, and waits for health checks.
+
+On the Jetson:
+
+```bash
+bash scripts/deploy.sh jetson
+```
+
+On the A6000:
+
+```bash
+bash scripts/deploy.sh a6000
+```
+
+The first A6000 run creates a protected `.env` file with a random 32-byte service token
+when no file or `KOTONOHA_SERVICE_TOKEN` value exists. Transfer that token to the Jetson
+through a secure channel. The script never prints the token.
+
+Available options:
+
+```text
+--env-file PATH       Use a non-default A6000 Compose environment file
+--health-timeout SEC  Change the model startup timeout from 600 seconds
+--no-build            Start already-built images
+--skip-power-setup    Do not set Jetson MAXN mode or lock clocks
+```
+
+The script does not replace `config/local.yaml`, `config/remote-server.local.yaml`, or an
+existing `.env`. It does not start the interactive orchestrator. Continue with the
+runtime command printed after all resident services become healthy.
+
+The script first attempts Docker access as the current user. When the Docker socket
+requires root privileges, it automatically uses `sudo docker` for Docker and Compose
+operations. Jetson power commands also use `sudo` when the script is not running as root.
+Do not run the complete script with `sudo`; host-specific files should remain owned by
+the deployment account.
+
 ## macOS Development Installation
 
 ### Install dependencies
@@ -293,8 +334,10 @@ mkdir -p data/logs models/gguf
 
 ### Create the Jetson override
 
-Create `config/local.yaml` with the following complete host-path overlay. The file is
-ignored by Git and is shared with every Jetson container through `/app`.
+The quick deployment script copies `config/jetson.local.example.yaml` to
+`config/local.yaml` when the override does not exist. For manual deployment, create the
+file with the following complete host-path overlay. The file is ignored by Git and is
+shared with every Jetson container through `/app`.
 
 ```yaml
 # Jetson-specific paths for an offline deployment.
@@ -328,7 +371,13 @@ during installation.
 
 ```bash
 docker compose -f docker/compose.yaml config --quiet
+docker compose -f docker/compose.yaml config --images
 ```
+
+Both Compose files set the project name to `kotonohainterpreter`. Locally built images
+therefore use the `kotonohainterpreter-<service>:latest` naming pattern regardless of the
+`docker/` directory name. The expected ASR image is
+`kotonohainterpreter-asr:latest`.
 
 Confirm that these image families remain unchanged in the rendered configuration:
 
@@ -472,7 +521,8 @@ test -s models/gguf/Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf
 
 ### Create the remote service override
 
-Create `config/remote-server.local.yaml`:
+The quick deployment script copies `config/remote-server.local.example.yaml` when the
+override does not exist. For manual deployment, create `config/remote-server.local.yaml`:
 
 ```yaml
 # A6000-specific paths for an offline deployment.
@@ -525,9 +575,16 @@ set -a
 source .env
 set +a
 docker compose -f docker/compose.remote.yaml config --quiet
+docker compose -f docker/compose.remote.yaml config --images
 docker compose -f docker/compose.remote.yaml build asr
 docker compose -f docker/compose.remote.yaml pull llm
 ```
+
+The ASR build must produce `kotonohainterpreter-asr:latest`. The `asr-verify` and `tts`
+services explicitly reuse that image.
+
+Run `docker compose -f docker/compose.remote.yaml config --images` again and confirm that
+all three Python services resolve to `kotonohainterpreter-asr` before startup.
 
 The `asr-verify` and `tts` services reuse the ASR image. The remote Dockerfile installs
 transformers, faster-whisper, Qwen3 TTS, and MeloTTS. Flash Attention is best-effort;

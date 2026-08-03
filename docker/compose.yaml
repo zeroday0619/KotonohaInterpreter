@@ -10,6 +10,8 @@
 # confirm the tags that actually exist on the device with jetson-containers'
 # autotag, then record them in .env.
 
+name: kotonohainterpreter
+
 x-jetson: &jetson
   runtime: nvidia
   ipc: host
