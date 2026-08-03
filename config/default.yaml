@@ -176,7 +176,7 @@ logging:
   level: INFO
   log_path: ./data/logs/kotonoha.jsonl # application log
   turn_log_path: ./data/logs/turns.jsonl # §11 turn metrics, one line per turn
-  console: false # off by default because the TUI owns the terminal
+  console: true # rendered as structured records in the TUI; raw JSON in service consoles
 
 # §6 latency budget in ms. Stages that exceed it appear in the turn log as over_budget.
 budget_ms:

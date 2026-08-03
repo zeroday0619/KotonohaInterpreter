@@ -472,7 +472,8 @@ by lookup in 2026-08.
 
 | Command | Function |
 |---|---|
-| `kotonoha run` | Start the terminal UI |
+| `kotonoha tui` | Start the integrated control center for interpretation, configuration, and operations |
+| `kotonoha run` | Start the interpreter directly |
 | `kotonoha doctor` | Report environment, role placement, and service health |
 | `kotonoha config` | Edit the configuration in a terminal interface |
 | `kotonoha netcheck` | Measure link latency and throughput to the A6000 |
@@ -491,10 +492,18 @@ The interface is built on Typer. Every command accepts `-h` or `--help`, argumen
 validated before the command body runs, and shell completion is installed with
 `kotonoha --install-completion`.
 
+`kotonoha tui` is the primary operator entry point. The control center opens the
+interpreter, the local and remote configuration editor, or the operations screen. The
+operations screen exposes replay, device discovery, service startup, diagnostics, link
+measurement, glossary management, and shell completion with the same arguments and
+validation as the CLI. It streams child-process output and can terminate long-running
+replay and service processes. Exiting any screen returns to the control center. Settings
+saved in the editor are reloaded before the interpreter starts.
+
 Prefix commands with `uv run` on the development workstation. Inside containers the
 package is installed into the system Python and the prefix is unnecessary.
 
-Top-level asynchronous command handlers and both Textual applications run through
+Top-level asynchronous command handlers and all Textual applications run through
 `uvloop.run()`. Uvicorn services set `--loop uvloop` explicitly. Startup fails when
 uvloop is unavailable instead of silently selecting the standard asyncio event loop.
 
@@ -511,8 +520,13 @@ uvloop is unavailable instead of silently selecting the standard asyncio event l
 Push-to-talk is a toggle because terminals do not deliver key-release events. Preroll
 remains active in push-to-talk mode.
 
-The status bar reports state, microphone gating, performance mode, and, in `remote` mode,
-an indicator that audio is leaving the device. The service panel reports the side serving
+The status bar reports state, microphone gating, performance mode, and whether utterance
+audio leaves the device. The lower log panel receives the same
+structured JSON records written to `logging.log_path` and renders them as timestamp,
+level, service, event, and key-value fields. `logging.console=true` enables this panel in
+TUI processes and remains the default. TUI processes do not write raw JSON to the
+terminal because it would corrupt the Textual display. Model service processes continue
+to emit raw JSON to their container consoles. The service panel reports the side serving
 each role and whether it is degraded.
 
 ### Instrumentation

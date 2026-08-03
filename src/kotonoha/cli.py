@@ -159,10 +159,23 @@ def _settings(ctx: typer.Context) -> Settings:
 @app.command(help=_("cli.run.help"))
 def run(ctx: typer.Context) -> None:
     s = _settings(ctx)
-    setup_logging(s.logging.level, s.resolve(s.logging.log_path), s.logging.console, "orch")
+    setup_logging(
+        s.logging.level,
+        s.resolve(s.logging.log_path),
+        s.logging.console,
+        "orch",
+        terminal_interface=True,
+    )
     from .tui import KotonohaApp
 
     run_async(KotonohaApp(_build(s)).run_async())
+
+
+@app.command(help=_("cli.tui.help"))
+def tui(ctx: typer.Context) -> None:
+    from .tui import run_unified_tui
+
+    run_async(run_unified_tui(ctx.obj.config, _build))
 
 
 @app.command(help=_("cli.replay.help"))
@@ -362,7 +375,7 @@ def netcheck(
             for role in remote_roles:
                 url = s.url_for(role, "remote").rstrip("/")
                 measured = []
-                for _ in range(samples):
+                for _measurement_index in range(samples):
                     t0 = time.perf_counter()
                     try:
                         r = await client.get(f"{url}/health")
@@ -387,7 +400,7 @@ def netcheck(
             for role in [r for r in ("asr", "asr_verify") if r in rtts]:
                 url = s.url_for(role, "remote").rstrip("/")
                 measured = []
-                for _ in range(samples):
+                for _measurement_index in range(samples):
                     t0 = time.perf_counter()
                     try:
                         r = await client.post(

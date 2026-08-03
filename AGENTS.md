@@ -20,6 +20,7 @@ verified by measurement on the Orin, not by inspection.
 | Lint | `uv run ruff check .` |
 | Autofix | `uv run ruff check --fix .` |
 | Environment report | `uv run kotonoha doctor` |
+| Integrated terminal UI | `uv run kotonoha tui` |
 | Configuration editor | `uv run kotonoha config` |
 | Pipeline without a microphone | `uv run kotonoha replay <wav> --seconds 12` |
 | Link measurement | `uv run kotonoha netcheck` |
@@ -29,7 +30,7 @@ verified by measurement on the Orin, not by inspection.
 | Uninstall A6000 services | `bash scripts/deploy.sh uninstall a6000` |
 
 `uv run ruff check .` and `uv run pytest -q` must both pass before any change is reported
-as complete. Current baseline: 109 tests, zero lint findings.
+as complete. Current baseline: 137 tests, zero lint findings.
 
 Dependencies are managed with uv. Use `uv add`, `uv add --group dev`, and
 `uv lock --upgrade-package`. Do not edit `uv.lock` by hand. Do not invoke `pip`.
@@ -153,7 +154,10 @@ that property.
 | `test_config_admin.py` | Remote configuration authorization, allowlist, validation, persistence |
 | `test_deploy_script.py` | Deployment script interface and host override templates |
 | `test_i18n.py` | Catalog parity, placeholder parity, locale resolution, configuration editor persistence |
-| `test_tui.py` | Both interfaces compose, bindings and labels follow the locale |
+| `test_tui.py` | Interfaces compose, bindings and labels follow the locale |
+| `test_tui_logging.py` | TUI log buffering, JSON parsing, formatting, and file preservation |
+| `test_tui_tools.py` | Operations command construction and input validation |
+| `test_tui_workflow.py` | Control-center sequencing and settings reload behavior |
 
 A change to any hard constraint requires a test that fails when the constraint is removed.
 

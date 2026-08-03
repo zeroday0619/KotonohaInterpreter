@@ -20,12 +20,14 @@ import asyncio
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding, BindingsMap
-from textual.containers import Horizontal
+from textual.containers import Container, Horizontal
 from textual.reactive import reactive
-from textual.widgets import Footer, Header, Static
+from textual.widgets import Footer, Header, RichLog, Static
 
 from ..core.events import UiEvent
 from ..i18n import t as _
+from ..logging_setup import drain_terminal_interface_logs
+from .log_panel import format_json_log
 
 STATE_STYLE = {
     "IDLE": "dim white",
@@ -205,8 +207,11 @@ class KotonohaApp(App):
     StatusBar { height: 1; background: $panel; }
     #panes { height: 1fr; }
     #src, #tgt { width: 1fr; border: round $primary; padding: 0 1; }
-    #bottom { height: 12; }
+    #bottom { height: 9; }
     #lat, #svc { width: 1fr; border: round $secondary; padding: 0 1; }
+    #logs { height: 7; border: round $secondary; padding: 0 1; }
+    #log-title { height: 1; text-style: bold underline; }
+    #log-output { height: 1fr; }
     """
 
     # Descriptions are localized in __init__: BINDINGS is a class attribute and is
@@ -250,6 +255,15 @@ class KotonohaApp(App):
             self.svc = ServicePanel(id="svc")
             yield self.lat
             yield self.svc
+        with Container(id="logs"):
+            yield Static(_("tui.panel.logs"), id="log-title")
+            self.log_output = RichLog(
+                max_lines=500,
+                wrap=True,
+                markup=False,
+                id="log-output",
+            )
+            yield self.log_output
         yield Footer()
 
     async def on_mount(self) -> None:
@@ -259,8 +273,12 @@ class KotonohaApp(App):
         self.status.routing = self.orch.s.session.routing
         self.status.perf = self.orch.s.perf_mode
         self.status.offbox_audio = self.orch.s.audio_leaves_device
+        if not self.orch.s.logging.console:
+            self.log_output.write(Text(_("tui.logs.disabled"), style="dim"))
         await self.orch.start()
         self.run_worker(self._drain(), exclusive=False)
+        if self.orch.s.logging.console:
+            self.run_worker(self._drain_logs(), exclusive=False)
 
     async def on_unmount(self) -> None:
         await self.orch.stop()
@@ -273,6 +291,15 @@ class KotonohaApp(App):
             except asyncio.CancelledError:
                 return
             self._apply(ev)
+
+    async def _drain_logs(self) -> None:
+        while True:
+            try:
+                for raw_message in drain_terminal_interface_logs():
+                    self.log_output.write(format_json_log(raw_message))
+                await asyncio.sleep(0.1)
+            except asyncio.CancelledError:
+                return
 
     def _apply(self, ev: UiEvent) -> None:
         p = ev.payload

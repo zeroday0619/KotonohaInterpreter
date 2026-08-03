@@ -235,7 +235,7 @@ class LoggingCfg(BaseModel):
     # turn log (§11) can no longer be parsed as-is and every reader needs a filter.
     log_path: Path = Path("./data/logs/kotonoha.jsonl")
     turn_log_path: Path = Path("./data/logs/turns.jsonl")
-    console: bool = False
+    console: bool = True
 
 
 class BudgetCfg(BaseModel):
