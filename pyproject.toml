@@ -17,6 +17,7 @@ dependencies = [
   "structlog>=24.1",
   "textual>=0.79",
   "rich>=13.7",
+  "typer>=0.12",
   "soxr>=0.5",
   "sounddevice>=0.4.7",
   "opencc-python-reimplemented>=0.1.7",

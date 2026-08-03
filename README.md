@@ -439,6 +439,10 @@ by lookup in 2026-08.
 `kotonoha replay` forces automatic mode, because no key is available to signal
 push-to-talk. It is the regression path for end-of-utterance and preroll behavior.
 
+The interface is built on Typer. Every command accepts `-h` or `--help`, arguments are
+validated before the command body runs, and shell completion is installed with
+`kotonoha --install-completion`.
+
 Prefix commands with `uv run` on the development workstation. Inside containers the
 package is installed into the system Python and the prefix is unnecessary.
 
