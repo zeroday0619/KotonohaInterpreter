@@ -4,8 +4,10 @@ The global --config option lives on the callback and reaches each command throug
 `ctx.obj`. Commands signal failure with `typer.Exit`; nothing returns an exit code
 directly.
 
-Command output text is unchanged from the argparse implementation. This module
-migrates the argument parser, not the operator-facing output.
+All operator-facing text goes through `i18n.t`. Typer renders command help at import
+time, so help text follows the locale resolved then: KOTONOHA_LANG, ui.language in the
+configuration, the system locale, then English. The --lang option is applied after
+parsing and therefore affects command output, not the help screens.
 """
 
 from __future__ import annotations
@@ -24,6 +26,8 @@ import numpy as np
 import typer
 
 from .config import Settings, load_settings
+from .i18n import available_locales, set_locale
+from .i18n import t as _
 from .logging_setup import setup_logging
 
 
@@ -112,12 +116,12 @@ SERVICE_TARGETS = {
 
 app = typer.Typer(
     name="kotonoha",
-    help="순차식 4언어 오프라인 통역기",
+    help=_("cli.app.help"),
     no_args_is_help=True,
     add_completion=True,
     context_settings={"help_option_names": ["-h", "--help"]},
 )
-glossary_app = typer.Typer(name="glossary", help="용어집 관리", no_args_is_help=True)
+glossary_app = typer.Typer(name="glossary", help=_("cli.glossary.help"), no_args_is_help=True)
 app.add_typer(glossary_app)
 
 ConfigOption = Annotated[
@@ -128,13 +132,21 @@ ConfigOption = Annotated[
         exists=True,
         dir_okay=False,
         readable=True,
-        help="YAML 설정 경로",
+        help=_("cli.opt.config"),
     ),
+]
+LangOption = Annotated[
+    str | None,
+    typer.Option("--lang", help=_("cli.opt.lang")),
 ]
 
 
 @app.callback()
-def cli(ctx: typer.Context, config: ConfigOption = None) -> None:
+def cli(ctx: typer.Context, config: ConfigOption = None, lang: LangOption = None) -> None:
+    if lang and lang != "auto":
+        if lang not in available_locales():
+            raise typer.BadParameter(f"{lang} not in {', '.join(available_locales())}")
+        set_locale(lang)
     ctx.obj = AppState(config=config)
 
 
@@ -143,9 +155,8 @@ def _settings(ctx: typer.Context) -> Settings:
 
 
 # -- commands -------------------------------------------------------------
-@app.command()
+@app.command(help=_("cli.run.help"))
 def run(ctx: typer.Context) -> None:
-    """TUI 실행"""
     s = _settings(ctx)
     setup_logging(s.logging.level, s.resolve(s.logging.log_path), s.logging.console, "orch")
     from .tui import KotonohaApp
@@ -153,17 +164,16 @@ def run(ctx: typer.Context) -> None:
     KotonohaApp(_build(s)).run()
 
 
-@app.command()
+@app.command(help=_("cli.replay.help"))
 def replay(
     ctx: typer.Context,
-    wav: Annotated[Path, typer.Argument(exists=True, dir_okay=False, help="16-bit PCM WAV")],
-    seconds: Annotated[float, typer.Option(help="실행 시간")] = 30.0,
+    wav: Annotated[
+        Path, typer.Argument(exists=True, dir_okay=False, help=_("cli.replay.arg.wav"))
+    ],
+    seconds: Annotated[float, typer.Option(help=_("cli.replay.opt.seconds"))] = 30.0,
 ) -> None:
-    """WAV 로 파이프라인 재생 (마이크 없이)
-
-    Runs the whole pipeline from a file. This is the regression path for
-    end-of-utterance and preroll behaviour.
-    """
+    # Runs the whole pipeline from a file. This is the regression path for
+    # end-of-utterance and preroll behaviour.
     s = _settings(ctx)
     # There is no key to press when replaying a file, and the VAD has to do the
     # segmenting, so force automatic mode.
@@ -177,37 +187,36 @@ def replay(
         await orch.stop()
 
     asyncio.run(go())
-    print(f"턴 로그: {s.resolve(s.logging.turn_log_path)}")
+    print(_("cli.replay.turn_log", path=s.resolve(s.logging.turn_log_path)))
 
 
-@app.command()
+@app.command(help=_("cli.devices.help"))
 def devices() -> None:
-    """오디오 장치 목록"""
     import sounddevice as sd
 
     print(sd.query_devices())
-    print("\n기본 입력/출력:", sd.default.device)
+    print("\n" + _("cli.devices.default"), sd.default.device)
 
 
-@app.command()
+@app.command(help=_("cli.serve.help"))
 def serve(
-    service: Annotated[ServiceName, typer.Argument(help="기동할 서비스")],
-    host: Annotated[str, typer.Option(help="바인드 주소")] = "0.0.0.0",
-    port: Annotated[int | None, typer.Option(help="기본값은 서비스별 포트")] = None,
+    service: Annotated[ServiceName, typer.Argument(help=_("cli.serve.arg.service"))],
+    host: Annotated[str, typer.Option(help=_("cli.serve.opt.host"))] = "0.0.0.0",
+    port: Annotated[int | None, typer.Option(help=_("cli.serve.opt.port"))] = None,
 ) -> None:
-    """모델 서비스 기동"""
     import uvicorn
 
     target, default_port = SERVICE_TARGETS[service]
     uvicorn.run(target, host=host, port=port or default_port, log_level="info", workers=1)
 
 
-@glossary_app.command("import")
+@glossary_app.command("import", help=_("cli.glossary.import.help"))
 def glossary_import(
     ctx: typer.Context,
-    path: Annotated[Path, typer.Argument(exists=True, dir_okay=False, help="용어집 YAML")],
+    path: Annotated[
+        Path, typer.Argument(exists=True, dir_okay=False, help=_("cli.glossary.import.arg.path"))
+    ],
 ) -> None:
-    """용어집·번체 규칙 YAML 을 DB 에 반영"""
     import yaml
 
     from .store import GlossaryEntry, Store
@@ -223,12 +232,11 @@ def glossary_import(
         for r in data.get("zh_rules", [])
     ]
     m = st.upsert_zh_rules(rules) if rules else 0
-    print(f"용어 {n}건, 번체 규칙 {m}건 반영 → {s.resolve(s.store.path)}")
+    print(_("cli.glossary.imported", terms=n, rules=m, path=s.resolve(s.store.path)))
 
 
-@glossary_app.command("list")
+@glossary_app.command("list", help=_("cli.glossary.list.help"))
 def glossary_list(ctx: typer.Context) -> None:
-    """등록된 용어 출력"""
     from .store import Store
 
     s = _settings(ctx)
@@ -237,13 +245,10 @@ def glossary_list(ctx: typer.Context) -> None:
         print(f"{g.src_lang:>5} {g.src_term}  →  {g.tgt_lang} {g.tgt_term}   [{g.kind}]")
 
 
-@app.command()
+@app.command(help=_("cli.doctor.help"))
 def doctor(ctx: typer.Context) -> None:
-    """환경 점검
-
-    Pre-flight check before taking anything to the device. Do not guess at the
-    environment; confirm it here.
-    """
+    # Pre-flight check before taking anything to the device. Do not guess at the
+    # environment; confirm it here.
     import platform
 
     s = _settings(ctx)
@@ -255,7 +260,7 @@ def doctor(ctx: typer.Context) -> None:
     print(f"perf_mode   {s.perf_mode}  remote={'on' if s.remote.enabled else 'off'}")
     print("placement   " + "  ".join(f"{k}={v}" for k, v in placement.items()))
     if s.audio_leaves_device:
-        print("            ! 이 모드에서는 발화 오디오가 기기 밖으로 나간다")
+        print("            " + _("cli.doctor.audio_offbox"))
     print()
 
     mods = [
@@ -280,7 +285,7 @@ def doctor(ctx: typer.Context) -> None:
         from .clients import build_service_group
 
         group = build_service_group(s)
-        print("\n서비스:")
+        print("\n" + _("cli.doctor.services"))
         for role in group.all():
             for client in filter(None, (role.preferred, role.fallback)):
                 h = await client.health()
@@ -292,18 +297,15 @@ def doctor(ctx: typer.Context) -> None:
     asyncio.run(probe())
 
 
-@app.command()
+@app.command(help=_("cli.netcheck.help"))
 def netcheck(
     ctx: typer.Context,
-    samples: Annotated[int, typer.Option(help="역할당 측정 횟수")] = 10,
-    seconds: Annotated[float, typer.Option(help="probe 발화 길이")] = 6.0,
+    samples: Annotated[int, typer.Option(help=_("cli.netcheck.opt.samples"))] = 10,
+    seconds: Annotated[float, typer.Option(help=_("cli.netcheck.opt.seconds"))] = 6.0,
 ) -> None:
-    """외부 A6000 링크 지연·대역폭 측정
-
-    Every remote stage pays the round trip, and the utterance audio pays the
-    upload on top. §6 has 2.9 s total with no slack, so this gets measured
-    rather than assumed.
-    """
+    # Every remote stage pays the round trip, and the utterance audio pays the
+    # upload on top. §6 has 2.9 s total with no slack, so this gets measured
+    # rather than assumed.
     import statistics
 
     import httpx
@@ -313,13 +315,13 @@ def netcheck(
 
     s = _settings(ctx)
     if not s.remote.enabled:
-        print("remote.enabled 가 false 다. config/performance.yaml 을 쓰거나 켜고 다시 실행할 것.")
+        print(_("cli.netcheck.remote_disabled"))
         raise typer.Exit(code=1)
 
     placement = s.resolved_placement()
     remote_roles = [r for r, side in placement.items() if side == "remote"]
     if not remote_roles:
-        print(f"perf_mode={s.perf_mode} 에서 원격으로 가는 역할이 없다.")
+        print(_("cli.netcheck.no_remote_roles", mode=s.perf_mode))
         raise typer.Exit(code=1)
 
     tk = remote_transport_kwargs(s.remote)
@@ -329,7 +331,15 @@ def netcheck(
     async def go() -> bool:
         print(f"perf_mode   {s.perf_mode}")
         print("placement   " + "  ".join(f"{k}={v}" for k, v in placement.items()))
-        print(f"probe       {seconds}s utterance, {s.remote.audio_encoding}, {len(blob)} bytes\n")
+        print(
+            _(
+                "cli.netcheck.probe",
+                seconds=seconds,
+                encoding=s.remote.audio_encoding,
+                size=len(blob),
+            )
+            + "\n"
+        )
 
         rtts: dict[str, float] = {}
         uploads: dict[str, float] = {}
@@ -388,7 +398,7 @@ def netcheck(
                 print(f"  {role:<11} upload median {med:6.1f}ms   {mbps:5.1f} MB/s")
 
         if failed:
-            print(f"\n연결 실패: {', '.join(failed)} — 이 역할은 온보드로 폴백된다.")
+            print("\n" + _("cli.netcheck.failed", roles=", ".join(failed)))
 
         # What the link adds to one turn, stage by stage.
         overhead = uploads.get("asr", rtts.get("asr", 0.0))
@@ -398,16 +408,24 @@ def netcheck(
 
         b = s.budget_ms
         slack = b.total - b.silence
-        print(f"\n턴당 링크 오버헤드 추정  {overhead:.0f}ms")
-        print(f"§6 EOU→첫 음성 예산       {slack}ms")
-        if overhead > slack * 0.25:
-            print("  ! 링크가 예산의 25% 를 넘게 먹는다. hybrid(LLM 만 원격) 를 검토할 것.")
-        else:
-            print("  링크 자체는 예산 안에 든다. 남은 것은 모델 추론 시간이다.")
+        print("\n" + _("cli.netcheck.overhead", ms=f"{overhead:.0f}"))
+        print(_("cli.netcheck.budget", ms=slack))
+        print(
+            _("cli.netcheck.over_budget")
+            if overhead > slack * 0.25
+            else _("cli.netcheck.within_budget")
+        )
         return not failed
 
     if not asyncio.run(go()):
         raise typer.Exit(code=1)
+
+
+@app.command(help=_("cli.config.help"))
+def config(ctx: typer.Context) -> None:
+    from .tui.config_app import ConfigApp
+
+    ConfigApp(config_path=ctx.obj.config).run()
 
 
 def main() -> None:

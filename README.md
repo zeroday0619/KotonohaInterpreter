@@ -17,7 +17,7 @@ All inference runs on hardware owned by the operator. No cloud service is contac
 | Target language | Session configuration: language pair, fixed target, or broadcast |
 | Latency target | 2.9 s from end-of-utterance to first audio |
 | Priority | Accuracy over latency |
-| User interface | Terminal UI (Textual) |
+| User interface | Terminal UI (Textual), localized in English, Korean, Japanese and Traditional Chinese |
 
 ## Status
 
@@ -37,7 +37,7 @@ output into `config/local.yaml`, which is layered over the defaults without code
 Whether vLLM loads Qwen3-ASR on sm_87 and whether it exposes N-best output is the question
 Spike 1 answers. Implementing it beforehand would invalidate the latency budget.
 
-Verified on a macOS development workstation: 53 unit tests pass, `ruff` reports no
+Verified on a macOS development workstation: 86 unit tests pass, `ruff` reports no
 findings, and end-to-end smoke runs against mock services exercise the on-board path, the
 remote upload path, and link failover. These runs validate control flow and
 instrumentation. They do not measure model inference time.
@@ -181,7 +181,9 @@ Language-specific handling:
 | `src/kotonoha/services/` | Resident model servers, bearer-token middleware |
 | `src/kotonoha/prompts/` | ASR context biasing, single-pass translation prompt |
 | `src/kotonoha/store/` | SQLite glossary, turn history, Traditional Chinese rules |
-| `src/kotonoha/tui/` | Terminal interface |
+| `src/kotonoha/tui/` | Terminal interface and configuration editor |
+| `src/kotonoha/i18n.py` | Locale resolution and message lookup |
+| `src/kotonoha/locales/` | Message catalogs, `en.py` is the reference |
 | `spikes/` | Phase 0 validation harness |
 | `eval/` | Evaluation set recording and scoring |
 
@@ -430,11 +432,15 @@ by lookup in 2026-08.
 |---|---|
 | `kotonoha run` | Start the terminal UI |
 | `kotonoha doctor` | Report environment, role placement, and service health |
+| `kotonoha config` | Edit the configuration in a terminal interface |
 | `kotonoha netcheck` | Measure link latency and throughput to the A6000 |
 | `kotonoha devices` | List audio devices |
 | `kotonoha replay <wav>` | Run the pipeline from a WAV file without a microphone |
 | `kotonoha glossary import <yaml>` | Load glossary and Traditional Chinese rules |
 | `kotonoha serve <asr\|verify\|tts>` | Start one service without Docker |
+
+Global options: `-c/--config` selects a configuration overlay, `--lang` selects the
+interface language for command output.
 
 `kotonoha replay` forces automatic mode, because no key is available to signal
 push-to-talk. It is the regression path for end-of-utterance and preroll behavior.
@@ -504,6 +510,64 @@ milliseconds. The terminal UI displays measured values against targets.
 | TTS failure | MeloTTS fallback inside the service |
 | Remote transport failure | Retry on-board, then degrade the role |
 | Unhandled exception during a turn | Log, emit UI error, force `IDLE` |
+
+## Localization
+
+| Locale | Code | Status |
+|---|---|---|
+| English | `en` | Reference catalog and default |
+| Korean | `ko` | Complete |
+| Japanese | `ja` | Complete |
+| Traditional Chinese (Taiwan) | `zh-TW` | Complete |
+
+Resolution order, highest first:
+
+| Order | Source |
+|---|---|
+| 1 | `KOTONOHA_LANG` |
+| 2 | `ui.language` in the configuration, when not `auto` |
+| 3 | `LC_ALL`, `LC_MESSAGES`, or `LANG` |
+| 4 | English |
+
+```bash
+KOTONOHA_LANG=ja kotonoha --help     # help screens and command output
+kotonoha --lang ja doctor            # command output only
+```
+
+Typer renders command help at import time, before `--lang` is parsed. `KOTONOHA_LANG`
+and `ui.language` therefore affect help screens; `--lang` affects command output.
+
+Catalogs are Python dictionaries in `src/kotonoha/locales/`. `tests/test_i18n.py`
+enforces that every locale carries the same keys as English and the same format
+placeholders, so an untranslated string fails the test suite rather than appearing as an
+English fragment on a translated screen.
+
+## Configuration editor
+
+```bash
+kotonoha config
+```
+
+Edits are written to `config/local.yaml`, the highest-priority layer.
+`config/default.yaml` and any overlay passed with `--config` are never modified, so the
+committed baseline survives updates and a device keeps its own values.
+
+| Key | Action |
+|---|---|
+| `s` | Validate and save |
+| `r` | Reload from disk |
+| `q` | Exit |
+
+Each row shows the dotted configuration path, the effective value, and a localized
+description. Paths are not translated: they are what has to be typed into a YAML file.
+A field already present in `local.yaml` is marked as modified.
+
+A candidate configuration is validated by constructing `Settings` from the same layer
+order the runtime uses. Nothing is written unless that succeeds, so the editor cannot
+leave a device with a configuration that fails to load. Constraints declared on the model
+are enforced here as well; `frontend.vad.preroll_ms` below 200 ms is rejected.
+
+Saved values take effect on the next start.
 
 ## Evaluation
 

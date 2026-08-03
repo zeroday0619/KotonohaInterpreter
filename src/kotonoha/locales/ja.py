@@ -1,0 +1,124 @@
+"""Japanese message catalog."""
+
+MESSAGES: dict[str, str] = {
+    # -- CLI: application and options -----------------------------------
+    "cli.app.help": "逐次通訳向け4言語オフライン音声通訳システム",
+    "cli.opt.config": "YAML 設定ファイルのパス",
+    "cli.opt.lang": "表示言語: auto, en, ko, ja, zh-TW",
+    # -- CLI: commands ---------------------------------------------------
+    "cli.run.help": "ターミナルインターフェースを起動",
+    "cli.replay.help": "マイクを使わず WAV ファイルからパイプラインを実行",
+    "cli.replay.arg.wav": "16 ビット PCM WAV ファイル",
+    "cli.replay.opt.seconds": "実行時間（秒）",
+    "cli.devices.help": "オーディオデバイス一覧",
+    "cli.serve.help": "モデルサービスを起動",
+    "cli.serve.arg.service": "起動するサービス",
+    "cli.serve.opt.host": "バインドアドレス",
+    "cli.serve.opt.port": "ポート。未指定時はサービスごとの既定ポート",
+    "cli.glossary.help": "用語集の管理",
+    "cli.glossary.import.help": "YAML から用語集と繁体字変換規則を取り込む",
+    "cli.glossary.import.arg.path": "用語集 YAML ファイル",
+    "cli.glossary.list.help": "登録済みの用語を表示",
+    "cli.doctor.help": "環境、ロール配置、サービス状態を確認",
+    "cli.netcheck.help": "外部サーバーまでの遅延と帯域を測定",
+    "cli.netcheck.opt.samples": "ロールあたりの測定回数",
+    "cli.netcheck.opt.seconds": "プローブ発話の長さ（秒）",
+    "cli.config.help": "ターミナルインターフェースで設定を編集",
+    # -- CLI: output -----------------------------------------------------
+    "cli.replay.turn_log": "ターンログ: {path}",
+    "cli.devices.default": "既定の入力/出力:",
+    "cli.glossary.imported": "用語 {terms} 件、規則 {rules} 件を {path} に反映",
+    "cli.doctor.services": "サービス:",
+    "cli.doctor.audio_offbox": "! このモードでは発話音声が装置外に送信される",
+    "cli.netcheck.remote_disabled": (
+        "remote.enabled が false。config/performance.yaml を使うか有効化して再実行すること。"
+    ),
+    "cli.netcheck.no_remote_roles": "perf_mode={mode} ではリモートに送るロールがない。",
+    "cli.netcheck.probe": "probe       {seconds} 秒の発話、{encoding}、{size} バイト",
+    "cli.netcheck.failed": "接続失敗: {roles}。これらのロールはオンボードにフォールバックする。",
+    "cli.netcheck.overhead": "ターンあたりのリンク遅延推定  {ms} ms",
+    "cli.netcheck.budget": "発話終了から最初の音声までの予算  {ms} ms",
+    "cli.netcheck.over_budget": (
+        "  ! リンクが予算の 25% を超えて消費している。hybrid モードを検討すること。"
+    ),
+    "cli.netcheck.within_budget": (
+        "  リンクは予算内に収まる。残りはモデル推論時間である。"
+    ),
+    # -- TUI: chrome -----------------------------------------------------
+    "tui.title": "Kotonoha 通訳",
+    "tui.subtitle": "セッション {session}",
+    "tui.pane.source": "原文 (ASR)",
+    "tui.pane.target": "訳文",
+    "tui.panel.latency": "遅延 (ms)            実測 / 予算",
+    "tui.panel.services": "サービス",
+    "tui.panel.errors": "直近のエラー",
+    "tui.mic.open": "開",
+    "tui.mic.shut": "遮断",
+    "tui.audio_offbox": " 音声を外部送信",
+    "tui.stage.asr": "ASR (+検証)",
+    "tui.stage.llm": "LLM 最初の節",
+    "tui.stage.tts": "TTS 最初のパケット",
+    "tui.stage.total": "EOU→最初の音声",
+    "tui.over_budget": "超過: ",
+    # -- TUI: key bindings -----------------------------------------------
+    "tui.key.talk": "発話（トグル）",
+    "tui.key.mode": "PTT/自動",
+    "tui.key.routing": "ルーティング",
+    "tui.key.clear": "クリア",
+    "tui.key.quit": "終了",
+    # -- TUI: turn events -------------------------------------------------
+    "tui.eou": "[{seconds} 秒、プリロール {preroll}ms、{reason}]",
+    "tui.asr.empty": "(無音のため再生せずに復帰)",
+    "tui.verify.running": "照合中 ({reason})",
+    "tui.llm.timeout": "(LLM タイムアウト、原文のみ表示、TTS を省略)",
+    "tui.placement.moved": "{role} → {side} ({reason})",
+    # -- Configuration editor: chrome ------------------------------------
+    "cfg.title": "Kotonoha 設定",
+    "cfg.subtitle": "変更は {path} に書き込まれる",
+    "cfg.key.save": "保存",
+    "cfg.key.reload": "再読み込み",
+    "cfg.key.quit": "終了",
+    "cfg.saved": "{count} 件の設定を {path} に保存",
+    "cfg.no_changes": "保存する変更がない",
+    "cfg.invalid": "却下。設定が不正になる: {error}",
+    "cfg.reloaded": "ディスクから再読み込みした",
+    "cfg.restart_required": "反映するには通訳システムを再起動すること",
+    "cfg.effective": "適用値",
+    "cfg.modified": "変更あり",
+    # -- Configuration editor: sections ----------------------------------
+    "cfg.section.interface": "インターフェース",
+    "cfg.section.session": "セッション",
+    "cfg.section.audio": "オーディオデバイス",
+    "cfg.section.frontend": "オーディオ前処理",
+    "cfg.section.models": "モデル",
+    "cfg.section.remote": "外部サーバー",
+    # -- Configuration editor: field descriptions ------------------------
+    "cfg.f.ui.language": "表示言語。auto はシステムロケールに従う。",
+    "cfg.f.session.mode": "push_to_talk はキー操作が必要、auto は VAD が発話を区切る。",
+    "cfg.f.session.routing": "pair は 2 言語間を往復し、fixed は常に 1 言語へ送る。",
+    "cfg.f.audio.input_device": "マイクの番号または名前。空欄でシステム既定。",
+    "cfg.f.audio.output_device": "スピーカーの番号または名前。空欄でシステム既定。",
+    "cfg.f.frontend.denoise.enabled": "DeepFilterNet3 によるノイズ抑制。",
+    "cfg.f.frontend.vad.backend": "装置では silero_onnx。energy は開発機向けの代替。",
+    "cfg.f.frontend.vad.threshold": "発話開始と判定する確率、0 から 1。",
+    "cfg.f.frontend.vad.preroll_ms": (
+        "発話開始より前に保持する音声。200ms を下回ると最初の音節が欠ける。"
+    ),
+    "cfg.f.frontend.vad.silence_ms": "発話終了と判定するまでに必要な無音長。",
+    "cfg.f.asr.backend": "transformers は確認済み。vllm は Spike 1 待ち。",
+    "cfg.f.asr.n_best": "発話ごとに返す仮説数。訂正パスがすべて使用する。",
+    "cfg.f.asr_verify.mode": "conditional は信頼度で判定し、always は毎ターン実行する。",
+    "cfg.f.llm.profile": "moe は 30B の混合エキスパート、dense は 14B。",
+    "cfg.f.tts.backend": "qwen3 は Spike 2 の結果次第、melo は代替。",
+    "cfg.f.perf_mode": (
+        "onboard はすべてローカル。hybrid は LLM のみ移し音声は装置内に留める。"
+        "remote はすべてのモデルを移す。"
+    ),
+    "cfg.f.remote.enabled": "false の場合、perf_mode によらず全ロールがローカルで動く。",
+    "cfg.f.remote.services.llm": "外部サーバーの翻訳サービス URL。",
+    "cfg.f.remote.services.asr": "外部サーバーの ASR サービス URL。",
+    "cfg.f.remote.services.asr_verify": "外部サーバーの照合サービス URL。",
+    "cfg.f.remote.services.tts": "外部サーバーの音声合成サービス URL。",
+    "cfg.f.remote.audio_encoding": "s16le は f32le に比べ転送バイト数を半分にする。",
+    "cfg.f.remote.failover_after": "ロールがフォールバックするまでの連続転送失敗回数。",
+}

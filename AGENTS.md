@@ -20,11 +20,12 @@ verified by measurement on the Orin, not by inspection.
 | Lint | `uv run ruff check .` |
 | Autofix | `uv run ruff check --fix .` |
 | Environment report | `uv run kotonoha doctor` |
+| Configuration editor | `uv run kotonoha config` |
 | Pipeline without a microphone | `uv run kotonoha replay <wav> --seconds 12` |
 | Link measurement | `uv run kotonoha netcheck` |
 
 `uv run ruff check .` and `uv run pytest -q` must both pass before any change is reported
-as complete. Current baseline: 53 tests, zero lint findings.
+as complete. Current baseline: 86 tests, zero lint findings.
 
 Dependencies are managed with uv. Use `uv add`, `uv add --group dev`, and
 `uv lock --upgrade-package`. Do not edit `uv.lock` by hand. Do not invoke `pip`.
@@ -37,12 +38,17 @@ Dependencies are managed with uv. Use `uv add`, `uv add --group dev`, and
 | Developer-facing exception and diagnostic strings | English |
 | Commit messages | English |
 | Documentation, including this file | English |
-| TUI labels, CLI help text, CLI printed output | Korean |
+| CLI and TUI text visible to the operator | Message catalog, English default |
 | Generated report text in `spikes/report.py` and spike `verdict` fields | Korean |
 | Glossary data and CJK test fixtures | Source language |
 
-The split is deliberate: code is read by whoever edits it, product text is read by the
-operator. Do not translate the Korean product text into English.
+Operator-facing text is never written inline. It goes through `i18n.t("key")` with the
+string defined in `src/kotonoha/locales/en.py` and translated in `ko.py`, `ja.py` and
+`zh_tw.py`. `tests/test_i18n.py` enforces key parity and matching format placeholders
+across all four catalogs, so an untranslated addition fails the suite.
+
+The spike verdicts stay Korean. They are written into `PHASE0.md`, which is a report
+rather than an interface, and they are not routed through the catalogs.
 
 ## Commit policy
 
@@ -140,6 +146,8 @@ that property.
 | `test_routing_and_quality.py` | Language normalization, inheritance fallback, routing modes, verification gate |
 | `test_state_and_metrics.py` | State transitions, five-point instrumentation, budget overrun reporting |
 | `test_remote_mode.py` | Role placement, PCM encoding, failover behavior |
+| `test_i18n.py` | Catalog parity, placeholder parity, locale resolution, configuration editor persistence |
+| `test_tui.py` | Both interfaces compose, bindings and labels follow the locale |
 
 A change to any hard constraint requires a test that fails when the constraint is removed.
 
@@ -177,6 +185,38 @@ Each of these was encountered and fixed. Reintroducing them is a regression.
 | `cli.py` | `replay` forces automatic mode. Push-to-talk has no key to press when reading a file. |
 | `clients/router.py` | Lambdas passed to the router may be re-invoked on the fallback. Bind loop variables explicitly, for example `lambda c, text=clause: ...`. |
 | Logging | The turn log and the application log must not share a path. |
+| `tui/*.py` | Textual builds `_bindings` from the class attribute and shares it across instances. Replace the map with a new `BindingsMap`; calling `bind()` on it leaks one instance's locale into the next. |
+| `i18n.py` | Typer renders command help at import time. A locale change after parsing affects command output only, which is why `KOTONOHA_LANG` exists alongside `--lang`. |
+
+## Localization
+
+Supported locales: `en` (reference), `ko`, `ja`, `zh-TW`. Resolution order is
+`KOTONOHA_LANG`, then `ui.language` in the configuration, then the system locale, then
+English.
+
+When adding operator-facing text:
+
+1. Add the key to `src/kotonoha/locales/en.py` with the English string.
+2. Add the same key to `ko.py`, `ja.py` and `zh_tw.py`.
+3. Keep format placeholders identical across all four.
+4. Use Taiwanese vocabulary in `zh_tw.py`, matching the glossary policy applied to
+   translation output.
+
+Do not localize: dotted configuration paths, log event names, structured log fields, or
+identifiers that also appear in YAML.
+
+## Configuration editor
+
+`kotonoha config` edits `config/local.yaml`, the highest-priority YAML layer.
+`config/default.yaml` and any `--config` overlay are never written.
+
+`FIELDS` in `src/kotonoha/tui/config_app.py` is curated, not reflected from the pydantic
+model. When adding an entry, add the matching `cfg.f.<path>` description to all four
+catalogs; `tests/test_i18n.py` checks that every field has one.
+
+`validate_candidate` constructs `Settings` from the same layer order the runtime uses.
+Nothing is written unless that succeeds. Preserve that ordering: an unloadable
+configuration on a device is worse than a rejected edit.
 
 ## High-performance mode
 

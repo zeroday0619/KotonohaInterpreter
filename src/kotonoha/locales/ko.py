@@ -1,0 +1,124 @@
+"""Korean message catalog."""
+
+MESSAGES: dict[str, str] = {
+    # -- CLI: application and options -----------------------------------
+    "cli.app.help": "순차식 4언어 오프라인 음성 통역기",
+    "cli.opt.config": "YAML 설정 파일 경로",
+    "cli.opt.lang": "인터페이스 언어: auto, en, ko, ja, zh-TW",
+    # -- CLI: commands ---------------------------------------------------
+    "cli.run.help": "터미널 인터페이스 실행",
+    "cli.replay.help": "마이크 없이 WAV 파일로 파이프라인 실행",
+    "cli.replay.arg.wav": "16비트 PCM WAV 파일",
+    "cli.replay.opt.seconds": "실행 시간(초)",
+    "cli.devices.help": "오디오 장치 목록",
+    "cli.serve.help": "모델 서비스 기동",
+    "cli.serve.arg.service": "기동할 서비스",
+    "cli.serve.opt.host": "바인드 주소",
+    "cli.serve.opt.port": "포트. 미지정 시 서비스별 기본 포트",
+    "cli.glossary.help": "용어집 관리",
+    "cli.glossary.import.help": "YAML에서 용어집과 번체 규칙을 반영",
+    "cli.glossary.import.arg.path": "용어집 YAML 파일",
+    "cli.glossary.list.help": "등록된 용어 출력",
+    "cli.doctor.help": "환경, 역할 배치, 서비스 상태 점검",
+    "cli.netcheck.help": "외부 서버까지의 지연과 대역폭 측정",
+    "cli.netcheck.opt.samples": "역할당 측정 횟수",
+    "cli.netcheck.opt.seconds": "프로브 발화 길이(초)",
+    "cli.config.help": "터미널 인터페이스에서 설정 편집",
+    # -- CLI: output -----------------------------------------------------
+    "cli.replay.turn_log": "턴 로그: {path}",
+    "cli.devices.default": "기본 입력/출력:",
+    "cli.glossary.imported": "용어 {terms}건, 규칙 {rules}건을 {path}에 반영",
+    "cli.doctor.services": "서비스:",
+    "cli.doctor.audio_offbox": "! 이 모드에서는 발화 오디오가 기기 밖으로 나간다",
+    "cli.netcheck.remote_disabled": (
+        "remote.enabled가 false다. config/performance.yaml을 쓰거나 켜고 다시 실행할 것."
+    ),
+    "cli.netcheck.no_remote_roles": "perf_mode={mode}에서 원격으로 가는 역할이 없다.",
+    "cli.netcheck.probe": "probe       {seconds}초 발화, {encoding}, {size} 바이트",
+    "cli.netcheck.failed": "연결 실패: {roles}. 이 역할은 온보드로 폴백된다.",
+    "cli.netcheck.overhead": "턴당 링크 오버헤드 추정  {ms} ms",
+    "cli.netcheck.budget": "발화 종료에서 첫 음성까지 예산  {ms} ms",
+    "cli.netcheck.over_budget": (
+        "  ! 링크가 예산의 25%를 넘게 소모한다. hybrid 모드를 검토할 것."
+    ),
+    "cli.netcheck.within_budget": (
+        "  링크는 예산 안에 든다. 남은 것은 모델 추론 시간이다."
+    ),
+    # -- TUI: chrome -----------------------------------------------------
+    "tui.title": "Kotonoha 통역기",
+    "tui.subtitle": "세션 {session}",
+    "tui.pane.source": "원문 (ASR)",
+    "tui.pane.target": "번역",
+    "tui.panel.latency": "지연 (ms)            실측 / 예산",
+    "tui.panel.services": "서비스",
+    "tui.panel.errors": "최근 오류",
+    "tui.mic.open": "열림",
+    "tui.mic.shut": "차단",
+    "tui.audio_offbox": " 오디오 외부 전송",
+    "tui.stage.asr": "ASR (+검증)",
+    "tui.stage.llm": "LLM 첫 절",
+    "tui.stage.tts": "TTS 첫 패킷",
+    "tui.stage.total": "EOU→첫 음성",
+    "tui.over_budget": "초과: ",
+    # -- TUI: key bindings -----------------------------------------------
+    "tui.key.talk": "말하기(토글)",
+    "tui.key.mode": "PTT/자동",
+    "tui.key.routing": "라우팅",
+    "tui.key.clear": "지우기",
+    "tui.key.quit": "종료",
+    # -- TUI: turn events -------------------------------------------------
+    "tui.eou": "[{seconds}초, 프리롤 {preroll}ms, {reason}]",
+    "tui.asr.empty": "(무음, 재생 없이 복귀)",
+    "tui.verify.running": "교차검증 중 ({reason})",
+    "tui.llm.timeout": "(LLM 타임아웃, 원문만 표시, TTS 생략)",
+    "tui.placement.moved": "{role} → {side} ({reason})",
+    # -- Configuration editor: chrome ------------------------------------
+    "cfg.title": "Kotonoha 설정",
+    "cfg.subtitle": "변경 사항은 {path}에 기록된다",
+    "cfg.key.save": "저장",
+    "cfg.key.reload": "다시 읽기",
+    "cfg.key.quit": "종료",
+    "cfg.saved": "{count}개 설정을 {path}에 저장",
+    "cfg.no_changes": "저장할 변경 사항 없음",
+    "cfg.invalid": "거부됨, 설정이 유효하지 않다: {error}",
+    "cfg.reloaded": "디스크에서 다시 읽음",
+    "cfg.restart_required": "이 값들을 반영하려면 통역기를 재시작할 것",
+    "cfg.effective": "적용값",
+    "cfg.modified": "변경됨",
+    # -- Configuration editor: sections ----------------------------------
+    "cfg.section.interface": "인터페이스",
+    "cfg.section.session": "세션",
+    "cfg.section.audio": "오디오 장치",
+    "cfg.section.frontend": "오디오 프런트엔드",
+    "cfg.section.models": "모델",
+    "cfg.section.remote": "외부 서버",
+    # -- Configuration editor: field descriptions ------------------------
+    "cfg.f.ui.language": "인터페이스 언어. auto는 시스템 로케일을 따른다.",
+    "cfg.f.session.mode": "push_to_talk은 키 입력이 필요하고, auto는 VAD가 발화를 자른다.",
+    "cfg.f.session.routing": "pair는 두 언어를 오가고, fixed는 항상 한 언어로 보낸다.",
+    "cfg.f.audio.input_device": "마이크 인덱스 또는 이름. 비우면 시스템 기본값.",
+    "cfg.f.audio.output_device": "스피커 인덱스 또는 이름. 비우면 시스템 기본값.",
+    "cfg.f.frontend.denoise.enabled": "DeepFilterNet3 잡음 제거.",
+    "cfg.f.frontend.vad.backend": "기기에서는 silero_onnx. energy는 개발 PC 폴백이다.",
+    "cfg.f.frontend.vad.threshold": "발화 시작 판정 확률, 0에서 1.",
+    "cfg.f.frontend.vad.preroll_ms": (
+        "발화 시작 이전에 남겨두는 오디오. 200ms 아래로 내려가면 첫 음절이 잘린다."
+    ),
+    "cfg.f.frontend.vad.silence_ms": "발화 종료로 판정하기까지 필요한 침묵 길이.",
+    "cfg.f.asr.backend": "transformers는 확인됨. vllm은 Spike 1 대기.",
+    "cfg.f.asr.n_best": "발화당 반환 가설 수. 정정 패스가 전부 사용한다.",
+    "cfg.f.asr_verify.mode": "conditional은 신뢰도로 걸고, always는 매 턴 실행한다.",
+    "cfg.f.llm.profile": "moe는 30B 혼합 전문가, dense는 14B.",
+    "cfg.f.tts.backend": "qwen3은 Spike 2 결과에 달렸고, melo는 폴백이다.",
+    "cfg.f.perf_mode": (
+        "onboard는 전부 로컬. hybrid는 LLM만 옮기고 오디오는 기기에 둔다. "
+        "remote는 모든 모델을 옮긴다."
+    ),
+    "cfg.f.remote.enabled": "false면 perf_mode와 무관하게 모든 역할이 로컬에서 돈다.",
+    "cfg.f.remote.services.llm": "외부 서버의 번역 서비스 URL.",
+    "cfg.f.remote.services.asr": "외부 서버의 ASR 서비스 URL.",
+    "cfg.f.remote.services.asr_verify": "외부 서버의 교차검증 서비스 URL.",
+    "cfg.f.remote.services.tts": "외부 서버의 음성 합성 서비스 URL.",
+    "cfg.f.remote.audio_encoding": "s16le는 f32le 대비 전송 바이트를 절반으로 줄인다.",
+    "cfg.f.remote.failover_after": "역할이 폴백하기까지 허용하는 연속 전송 실패 횟수.",
+}

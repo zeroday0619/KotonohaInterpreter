@@ -19,11 +19,13 @@ import asyncio
 
 from rich.text import Text
 from textual.app import App, ComposeResult
+from textual.binding import Binding, BindingsMap
 from textual.containers import Horizontal
 from textual.reactive import reactive
 from textual.widgets import Footer, Header, Static
 
 from ..core.events import UiEvent
+from ..i18n import t as _
 
 STATE_STYLE = {
     "IDLE": "dim white",
@@ -49,7 +51,8 @@ class StatusBar(Static):
         t.append(" ● ", style=STATE_STYLE.get(self.state, "white"))
         t.append(f"{self.state:<11}", style=STATE_STYLE.get(self.state, "white"))
         t.append("│ mic ", style="dim")
-        t.append("OPEN " if self.mic else "SHUT ", style="green" if self.mic else "red bold")
+        label = _("tui.mic.open") if self.mic else _("tui.mic.shut")
+        t.append(f"{label} ", style="green" if self.mic else "red bold")
         bars = int(min(1.0, self.level * 12) * 10)
         t.append("▁▂▃▄▅▆▇█"[: max(0, bars // 2)].ljust(5, "·"), style="cyan")
         t.append(" │ ", style="dim")
@@ -64,7 +67,7 @@ class StatusBar(Static):
         t.append(self.perf, style="bold blue" if self.perf != "onboard" else "dim")
         if self.offbox_audio:
             # The operator should never have to guess whether audio is leaving.
-            t.append(" ⇗audio", style="yellow bold")
+            t.append(" ⇗" + _("tui.audio_offbox"), style="yellow bold")
         return t
 
 
@@ -125,13 +128,13 @@ class LatencyPanel(Static):
     def render(self) -> Text:
         b = self.budget
         rows = [
-            ("ASR (+verify)", self.stages.get("asr"), b.asr + b.verify),
-            ("LLM 첫 절", self.stages.get("llm_first_clause"), b.llm_first_clause),
-            ("TTS 첫 패킷", self.stages.get("tts_first_packet"), b.tts_first_packet),
-            ("EOU→첫 음성", self.stages.get("total_to_first_audio"), b.total - b.silence),
+            (_("tui.stage.asr"), self.stages.get("asr"), b.asr + b.verify),
+            (_("tui.stage.llm"), self.stages.get("llm_first_clause"), b.llm_first_clause),
+            (_("tui.stage.tts"), self.stages.get("tts_first_packet"), b.tts_first_packet),
+            (_("tui.stage.total"), self.stages.get("total_to_first_audio"), b.total - b.silence),
         ]
         t = Text()
-        t.append("지연 (ms)            실측 / 예산\n", style="bold underline")
+        t.append(_("tui.panel.latency") + "\n", style="bold underline")
         for name, v, lim in rows:
             t.append(f"{name:<16}")
             if v is None:
@@ -141,8 +144,8 @@ class LatencyPanel(Static):
             t.append(f"{v:>8.0f}", style=style)
             t.append(f" / {lim:<6}\n", style="dim")
         if self.over:
-            t.append("초과: " + ", ".join(f"{k} +{v:.0f}ms" for k, v in self.over.items()) + "\n",
-                     style="red bold")
+            over = ", ".join(f"{k} +{v:.0f}ms" for k, v in self.over.items())
+            t.append(_("tui.over_budget") + over + "\n", style="red bold")
         if self.extra:
             t.append("\n")
             for k, v in self.extra.items():
@@ -170,7 +173,7 @@ class ServicePanel(Static):
 
     def render(self) -> Text:
         t = Text()
-        t.append("서비스\n", style="bold underline")
+        t.append(_("tui.panel.services") + "\n", style="bold underline")
         for name in ("asr", "asr-verify", "llm", "tts"):
             s = self.services.get(name)
             if s is None:
@@ -190,7 +193,7 @@ class ServicePanel(Static):
                 t.append(f" {str(tag)[:26]}", style="dim")
             t.append("\n")
         if self.errors:
-            t.append("\n최근 오류\n", style="bold underline red")
+            t.append("\n" + _("tui.panel.errors") + "\n", style="bold underline red")
             for e in self.errors:
                 t.append(f"  {e[:60]}\n", style="red")
         return t
@@ -206,26 +209,40 @@ class KotonohaApp(App):
     #lat, #svc { width: 1fr; border: round $secondary; padding: 0 1; }
     """
 
+    # Descriptions are localized in __init__: BINDINGS is a class attribute and is
+    # evaluated before the locale can be resolved from --lang.
     BINDINGS = [
-        ("space", "talk", "말하기(토글)"),
-        ("a", "toggle_mode", "PTT/자동"),
-        ("r", "cycle_routing", "라우팅"),
-        ("c", "clear", "지우기"),
-        ("q", "quit", "종료"),
+        ("space", "talk", ""),
+        ("a", "toggle_mode", ""),
+        ("r", "cycle_routing", ""),
+        ("c", "clear", ""),
+        ("q", "quit", ""),
     ]
 
     def __init__(self, orch):
         super().__init__()
         self.orch = orch
         self._talking = False
+        # Replace the map rather than calling bind() on it: Textual builds the map
+        # from the class attribute, so mutating it would leak one instance's locale
+        # into the next.
+        self._bindings = BindingsMap(
+            [
+                Binding("space", "talk", _("tui.key.talk")),
+                Binding("a", "toggle_mode", _("tui.key.mode")),
+                Binding("r", "cycle_routing", _("tui.key.routing")),
+                Binding("c", "clear", _("tui.key.clear")),
+                Binding("q", "quit", _("tui.key.quit")),
+            ]
+        )
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         self.status = StatusBar()
         yield self.status
         with Horizontal(id="panes"):
-            self.src = Pane("원문 (ASR)", "white", id="src")
-            self.tgt = Pane("번역", "bold cyan", id="tgt")
+            self.src = Pane(_("tui.pane.source"), "white", id="src")
+            self.tgt = Pane(_("tui.pane.target"), "bold cyan", id="tgt")
             yield self.src
             yield self.tgt
         with Horizontal(id="bottom"):
@@ -236,8 +253,8 @@ class KotonohaApp(App):
         yield Footer()
 
     async def on_mount(self) -> None:
-        self.title = "Kotonoha Interpreter"
-        self.sub_title = f"session {self.orch.session_id}"
+        self.title = _("tui.title")
+        self.sub_title = _("tui.subtitle", session=self.orch.session_id)
         self.status.mode = self.orch.s.session.mode
         self.status.routing = self.orch.s.session.routing
         self.status.perf = self.orch.s.perf_mode
@@ -272,10 +289,17 @@ class KotonohaApp(App):
             if p.get("note"):
                 self.svc.push_error("lid", p["note"])
         elif ev.kind == "eou":
-            self.src.push(f"[{p['seconds']}s · preroll {p['preroll_ms']}ms · {p['ended_by']}]")
+            self.src.push(
+                _(
+                    "tui.eou",
+                    seconds=p["seconds"],
+                    preroll=p["preroll_ms"],
+                    reason=p["ended_by"],
+                )
+            )
         elif ev.kind == "asr":
             if p.get("empty"):
-                self.src.replace_last("(무음 — 재생 없이 복귀)")
+                self.src.replace_last(_("tui.asr.empty"))
             else:
                 self.src.replace_last(p.get("text", ""))
         elif ev.kind == "verify":
@@ -283,14 +307,14 @@ class KotonohaApp(App):
                 mark = "≠" if p.get("divergent") else "≈"
                 self.src.push(f"  {mark} whisper: {p.get('text', '')[:70]}")
             elif p.get("state") == "running":
-                self.src.push(f"  … 교차검증 ({p.get('reason', '')})")
+                self.src.push("  … " + _("tui.verify.running", reason=p.get("reason", "")))
         elif ev.kind == "translation_delta":
             self.tgt.replace_last(p.get("text", ""))
         elif ev.kind == "clause":
             pass
         elif ev.kind == "translation":
             if p.get("timeout"):
-                self.tgt.replace_last("(LLM 타임아웃 — 원문만 표시, TTS 생략)")
+                self.tgt.replace_last(_("tui.llm.timeout"))
             else:
                 self.tgt.replace_last(p.get("text") or "")
                 self.tgt.push("")
@@ -306,7 +330,10 @@ class KotonohaApp(App):
             )
         elif ev.kind == "placement":
             # A role moved between the A6000 and the on-board service.
-            self.svc.push_error("placement", f"{p['role']} → {p['side']} ({p['reason']})")
+            self.svc.push_error(
+                "placement",
+                _("tui.placement.moved", role=p["role"], side=p["side"], reason=p["reason"]),
+            )
             self.status.offbox_audio = self.orch.s.audio_leaves_device
         elif ev.kind == "privacy":
             self.status.offbox_audio = bool(p.get("audio_leaves_device"))

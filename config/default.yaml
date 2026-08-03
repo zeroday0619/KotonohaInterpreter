@@ -161,6 +161,10 @@ zh:
   opencc_config: s2twp # Simplified -> Traditional with Taiwanese usage (§5)
   apply_to: [asr, translation]
 
+ui:
+  # auto follows KOTONOHA_LANG, then the system locale, then English.
+  language: auto # auto | en | ko | ja | zh-TW
+
 context:
   history_turns: 6 # §3
   glossary_max_terms: 64 # injected as a prompt prefix only; no vector DB (§12)

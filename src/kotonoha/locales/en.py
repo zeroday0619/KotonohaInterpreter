@@ -1,0 +1,124 @@
+"""English message catalog. Reference for all other locales."""
+
+MESSAGES: dict[str, str] = {
+    # -- CLI: application and options -----------------------------------
+    "cli.app.help": "Consecutive four-language offline speech interpreter",
+    "cli.opt.config": "Path to a YAML configuration file",
+    "cli.opt.lang": "Interface language: auto, en, ko, ja, zh-TW",
+    # -- CLI: commands ---------------------------------------------------
+    "cli.run.help": "Start the terminal interface",
+    "cli.replay.help": "Run the pipeline from a WAV file, without a microphone",
+    "cli.replay.arg.wav": "16-bit PCM WAV file",
+    "cli.replay.opt.seconds": "Run duration in seconds",
+    "cli.devices.help": "List audio devices",
+    "cli.serve.help": "Start a model service",
+    "cli.serve.arg.service": "Service to start",
+    "cli.serve.opt.host": "Bind address",
+    "cli.serve.opt.port": "Port; defaults to the port assigned to the service",
+    "cli.glossary.help": "Manage the glossary",
+    "cli.glossary.import.help": "Load glossary and Traditional Chinese rules from YAML",
+    "cli.glossary.import.arg.path": "Glossary YAML file",
+    "cli.glossary.list.help": "List registered terms",
+    "cli.doctor.help": "Report environment, role placement and service health",
+    "cli.netcheck.help": "Measure latency and throughput to the external server",
+    "cli.netcheck.opt.samples": "Measurements per role",
+    "cli.netcheck.opt.seconds": "Probe utterance length in seconds",
+    "cli.config.help": "Edit the configuration in a terminal interface",
+    # -- CLI: output -----------------------------------------------------
+    "cli.replay.turn_log": "Turn log: {path}",
+    "cli.devices.default": "Default input/output:",
+    "cli.glossary.imported": "{terms} terms and {rules} rules applied to {path}",
+    "cli.doctor.services": "Services:",
+    "cli.doctor.audio_offbox": "! In this mode utterance audio leaves the device",
+    "cli.netcheck.remote_disabled": (
+        "remote.enabled is false. Use config/performance.yaml, or enable it and retry."
+    ),
+    "cli.netcheck.no_remote_roles": "No role is routed remotely under perf_mode={mode}.",
+    "cli.netcheck.probe": "probe       {seconds}s utterance, {encoding}, {size} bytes",
+    "cli.netcheck.failed": "Connection failed: {roles}. These roles fall back on-board.",
+    "cli.netcheck.overhead": "Estimated link overhead per turn  {ms} ms",
+    "cli.netcheck.budget": "Budget, end-of-utterance to first audio  {ms} ms",
+    "cli.netcheck.over_budget": (
+        "  ! The link consumes more than 25% of the budget. Consider hybrid mode."
+    ),
+    "cli.netcheck.within_budget": (
+        "  The link fits within the budget. The remainder is model inference time."
+    ),
+    # -- TUI: chrome -----------------------------------------------------
+    "tui.title": "Kotonoha Interpreter",
+    "tui.subtitle": "session {session}",
+    "tui.pane.source": "Source (ASR)",
+    "tui.pane.target": "Translation",
+    "tui.panel.latency": "Latency (ms)        measured / budget",
+    "tui.panel.services": "Services",
+    "tui.panel.errors": "Recent errors",
+    "tui.mic.open": "OPEN",
+    "tui.mic.shut": "SHUT",
+    "tui.audio_offbox": " audio off-box",
+    "tui.stage.asr": "ASR (+verify)",
+    "tui.stage.llm": "LLM first clause",
+    "tui.stage.tts": "TTS first packet",
+    "tui.stage.total": "EOU to audio",
+    "tui.over_budget": "Over: ",
+    # -- TUI: key bindings -----------------------------------------------
+    "tui.key.talk": "Talk (toggle)",
+    "tui.key.mode": "PTT/auto",
+    "tui.key.routing": "Routing",
+    "tui.key.clear": "Clear",
+    "tui.key.quit": "Quit",
+    # -- TUI: turn events -------------------------------------------------
+    "tui.eou": "[{seconds}s, preroll {preroll}ms, {reason}]",
+    "tui.asr.empty": "(silence, returning without playback)",
+    "tui.verify.running": "verifying ({reason})",
+    "tui.llm.timeout": "(LLM timeout, transcript only, TTS skipped)",
+    "tui.placement.moved": "{role} to {side} ({reason})",
+    # -- Configuration editor: chrome ------------------------------------
+    "cfg.title": "Kotonoha configuration",
+    "cfg.subtitle": "Changes are written to {path}",
+    "cfg.key.save": "Save",
+    "cfg.key.reload": "Reload",
+    "cfg.key.quit": "Quit",
+    "cfg.saved": "Saved {count} settings to {path}",
+    "cfg.no_changes": "No changes to save",
+    "cfg.invalid": "Rejected, configuration would be invalid: {error}",
+    "cfg.reloaded": "Reloaded from disk",
+    "cfg.restart_required": "Restart the interpreter for these values to take effect",
+    "cfg.effective": "effective",
+    "cfg.modified": "modified",
+    # -- Configuration editor: sections ----------------------------------
+    "cfg.section.interface": "Interface",
+    "cfg.section.session": "Session",
+    "cfg.section.audio": "Audio devices",
+    "cfg.section.frontend": "Audio frontend",
+    "cfg.section.models": "Models",
+    "cfg.section.remote": "External server",
+    # -- Configuration editor: field descriptions ------------------------
+    "cfg.f.ui.language": "Interface language. auto follows the system locale.",
+    "cfg.f.session.mode": "push_to_talk requires a key press; auto segments on the VAD.",
+    "cfg.f.session.routing": "pair swaps between two languages; fixed always targets one.",
+    "cfg.f.audio.input_device": "Microphone index or name. Empty selects the system default.",
+    "cfg.f.audio.output_device": "Speaker index or name. Empty selects the system default.",
+    "cfg.f.frontend.denoise.enabled": "DeepFilterNet3 noise suppression.",
+    "cfg.f.frontend.vad.backend": "silero_onnx on the device; energy is a workstation fallback.",
+    "cfg.f.frontend.vad.threshold": "Speech onset probability, 0 to 1.",
+    "cfg.f.frontend.vad.preroll_ms": (
+        "Audio retained before speech onset. Below 200 ms the first syllable is clipped."
+    ),
+    "cfg.f.frontend.vad.silence_ms": "Silence required before end-of-utterance.",
+    "cfg.f.asr.backend": "transformers is confirmed; vllm awaits Spike 1.",
+    "cfg.f.asr.n_best": "Hypotheses returned per utterance. The correction pass consumes all.",
+    "cfg.f.asr_verify.mode": "conditional gates on confidence; always runs every turn.",
+    "cfg.f.llm.profile": "moe is the 30B mixture; dense is the 14B.",
+    "cfg.f.tts.backend": "qwen3 depends on the Spike 2 result; melo is the fallback.",
+    "cfg.f.perf_mode": (
+        "onboard runs everything locally. hybrid moves only the LLM and keeps audio "
+        "on the device. remote moves every model."
+    ),
+    "cfg.f.remote.enabled": "When false every role runs locally, whatever perf_mode says.",
+    "cfg.f.remote.services.llm": "Translation service URL on the external server.",
+    "cfg.f.remote.services.asr": "ASR service URL on the external server.",
+    "cfg.f.remote.services.asr_verify": "Verification service URL on the external server.",
+    "cfg.f.remote.services.tts": "Speech synthesis service URL on the external server.",
+    "cfg.f.remote.audio_encoding": "s16le halves the bytes on the wire against f32le.",
+    "cfg.f.remote.failover_after": "Consecutive transport failures before a role falls back.",
+}

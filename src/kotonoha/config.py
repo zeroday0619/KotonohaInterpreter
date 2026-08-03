@@ -220,6 +220,11 @@ class ContextCfg(BaseModel):
     glossary_max_terms: int = 64
 
 
+class UiCfg(BaseModel):
+    # auto follows KOTONOHA_LANG, then the system locale, then English.
+    language: Literal["auto", "en", "ko", "ja", "zh-TW"] = "auto"
+
+
 class StoreCfg(BaseModel):
     path: Path = Path("./data/kotonoha.db")
 
@@ -269,6 +274,7 @@ class Settings(BaseSettings):
     tts: TtsCfg = TtsCfg()
     zh: ZhCfg = ZhCfg()
     context: ContextCfg = ContextCfg()
+    ui: UiCfg = UiCfg()
     store: StoreCfg = StoreCfg()
     logging: LoggingCfg = LoggingCfg()
     budget_ms: BudgetCfg = BudgetCfg()
@@ -319,17 +325,17 @@ class Settings(BaseSettings):
         return (env_settings, dotenv_settings, init_settings, file_secret_settings)
 
 
-def _deep_merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:
+def deep_merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:
     out = dict(base)
     for k, v in over.items():
         if isinstance(v, dict) and isinstance(out.get(k), dict):
-            out[k] = _deep_merge(out[k], v)
+            out[k] = deep_merge(out[k], v)
         else:
             out[k] = v
     return out
 
 
-def _read_yaml(p: Path) -> dict[str, Any]:
+def read_yaml(p: Path) -> dict[str, Any]:
     return yaml.safe_load(p.read_text(encoding="utf-8")) or {}
 
 
@@ -361,10 +367,39 @@ def load_settings(path: str | Path | None = None) -> Settings:
 
     data: dict[str, Any] = {}
     for layer in layers:
-        data = _deep_merge(data, _read_yaml(layer))
+        data = deep_merge(data, read_yaml(layer))
 
     data.setdefault("root", str(REPO_ROOT))
     return Settings(**data)
 
 
-__all__ = ["Settings", "load_settings", "Lang", "REPO_ROOT", "DEFAULT_CONFIG"]
+def config_layers(path: str | Path | None = None) -> list[Path]:
+    """The YAML files load_settings would merge, in order.
+
+    The configuration editor needs this to validate a candidate local.yaml against
+    the same layering the runtime uses.
+    """
+    chosen = Path(path or os.environ.get("KOTONOHA_CONFIG") or DEFAULT_CONFIG)
+    layers: list[Path] = []
+    if DEFAULT_CONFIG.exists():
+        layers.append(DEFAULT_CONFIG)
+    if chosen.exists() and chosen.resolve() != DEFAULT_CONFIG.resolve():
+        layers.append(chosen)
+    return layers
+
+
+LOCAL_CONFIG = DEFAULT_CONFIG.parent / "local.yaml"
+
+__all__ = [
+    "Settings",
+    "load_settings",
+    "config_layers",
+    "deep_merge",
+    "read_yaml",
+    "Lang",
+    "Placement",
+    "ROLES",
+    "REPO_ROOT",
+    "DEFAULT_CONFIG",
+    "LOCAL_CONFIG",
+]
