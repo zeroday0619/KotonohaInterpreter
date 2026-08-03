@@ -85,3 +85,20 @@ def test_remote_lock_and_dockerfile_install_into_x86_conda_python() -> None:
     assert "platform_machine == 'x86_64' and sys_platform == 'linux'" in lock_text
     assert "UV_PYTHON=/opt/conda/bin/python" in dockerfile
     assert "import kotonoha, pydantic_settings" in dockerfile
+
+
+def test_remote_tts_image_builds_and_verifies_required_dependencies() -> None:
+    compose = yaml.safe_load(
+        (PROJECT_ROOT / "docker" / "compose.remote.yaml").read_text(encoding="utf-8")
+    )
+    remote_config = read_yaml(PROJECT_ROOT / "config" / "remote-server.yaml")
+    dockerfile = (PROJECT_ROOT / "docker" / "Dockerfile.remote").read_text(encoding="utf-8")
+
+    assert "sox libsox-fmt-all" in dockerfile
+    assert "FROM ${TTS_BUILD_IMAGE} AS tts-flash-builder" in dockerfile
+    assert '"flash-attn==${FLASH_ATTN_VERSION}"' in dockerfile
+    assert "import flash_attn, pydantic_settings, qwen_tts, sox, torch" in dockerfile
+    assert "melotts" not in dockerfile
+    assert "|| echo" not in dockerfile
+    assert "TTS_BUILD_IMAGE" in compose["services"]["tts"]["build"]["args"]
+    assert remote_config["tts"]["fallback"] == "none"

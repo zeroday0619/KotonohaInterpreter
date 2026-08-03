@@ -70,6 +70,9 @@ services:
     build:
       <<: *a6000-python-build
       target: tts
+      args:
+        BASE_IMAGE: ${REMOTE_BASE:-pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime}
+        TTS_BUILD_IMAGE: ${REMOTE_TTS_BUILD_BASE:-pytorch/pytorch:2.6.0-cuda12.6-cudnn9-devel}
     depends_on: [asr]
     ports: ["8004:8004"]
     command: uvicorn kotonoha.services.tts_server:app --host 0.0.0.0 --port 8004

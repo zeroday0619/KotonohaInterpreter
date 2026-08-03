@@ -613,6 +613,7 @@ Create a repository-root `.env` file. Replace the token placeholder with the out
 KOTONOHA_SERVICE_TOKEN=<64-hex-character-random-token>
 MODELS_DIR=../models
 REMOTE_BASE=pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime
+REMOTE_TTS_BUILD_BASE=pytorch/pytorch:2.6.0-cuda12.6-cudnn9-devel
 LLM_IMAGE=ghcr.io/ggml-org/llama.cpp:server-cuda
 LLM_PROFILE=moe
 LLM_CTX=4096
@@ -626,6 +627,16 @@ chmod 600 .env
 The Python services receive `KOTONOHA_SERVICE_TOKEN`. The llama.cpp image does not use
 the project authentication middleware. Restrict port 8003 to the Jetson at the host
 firewall unless an authenticated reverse proxy protects it.
+
+The TTS build uses the CUDA devel image to compile FlashAttention 2 against the same
+PyTorch and CUDA ABI as the runtime image. The compiler toolchain is not copied into the
+final TTS image. The build fails if FlashAttention, Qwen3-TTS, SoX, or another required
+runtime dependency cannot be imported. The first TTS build can take several minutes.
+
+The remote TTS service does not load MeloTTS. A remote Qwen3-TTS startup or request
+failure is retried by the orchestrator against the resident Jetson TTS service, whose
+default backend is MeloTTS. This separation avoids loading Qwen3-TTS and MeloTTS into one
+Python environment with incompatible Transformers requirements.
 
 ### Validate and build the remote stack
 
@@ -903,7 +914,9 @@ requests. Treat this as a deployment failure on the A6000.
 | ASR cannot find the model offline | Inspect `asr.model_id` | Set `/models/Qwen3-ASR-1.7B-hf` in the host override |
 | Verification downloads `large-v3` | Inspect `asr_verify.model_id` | Set `/models/faster-whisper-large-v3` |
 | LLM reports `GGUF missing` | Inspect `/models/gguf` and `remote-llm.env` | Correct `MODELS_DIR`, profile, or profile file name; restart `llm` |
-| TTS reports Qwen failure | Inspect TTS health and build logs | Use the measured supported attention path or MeloTTS fallback |
+| TTS image cannot build FlashAttention | Inspect the devel image tag, CUDA version, memory, and build log | Restore the matching `REMOTE_BASE` and `REMOTE_TTS_BUILD_BASE`; do not suppress the build failure |
+| TTS reports `sox: not found` | Run `sox --version` in the TTS container | Rebuild the TTS image; the current image installs `sox` and `libsox-fmt-all` |
+| Remote TTS reports Qwen failure | Inspect TTS health and the orchestrator `failovers` metric | Correct the remote Qwen service; the current turn retries against the Jetson MeloTTS service before the first audio chunk |
 | CUDA is absent in a container | Inspect image build output and `torch.version.cuda` | Restore the pinned CUDA base image; do not install a CPU PyTorch wheel |
 | Docker cannot select the `nvidia` device driver | Inspect `docker info --format '{{json .Runtimes}}'` | Install NVIDIA Container Toolkit, configure the Docker runtime with `nvidia-ctk`, and restart Docker |
 | Shared-memory errors | Inspect `ipc: host` and `/dev/shm` | Restore host IPC for Jetson services; do not use this path across hosts |

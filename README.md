@@ -548,7 +548,8 @@ milliseconds. The terminal UI displays measured values against targets.
 | Language-identification confidence below threshold, or utterance shorter than 1.0 s | Inherit previous language, display provenance |
 | Empty ASR result | Treat as silence, return to `IDLE`, play nothing |
 | LLM first clause exceeds 3 s | Display transcript, skip TTS |
-| TTS failure | MeloTTS fallback inside the service |
+| Jetson TTS failure | MeloTTS fallback inside the service |
+| Remote TTS failure | Retry against the resident Jetson MeloTTS service before the first audio chunk |
 | Remote transport failure | Retry on-board, then degrade the role |
 | Unhandled exception during a turn | Log, emit UI error, force `IDLE` |
 

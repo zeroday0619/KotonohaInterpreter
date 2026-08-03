@@ -15,6 +15,7 @@ equals "time to synthesise one clause", a number Phase 2 measures against the
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import os
 import time
 from contextlib import asynccontextmanager
@@ -54,7 +55,13 @@ class Qwen3TtsBackend:
         from qwen_tts import Qwen3TTSModel  # type: ignore[import-not-found]
 
         last: Exception | None = None
-        for attn in ("flash_attention_2", "sdpa", "eager"):
+        attention_implementations = ["sdpa", "eager"]
+        if importlib.util.find_spec("flash_attn") is not None:
+            attention_implementations.insert(0, "flash_attention_2")
+        else:
+            log.warning("tts.flash_attn_unavailable")
+
+        for attn in attention_implementations:
             try:
                 t0 = time.perf_counter()
                 self.model = Qwen3TTSModel.from_pretrained(

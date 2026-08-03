@@ -183,6 +183,7 @@ ensure_remote_environment() {
     printf 'KOTONOHA_SERVICE_TOKEN=%s\n' "$service_token"
     printf 'MODELS_DIR=../models\n'
     printf 'REMOTE_BASE=pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime\n'
+    printf 'REMOTE_TTS_BUILD_BASE=pytorch/pytorch:2.6.0-cuda12.6-cudnn9-devel\n'
     printf 'LLM_IMAGE=ghcr.io/ggml-org/llama.cpp:server-cuda\n'
     printf 'LLM_PROFILE=moe\n'
     printf 'LLM_CTX=4096\n'

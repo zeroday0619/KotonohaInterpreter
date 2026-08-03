@@ -34,7 +34,8 @@ tts:
   sample_rate: 24000
   chunk_ms: 200
   timeout_s: 8.0
-  fallback: melo
+  # Remote failures are retried against the resident Jetson MeloTTS service.
+  fallback: none
   voices:
     ko: Vivian
     en: Vivian
