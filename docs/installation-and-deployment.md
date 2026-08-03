@@ -494,9 +494,47 @@ docker compose version
 docker info
 ```
 
-Then validate GPU access using an image already approved by the deployment environment.
-The exact diagnostic image is not pinned in this repository. Do not select a new CUDA
-image tag without recording it in the deployment record.
+After configuring the container runtime, validate GPU allocation with the NVIDIA sample
+workload below. Record the resolved diagnostic image digest in controlled deployment
+environments.
+
+### Configure the NVIDIA Docker runtime
+
+`nvidia-smi` on the host does not prove that Docker can allocate the GPU. If Docker
+reports `could not select device driver "nvidia" with capabilities: [[gpu]]`, install and
+configure NVIDIA Container Toolkit before running the deployment script.
+
+For Ubuntu or Debian, use the NVIDIA production repository:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y --no-install-recommends curl gnupg2
+
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
+  | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+
+curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
+  | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
+  | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+
+sudo apt-get update
+sudo apt-get install -y nvidia-container-toolkit
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+```
+
+Verify runtime registration and GPU allocation:
+
+```bash
+sudo docker info --format '{{json .Runtimes}}'
+sudo docker run --rm --runtime=nvidia --gpus all ubuntu nvidia-smi
+```
+
+The first command must contain `nvidia`. The second command must display the A6000. The
+deployment script performs the runtime-registration check before changing Compose state.
+The installation and sample commands follow the
+[NVIDIA Container Toolkit installation guide](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/1.18.0/install-guide.html)
+and [sample workload procedure](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/1.18.0/sample-workload.html).
 
 ### Use the same source revision
 
@@ -828,6 +866,7 @@ requests. Treat this as a deployment failure on the A6000.
 | LLM reports `GGUF missing` | Inspect `/models/gguf` and `remote-llm.env` | Correct `MODELS_DIR`, profile, or profile file name; restart `llm` |
 | TTS reports Qwen failure | Inspect TTS health and build logs | Use the measured supported attention path or MeloTTS fallback |
 | CUDA is absent in a container | Inspect image build output and `torch.version.cuda` | Restore the pinned CUDA base image; do not install a CPU PyTorch wheel |
+| Docker cannot select the `nvidia` device driver | Inspect `docker info --format '{{json .Runtimes}}'` | Install NVIDIA Container Toolkit, configure the Docker runtime with `nvidia-ctk`, and restart Docker |
 | Shared-memory errors | Inspect `ipc: host` and `/dev/shm` | Restore host IPC for Jetson services; do not use this path across hosts |
 | No capture device | Run `devices`, inspect `/dev/snd`, check group membership | Set the correct device and restart the orchestrator login session |
 | Remote request returns 401 | Compare A6000 and Jetson token values | Correct the token without logging it; restart affected clients or services |

@@ -195,6 +195,11 @@ run_privileged() {
   fi
 }
 
+check_nvidia_container_runtime() {
+  "${docker_command[@]}" info --format '{{json .Runtimes}}' | grep -q '"nvidia"' \
+    || fail "NVIDIA Container Toolkit is not configured for Docker; run nvidia-ctk runtime configure --runtime=docker and restart Docker"
+}
+
 check_jetson_host() {
   [ "$(uname -m)" = "aarch64" ] || fail "Jetson deployment requires aarch64"
   [ -r /etc/nv_tegra_release ] || fail "Jetson L4T release file is missing"
@@ -203,8 +208,7 @@ check_jetson_host() {
   [ -d /dev/snd ] || fail "audio device directory is missing: /dev/snd"
   require_file "$repository_root/models/silero_vad.onnx"
   require_file "$repository_root/models/gguf/Qwen3-14B-Q4_K_M.gguf"
-  "${docker_command[@]}" info --format '{{json .Runtimes}}' | grep -q '"nvidia"' \
-    || fail "Docker does not report the NVIDIA runtime"
+  check_nvidia_container_runtime
 
   require_command nvpmodel
   require_command jetson_clocks
@@ -224,6 +228,7 @@ check_a6000_host() {
   esac
   require_command nvidia-smi
   nvidia-smi >/dev/null 2>&1 || fail "nvidia-smi cannot access the A6000"
+  check_nvidia_container_runtime
   require_file "$models_path/gguf/Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf"
 }
 
