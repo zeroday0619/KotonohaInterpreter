@@ -12,10 +12,15 @@ import wave
 
 import numpy as np
 import pytest
+import yaml
 
+from kotonoha.clients.config_admin import RemoteConfigSnapshot
+from kotonoha.config import load_settings
+from kotonoha.config_store import set_path
 from kotonoha.i18n import CATALOGS, set_locale
+from kotonoha.services.config_admin import REMOTE_EDITABLE_PATHS
 from kotonoha.tui.app import KotonohaApp
-from kotonoha.tui.config_app import FIELDS, ConfigApp
+from kotonoha.tui.config_app import FIELDS, SECTIONS, ConfigApp
 
 
 @pytest.fixture(autouse=True)
@@ -67,12 +72,15 @@ async def test_config_editor_shows_one_category_at_a_time(tmp_path):
         await pilot.pause()
         assert app.current_section == "interface"
         assert app.query_one("#panel-interface").display
-        assert not app.query_one("#panel-models").display
+        assert not app.query_one("#panel-llm").display
 
-        await pilot.click("#category-models")
+        category_list = app.query_one("#category-list")
+        category_list.focus()
+        category_list.index = SECTIONS.index("llm")
+        await pilot.press("enter")
         await pilot.pause()
-        assert app.current_section == "models"
-        assert app.query_one("#panel-models").display
+        assert app.current_section == "llm"
+        assert app.query_one("#panel-llm").display
         assert not app.query_one("#panel-interface").display
 
 
@@ -94,6 +102,7 @@ async def test_menu_action_focuses_category_navigation(tmp_path):
     async with app.run_test() as pilot:
         await pilot.pause()
         app.action_menu()
+        await pilot.pause()
         assert app.focused is app.query_one("#category-list")
 
 
@@ -105,7 +114,7 @@ async def test_saving_without_edits_writes_nothing(tmp_path):
     async with app.run_test() as pilot:
         await pilot.pause()
         app._say = lambda message, style: said.append(message)  # noqa: ARG005
-        app.action_save()
+        await app.action_save()
     assert said == [CATALOGS["en"]["cfg.no_changes"]]
     assert not target.exists()
 
@@ -119,7 +128,7 @@ async def test_editing_a_field_persists_it(tmp_path):
         row = next(r for r in app._rows if r.spec.path == "perf_mode")
         row.editor.value = "hybrid"
         app._say = lambda message, style: None  # noqa: ARG005
-        app.action_save()
+        await app.action_save()
     assert target.exists()
     assert "hybrid" in target.read_text(encoding="utf-8")
 
@@ -131,8 +140,71 @@ async def test_reload_restores_the_stored_values(tmp_path):
         row = next(r for r in app._rows if r.spec.path == "perf_mode")
         original = row.editor.value
         row.editor.value = "remote"
-        app.action_reload()
+        await app.action_reload()
         assert row.editor.value == original
+
+
+class FakeRemoteConfigClient:
+    def __init__(self):
+        settings = load_settings("config/remote-server.yaml")
+        self.config = settings.model_dump(mode="json", exclude={"root"})
+        self.overrides: dict = {}
+        self.changes: dict = {}
+
+    async def read(self) -> RemoteConfigSnapshot:
+        return self.snapshot()
+
+    async def update(self, changes: dict) -> RemoteConfigSnapshot:
+        self.changes = changes
+        for path, value in changes.items():
+            set_path(self.config, path, value)
+            set_path(self.overrides, path, value)
+        return self.snapshot()
+
+    async def aclose(self) -> None:
+        return None
+
+    def snapshot(self) -> RemoteConfigSnapshot:
+        return RemoteConfigSnapshot(
+            config=self.config,
+            editable_paths=sorted(REMOTE_EDITABLE_PATHS),
+            overrides=self.overrides,
+            path="/app/config/remote-server.local.yaml",
+            restart_required=True,
+        )
+
+
+async def test_remote_target_loads_and_saves_through_the_admin_client(tmp_path):
+    app = ConfigApp(local_path=tmp_path / "local.yaml")
+    remote_client = FakeRemoteConfigClient()
+    app.remote_client = remote_client
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.query_one("#target-select").value = "remote"
+        await pilot.pause()
+        assert app.target == "remote"
+        assert app.settings.llm.profile == "moe"
+        assert app.query_one("#category-asr").display
+        assert not app.query_one("#category-session").display
+
+        row = next(row for row in app._rows if row.spec.path == "llm.n_ctx")
+        row.editor.value = "8192"
+        await app.action_save()
+
+        assert remote_client.changes == {"llm.n_ctx": 8192}
+        assert app.settings.llm.n_ctx == 8192
+        assert not (tmp_path / "local.yaml").exists()
+
+
+async def test_collection_fields_accept_yaml_flow_values(tmp_path):
+    app = ConfigApp(local_path=tmp_path / "local.yaml")
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        row = next(row for row in app._rows if row.spec.path == "session.pair")
+        row.editor.value = "[ja, zh-TW]"
+        await app.action_save()
+    written = yaml.safe_load((tmp_path / "local.yaml").read_text(encoding="utf-8"))
+    assert written["session"]["pair"] == ["ja", "zh-TW"]
 
 
 # -- main interface ---------------------------------------------------------

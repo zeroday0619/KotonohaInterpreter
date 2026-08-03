@@ -15,6 +15,7 @@ from kotonoha.tui.config_app import (
     SECTIONS,
     apply_changes,
     effective_value,
+    field_description,
     get_path,
     set_path,
     validate_candidate,
@@ -60,12 +61,35 @@ def test_no_empty_messages(locale):
 
 def test_every_editable_field_has_a_description():
     for spec in FIELDS:
-        key = f"cfg.f.{spec.path}"
-        assert key in REFERENCE, f"no description for {spec.path}"
+        assert field_description(spec).strip(), f"no description for {spec.path}"
 
 
 def test_every_field_section_is_rendered():
     assert {spec.section for spec in FIELDS} <= set(SECTIONS)
+
+
+def test_editor_exposes_the_complete_settings_schema():
+    paths = {spec.path for spec in FIELDS}
+    assert len(paths) == len(FIELDS)
+    assert len(paths) >= 100
+    for required in (
+        "session.broadcast_targets",
+        "audio.capture_sample_rate",
+        "frontend.vad.max_utterance_ms",
+        "shm.slot_seconds",
+        "services.asr",
+        "placement",
+        "remote.verify_tls",
+        "asr.lid.min_confidence",
+        "asr_verify.compute_type",
+        "llm.profiles",
+        "tts.voices",
+        "zh.apply_to",
+        "logging.turn_log_path",
+        "budget_ms.total",
+    ):
+        assert required in paths
+    assert "root" not in paths
 
 
 # -- locale resolution ------------------------------------------------------

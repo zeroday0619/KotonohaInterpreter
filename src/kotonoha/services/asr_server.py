@@ -32,6 +32,7 @@ from ..logging_setup import setup_logging
 from ..shmring import AudioRef, StaleSlotError, attach_cached
 from ..transport import decode_pcm
 from .auth import install_auth
+from .config_admin import router as config_admin_router
 
 log = setup_logging(service="asr", console=True)
 
@@ -185,6 +186,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="kotonoha-asr", lifespan=lifespan)
 install_auth(app, "asr")
+app.include_router(config_admin_router)
 
 
 @app.get("/health")

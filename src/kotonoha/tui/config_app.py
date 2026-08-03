@@ -1,98 +1,153 @@
-"""Configuration editor, reached with `kotonoha config`.
+"""Local and remote configuration editor, reached with `kotonoha config`.
 
-Edits are written to `config/local.yaml`, the third and highest-priority YAML layer.
-`config/default.yaml` and any overlay passed with --config are never modified, so the
-committed baseline stays intact and a device keeps its own values across updates.
+Local edits are written to config/local.yaml. Remote edits use the authenticated
+management API on the A6000 and are written to remote-server.local.yaml there. Both
+paths validate the complete Settings model before persistence.
 
-The field list is curated rather than reflected from the pydantic model. A reflected
-list would run to more than a hundred entries, most of which are not operator settings.
-Fields here are the ones changed when deploying or tuning a unit.
-
-A candidate configuration is validated by constructing `Settings` from the same layer
-order the runtime uses. Nothing is written unless that succeeds, so the editor cannot
-leave a device with a configuration that fails to load.
+The field list is reflected from the pydantic model. Collections remain leaf fields and
+use YAML flow syntax, which keeps arbitrary mappings such as voice tables and LLM
+profiles editable without inventing a second schema for the interface.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from types import UnionType
+from typing import Any, Literal, Union, get_args, get_origin
 
 import yaml
-from pydantic import ValidationError
+from pydantic import BaseModel
 from rich.text import Text
+from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding, BindingsMap
 from textual.containers import Container, Horizontal, VerticalScroll
 from textual.widgets import Footer, Header, Input, ListItem, ListView, Select, Static, Switch
 
-from ..config import LOCAL_CONFIG, Settings, config_layers, deep_merge, load_settings, read_yaml
-from ..i18n import LOCALE_NAMES, t
+from ..clients.base import ServiceError
+from ..clients.config_admin import RemoteConfigClient, RemoteConfigSnapshot
+from ..config import Settings, load_settings, local_config_path
+from ..config_store import (
+    ApplyResult,
+    apply_changes,
+    get_path,
+    set_path,
+    validate_candidate,
+    write_local,
+)
+from ..i18n import CATALOGS, DEFAULT_LOCALE, LOCALE_NAMES, t
 
 
 @dataclass(frozen=True)
 class FieldSpec:
-    """One editable setting.
-
-    `path` is the dotted location in the merged YAML. The label shown is the path
-    itself; engineers read it directly, and it is also what has to be typed into a
-    YAML file, so translating it would be counterproductive. The description is
-    localized under `cfg.f.<path>`.
-    """
+    """One editable leaf in Settings."""
 
     path: str
     section: str
-    kind: str  # select | bool | int | float | text
+    kind: str  # select | bool | value
     choices: tuple[str, ...] = ()
-    optional: bool = False  # empty input means null
+    optional: bool = False
+    value_kind: str = "text"  # text | number | path | collection
 
 
 LANGUAGE_CHOICES = ("auto", *LOCALE_NAMES)
 
-FIELDS: tuple[FieldSpec, ...] = (
-    FieldSpec("ui.language", "interface", "select", LANGUAGE_CHOICES),
-    FieldSpec("session.mode", "session", "select", ("push_to_talk", "auto")),
-    FieldSpec("session.routing", "session", "select", ("pair", "fixed", "broadcast")),
-    FieldSpec("audio.input_device", "audio", "text", optional=True),
-    FieldSpec("audio.output_device", "audio", "text", optional=True),
-    FieldSpec("frontend.denoise.enabled", "frontend", "bool"),
-    FieldSpec("frontend.vad.backend", "frontend", "select", ("silero_onnx", "energy")),
-    FieldSpec("frontend.vad.threshold", "frontend", "float"),
-    FieldSpec("frontend.vad.preroll_ms", "frontend", "int"),
-    FieldSpec("frontend.vad.silence_ms", "frontend", "int"),
-    FieldSpec("asr.backend", "models", "select", ("transformers", "vllm")),
-    FieldSpec("asr.n_best", "models", "int"),
-    FieldSpec("asr_verify.mode", "models", "select", ("conditional", "always")),
-    FieldSpec("llm.profile", "models", "select", ("moe", "dense")),
-    FieldSpec("tts.backend", "models", "select", ("qwen3", "melo")),
-    FieldSpec("perf_mode", "remote", "select", ("onboard", "hybrid", "remote")),
-    FieldSpec("remote.enabled", "remote", "bool"),
-    FieldSpec("remote.services.llm", "remote", "text"),
-    FieldSpec("remote.services.asr", "remote", "text"),
-    FieldSpec("remote.services.asr_verify", "remote", "text"),
-    FieldSpec("remote.services.tts", "remote", "text"),
-    FieldSpec("remote.audio_encoding", "remote", "select", ("s16le", "f32le")),
-    FieldSpec("remote.failover_after", "remote", "int"),
+SECTIONS = (
+    "interface",
+    "session",
+    "audio",
+    "frontend",
+    "runtime",
+    "remote",
+    "asr",
+    "asr_verify",
+    "llm",
+    "tts",
+    "language",
+    "data",
+    "observability",
 )
 
-SECTIONS = ("interface", "session", "audio", "frontend", "models", "remote")
+TOP_LEVEL_SECTIONS = {
+    "ui": "interface",
+    "session": "session",
+    "audio": "audio",
+    "frontend": "frontend",
+    "shm": "runtime",
+    "services": "runtime",
+    "perf_mode": "remote",
+    "placement": "remote",
+    "remote": "remote",
+    "asr": "asr",
+    "asr_verify": "asr_verify",
+    "llm": "llm",
+    "tts": "tts",
+    "zh": "language",
+    "context": "data",
+    "store": "data",
+    "logging": "observability",
+    "budget_ms": "observability",
+}
 
 
-# -- dotted-path helpers ---------------------------------------------------
-def get_path(data: Any, path: str) -> Any:
-    for part in path.split("."):
-        if not isinstance(data, dict) or part not in data:
-            return None
-        data = data[part]
-    return data
+def _without_none(annotation: Any) -> tuple[Any, bool]:
+    origin = get_origin(annotation)
+    if origin in (Union, UnionType):
+        arguments = tuple(
+            argument for argument in get_args(annotation) if argument is not type(None)
+        )
+        optional = len(arguments) != len(get_args(annotation))
+        if len(arguments) == 1:
+            return arguments[0], optional
+        return annotation, optional
+    return annotation, False
 
 
-def set_path(data: dict, path: str, value: Any) -> None:
-    parts = path.split(".")
-    for part in parts[:-1]:
-        data = data.setdefault(part, {})
-    data[parts[-1]] = value
+def _nested_model(annotation: Any) -> type[BaseModel] | None:
+    annotation, _ = _without_none(annotation)
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return annotation
+    return None
+
+
+def _field_spec(path: str, section: str, annotation: Any) -> FieldSpec:
+    annotation, optional = _without_none(annotation)
+    origin = get_origin(annotation)
+    if origin is Literal:
+        choices = tuple(str(value) for value in get_args(annotation))
+        return FieldSpec(path, section, "select", choices)
+    if annotation is bool:
+        return FieldSpec(path, section, "bool", optional=optional)
+    if origin in (list, dict, tuple, set):
+        return FieldSpec(path, section, "value", optional=optional, value_kind="collection")
+    if annotation is Path:
+        return FieldSpec(path, section, "value", optional=optional, value_kind="path")
+    if annotation in (int, float):
+        return FieldSpec(path, section, "value", optional=optional, value_kind="number")
+    return FieldSpec(path, section, "value", optional=optional)
+
+
+def _build_fields() -> tuple[FieldSpec, ...]:
+    fields: list[FieldSpec] = []
+
+    def visit(model: type[BaseModel], prefix: str, section: str | None = None) -> None:
+        for name, model_field in model.model_fields.items():
+            if not prefix and name == "root":
+                continue
+            path = f"{prefix}.{name}" if prefix else name
+            field_section = section or TOP_LEVEL_SECTIONS[name]
+            nested = _nested_model(model_field.annotation)
+            if nested is not None:
+                visit(nested, path, field_section)
+            else:
+                fields.append(_field_spec(path, field_section, model_field.annotation))
+
+    visit(Settings, "")
+    return tuple(fields)
+
+
+FIELDS = _build_fields()
 
 
 def effective_value(settings: Settings, path: str) -> Any:
@@ -103,95 +158,116 @@ def effective_value(settings: Settings, path: str) -> Any:
     return node
 
 
-# -- validation and persistence -------------------------------------------
-def validate_candidate(config_path: Path | None, local: dict) -> str | None:
-    """Return None when the candidate loads, otherwise a one-line reason."""
-    merged: dict = {}
-    for layer in config_layers(config_path):
-        merged = deep_merge(merged, read_yaml(layer))
-    merged = deep_merge(merged, local)
-    try:
-        Settings(**merged)
-    except ValidationError as e:
-        first = e.errors()[0]
-        loc = ".".join(str(x) for x in first["loc"])
-        return f"{loc}: {first['msg']}"
-    except Exception as e:  # noqa: BLE001
-        return repr(e)
-    return None
+def field_description(specification: FieldSpec) -> str:
+    specific = f"cfg.f.{specification.path}"
+    if specific in CATALOGS[DEFAULT_LOCALE]:
+        return t(specific)
+    return t(f"cfg.field.{specification.value_kind}", path=specification.path)
 
 
-def write_local(path: Path, local: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    header = (
-        "# Written by `kotonoha config`. Host-specific overrides.\n"
-        "# This is the third configuration layer and overrides config/default.yaml\n"
-        "# and any overlay passed with --config.\n\n"
-    )
-    path.write_text(
-        header + yaml.safe_dump(local, allow_unicode=True, sort_keys=False), encoding="utf-8"
-    )
+def _format_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, (BaseModel, dict, list, tuple, set)):
+        return yaml.safe_dump(
+            _plain_value(value),
+            allow_unicode=True,
+            default_flow_style=True,
+            width=10_000,
+        ).strip()
+    return str(value)
 
 
-# -- widgets ---------------------------------------------------------------
+def _plain_value(value: Any) -> Any:
+    """Convert nested pydantic values into types accepted by YAML and JSON."""
+    if isinstance(value, BaseModel):
+        return value.model_dump(mode="json")
+    if isinstance(value, dict):
+        return {key: _plain_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_plain_value(item) for item in value]
+    if isinstance(value, Path):
+        return str(value)
+    return value
+
+
 class FieldRow(Static):
     """One setting: path, editor, description, and an origin marker."""
 
-    def __init__(self, spec: FieldSpec, current: Any, from_local: bool, **kw):
-        super().__init__(**kw)
-        self.spec = spec
+    def __init__(self, specification: FieldSpec, current: Any, from_override: bool, **kwargs):
+        super().__init__(**kwargs)
+        self.specification = specification
         self.current = current
-        self.from_local = from_local
+        self.from_override = from_override
         self.editor: Select | Switch | Input | None = None
+
+    @property
+    def spec(self) -> FieldSpec:
+        """Compatibility alias used by existing evaluation and TUI tests."""
+        return self.specification
 
     def compose(self) -> ComposeResult:
         yield Static(self._label(), classes="fieldlabel")
         with Horizontal(classes="fieldrow"):
             yield self._make_editor()
-        yield Static(t(f"cfg.f.{self.spec.path}"), classes="fielddesc")
+        yield Static(field_description(self.specification), classes="fielddesc")
 
     def _label(self) -> Text:
-        text = Text(self.spec.path, style="bold")
-        if self.from_local:
-            text.append(f"  [{t('cfg.modified')}]", style="yellow")
-        return text
+        label = Text(self.specification.path, style="bold")
+        if self.from_override:
+            label.append(f"  [{t('cfg.modified')}]", style="yellow")
+        return label
 
     def _make_editor(self):
-        s = self.spec
-        if s.kind == "bool":
+        specification = self.specification
+        if specification.kind == "bool":
             self.editor = Switch(value=bool(self.current))
-        elif s.kind == "select":
-            options = [(c, c) for c in s.choices]
-            value = self.current if self.current in s.choices else s.choices[0]
+        elif specification.kind == "select":
+            options = [(choice, choice) for choice in specification.choices]
+            value = (
+                self.current
+                if self.current in specification.choices
+                else specification.choices[0]
+            )
             self.editor = Select(options, value=value, allow_blank=False)
         else:
             self.editor = Input(
-                value="" if self.current is None else str(self.current),
-                placeholder="null" if s.optional else "",
+                value=_format_value(self.current),
+                placeholder="null" if specification.optional else "",
             )
         return self.editor
 
+    def set_state(self, current: Any, from_override: bool) -> None:
+        self.current = current
+        self.from_override = from_override
+        self.query_one(".fieldlabel", Static).update(self._label())
+        if self.specification.kind == "bool":
+            self.editor.value = bool(current)
+        elif self.specification.kind == "select":
+            choices = self.specification.choices
+            self.editor.value = current if current in choices else choices[0]
+        else:
+            self.editor.value = _format_value(current)
+
     def value(self) -> Any:
-        """Parsed widget value. Raises ValueError when the text does not parse."""
-        s = self.spec
-        if s.kind == "bool":
+        """Return the parsed editor value; Settings performs final type validation."""
+        specification = self.specification
+        if specification.kind == "bool":
             return bool(self.editor.value)
-        if s.kind == "select":
+        if specification.kind == "select":
             return str(self.editor.value)
 
         raw = str(self.editor.value).strip()
         if not raw:
-            if s.optional:
+            if specification.optional:
                 return None
-            raise ValueError(f"{s.path}: value required")
-        if s.kind == "int":
-            return int(raw)
-        if s.kind == "float":
-            return float(raw)
-        # A device may be given either an index or a name.
-        if s.optional and raw.lstrip("-").isdigit():
-            return int(raw)
-        return raw
+            raise ValueError(t("cfg.value_required", path=specification.path))
+        try:
+            return yaml.safe_load(raw)
+        except yaml.YAMLError as error:
+            raise ValueError(f"{specification.path}: {error}") from error
 
 
 class CategoryItem(ListItem):
@@ -203,10 +279,17 @@ class CategoryItem(ListItem):
         self.modified = modified
 
     def compose(self) -> ComposeResult:
+        yield Static(self._label())
+
+    def _label(self) -> Text:
         label = Text(t(f"cfg.section.{self.section}"))
         if self.modified:
             label.append(f"  {self.modified}", style="yellow bold")
-        yield Static(label)
+        return label
+
+    def set_modified(self, modified: int) -> None:
+        self.modified = modified
+        self.query_one(Static).update(self._label())
 
 
 class ConfigApp(App):
@@ -214,11 +297,12 @@ class ConfigApp(App):
     Screen { layout: vertical; }
     #workspace { height: 1fr; }
     #navigation {
-        width: 28;
+        width: 30;
         height: 1fr;
         border-right: solid $primary;
         background: $surface;
     }
+    #target-select { width: 26; margin: 0 2 1 2; }
     #navigation-title {
         height: 3;
         padding: 1 2 0 2;
@@ -240,12 +324,10 @@ class ConfigApp(App):
     .fieldrow { height: 3; }
     .fielddesc { color: $text-muted; }
     #status { height: 2; padding: 0 2; }
-    Input { width: 60; }
-    Select { width: 60; }
+    Input { width: 100%; }
+    Select { width: 100%; }
     """
 
-    # Descriptions are localized per instance below. BINDINGS is a class attribute
-    # evaluated at import time, before --lang has been parsed.
     BINDINGS = [
         ("s", "save", ""),
         ("r", "reload", ""),
@@ -256,14 +338,17 @@ class ConfigApp(App):
     def __init__(self, config_path: Path | None = None, local_path: Path | None = None):
         super().__init__()
         self.config_path = config_path
-        self.local_path = local_path or LOCAL_CONFIG
-        self.settings = load_settings(config_path)
-        self.local = read_yaml(self.local_path) if self.local_path.exists() else {}
+        self.local_path = local_path or local_config_path()
+        self.client_settings = load_settings(config_path)
+        self.settings = self.client_settings
+        self.overrides = self._read_local_overrides()
+        self.target = "local"
+        self.remote_path: str | None = None
+        self.remote_editable_paths: set[str] = set()
+        self.remote_client: RemoteConfigClient | None = None
+        self._changing_target = False
         self._rows: list[FieldRow] = []
         self.current_section = SECTIONS[0]
-        # Replace the map rather than calling bind() on it: Textual builds the map
-        # from the class attribute, so mutating it would leak one instance's locale
-        # into the next.
         self._bindings = BindingsMap(
             [
                 Binding("s", "save", t("cfg.key.save")),
@@ -273,33 +358,45 @@ class ConfigApp(App):
             ]
         )
 
+    @property
+    def local(self) -> dict:
+        """Compatibility alias for the active override mapping."""
+        return self.overrides
+
+    @local.setter
+    def local(self, value: dict) -> None:
+        self.overrides = value
+
+    def _read_local_overrides(self) -> dict:
+        from ..config import read_yaml
+
+        return read_yaml(self.local_path) if self.local_path.exists() else {}
+
     def compose(self) -> ComposeResult:
         yield Header()
         with Horizontal(id="workspace"):
             with Container(id="navigation"):
+                yield Select(
+                    [(t("cfg.target.local"), "local"), (t("cfg.target.remote"), "remote")],
+                    value="local",
+                    allow_blank=False,
+                    id="target-select",
+                )
                 yield Static(t("cfg.categories"), id="navigation-title")
                 with ListView(id="category-list"):
                     for section in SECTIONS:
-                        modified = sum(
-                            get_path(self.local, spec.path) is not None
-                            for spec in FIELDS
-                            if spec.section == section
-                        )
-                        yield CategoryItem(section, modified)
+                        yield CategoryItem(section, self._modified_count(section))
             with Container(id="content"):
                 for section in SECTIONS:
-                    with VerticalScroll(
-                        id=f"panel-{section}",
-                        classes="category-panel",
-                    ):
+                    with VerticalScroll(id=f"panel-{section}", classes="category-panel"):
                         yield Static(t(f"cfg.section.{section}"), classes="category-title")
-                        for spec in FIELDS:
-                            if spec.section != section:
+                        for specification in FIELDS:
+                            if specification.section != section:
                                 continue
                             row = FieldRow(
-                                spec,
-                                effective_value(self.settings, spec.path),
-                                get_path(self.local, spec.path) is not None,
+                                specification,
+                                effective_value(self.settings, specification.path),
+                                get_path(self.overrides, specification.path) is not None,
                             )
                             self._rows.append(row)
                             yield row
@@ -309,68 +406,185 @@ class ConfigApp(App):
 
     def on_mount(self) -> None:
         self.title = t("cfg.title")
-        self.sub_title = t("cfg.subtitle", path=self.local_path)
+        self._update_subtitle()
         self._show_section(self.current_section)
         self.query_one("#category-list", ListView).index = 0
 
+    async def on_unmount(self) -> None:
+        if self.remote_client is not None:
+            await self.remote_client.aclose()
+
+    @on(Select.Changed, "#target-select")
+    async def target_changed(self, event: Select.Changed) -> None:
+        if self._changing_target or event.value == Select.BLANK:
+            return
+        requested = str(event.value)
+        if requested == self.target:
+            return
+        if requested == "remote":
+            await self._load_remote()
+        else:
+            self._load_local()
+
     def on_list_view_selected(self, event: ListView.Selected) -> None:
-        item = event.item
-        if isinstance(item, CategoryItem):
-            self._show_section(item.section)
+        if isinstance(event.item, CategoryItem):
+            self._show_section(event.item.section)
 
     def _show_section(self, section: str) -> None:
-        """Display one category while keeping every editor mounted and stateful."""
-        if section not in SECTIONS:
+        if section not in self._visible_sections():
             return
         self.current_section = section
         for candidate in SECTIONS:
             self.query_one(f"#panel-{candidate}").display = candidate == section
 
-    # -- actions -----------------------------------------------------------
-    def action_save(self) -> None:
-        candidate = dict(self.local)
-        changed = 0
+    async def _load_remote(self) -> None:
+        self._say(t("cfg.remote.loading"), "dim")
+        if self.remote_client is None:
+            remote = self.client_settings.remote
+            self.remote_client = RemoteConfigClient(remote.services.asr, remote)
         try:
-            for row in self._rows:
-                value = row.value()
-                if value != effective_value(self.settings, row.spec.path):
-                    set_path(candidate, row.spec.path, value)
-                    changed += 1
-        except ValueError as e:
-            self._say(t("cfg.invalid", error=str(e)), "red")
+            snapshot = await self.remote_client.read()
+        except ServiceError as error:
+            self._say(t("cfg.remote.failed", error=str(error)), "red")
+            self._set_target_selector("local")
             return
+        self._apply_remote_snapshot(snapshot)
+        self._say(t("cfg.remote.loaded", path=snapshot.path), "green")
 
-        if not changed:
+    def _load_local(self) -> None:
+        self.target = "local"
+        self._set_target_selector("local")
+        self.settings = load_settings(self.config_path)
+        self.overrides = self._read_local_overrides()
+        self._refresh_rows()
+        self._update_subtitle()
+        self._say(t("cfg.reloaded"), "dim")
+
+    def _apply_remote_snapshot(self, snapshot: RemoteConfigSnapshot) -> None:
+        self.target = "remote"
+        self._set_target_selector("remote")
+        self.remote_path = snapshot.path
+        self.settings = Settings.model_validate(snapshot.config)
+        self.overrides = snapshot.overrides
+        self.remote_editable_paths = set(snapshot.editable_paths)
+        self._refresh_rows()
+        self._update_subtitle()
+
+    def _set_target_selector(self, target: str) -> None:
+        self._changing_target = True
+        self.query_one("#target-select", Select).value = target
+        self._changing_target = False
+
+    def _update_subtitle(self) -> None:
+        path = self.local_path if self.target == "local" else self.remote_path or "remote"
+        self.sub_title = t("cfg.subtitle", path=path)
+
+    def _modified_count(self, section: str) -> int:
+        return sum(
+            get_path(self.overrides, specification.path) is not None
+            for specification in FIELDS
+            if specification.section == section and self._field_visible(specification)
+        )
+
+    def _field_visible(self, specification: FieldSpec) -> bool:
+        return self.target == "local" or specification.path in self.remote_editable_paths
+
+    def _visible_sections(self) -> tuple[str, ...]:
+        return tuple(
+            section
+            for section in SECTIONS
+            if any(
+                specification.section == section and self._field_visible(specification)
+                for specification in FIELDS
+            )
+        )
+
+    def _refresh_visibility(self) -> None:
+        visible_sections = self._visible_sections()
+        for row in self._rows:
+            row.display = self._field_visible(row.specification)
+        for section in SECTIONS:
+            self.query_one(f"#category-{section}", CategoryItem).display = (
+                section in visible_sections
+            )
+        if self.current_section not in visible_sections:
+            first_section = visible_sections[0]
+            self.query_one("#category-list", ListView).index = SECTIONS.index(first_section)
+            self._show_section(first_section)
+
+    def _refresh_rows(self) -> None:
+        for row in self._rows:
+            row.set_state(
+                effective_value(self.settings, row.specification.path),
+                get_path(self.overrides, row.specification.path) is not None,
+            )
+        for section in SECTIONS:
+            self.query_one(f"#category-{section}", CategoryItem).set_modified(
+                self._modified_count(section)
+            )
+        self._refresh_visibility()
+
+    def _collect_changes(self) -> dict[str, Any]:
+        changes: dict[str, Any] = {}
+        for row in self._rows:
+            if not self._field_visible(row.specification):
+                continue
+            value = row.value()
+            current = effective_value(self.settings, row.specification.path)
+            if value != _plain_value(current):
+                changes[row.specification.path] = value
+        return changes
+
+    async def action_save(self) -> None:
+        try:
+            changes = self._collect_changes()
+        except ValueError as error:
+            self._say(t("cfg.invalid", error=str(error)), "red")
+            return
+        if not changes:
             self._say(t("cfg.no_changes"), "dim")
             return
 
-        problem = validate_candidate(self.config_path, candidate)
-        if problem:
-            self._say(t("cfg.invalid", error=problem), "red")
+        if self.target == "remote":
+            await self._save_remote(changes)
             return
 
-        write_local(self.local_path, candidate)
-        self.local = candidate
+        result = apply_changes(changes, self.config_path, self.local_path)
+        if not result.written:
+            self._say(t("cfg.invalid", error=result.error), "red")
+            return
         self.settings = load_settings(self.config_path)
+        self.overrides = self._read_local_overrides()
+        self._refresh_rows()
         self._say(
-            t("cfg.saved", count=changed, path=self.local_path)
+            t("cfg.saved", count=len(changes), path=self.local_path)
             + "  "
             + t("cfg.restart_required"),
             "green",
         )
 
-    def action_reload(self) -> None:
-        self.settings = load_settings(self.config_path)
-        self.local = read_yaml(self.local_path) if self.local_path.exists() else {}
-        for row in self._rows:
-            current = effective_value(self.settings, row.spec.path)
-            if row.spec.kind == "bool":
-                row.editor.value = bool(current)
-            elif row.spec.kind == "select":
-                row.editor.value = current if current in row.spec.choices else row.spec.choices[0]
-            else:
-                row.editor.value = "" if current is None else str(current)
-        self._say(t("cfg.reloaded"), "dim")
+    async def _save_remote(self, changes: dict[str, Any]) -> None:
+        if self.remote_client is None:
+            self._say(t("cfg.remote.not_connected"), "red")
+            return
+        try:
+            snapshot = await self.remote_client.update(changes)
+        except ServiceError as error:
+            self._say(t("cfg.remote.failed", error=str(error)), "red")
+            return
+        self._apply_remote_snapshot(snapshot)
+        self._say(
+            t("cfg.remote.saved", count=len(changes), path=snapshot.path)
+            + "  "
+            + t("cfg.remote.restart_required"),
+            "green",
+        )
+
+    async def action_reload(self) -> None:
+        if self.target == "remote":
+            await self._load_remote()
+        else:
+            self._load_local()
 
     def action_menu(self) -> None:
         self.query_one("#category-list", ListView).focus()
@@ -379,34 +593,22 @@ class ConfigApp(App):
         self.status.update(Text(message, style=style))
 
 
-@dataclass
-class HeadlessResult:
-    """Result of a non-interactive save, used by the tests."""
-
-    written: bool
-    error: str | None = None
-    changed: list[str] = field(default_factory=list)
+# The old names remain imports from this module because the test suite and external
+# maintenance scripts used them before persistence moved into config_store.py.
+HeadlessResult = ApplyResult
 
 
-def apply_changes(
-    changes: dict[str, Any],
-    config_path: Path | None = None,
-    local_path: Path | None = None,
-) -> HeadlessResult:
-    """Validate and persist changes without starting the interface.
-
-    The editor and this function share `validate_candidate` and `write_local`, so the
-    guarantee that an invalid configuration is never written is testable without
-    driving widgets.
-    """
-    target = local_path or LOCAL_CONFIG
-    candidate = read_yaml(target) if target.exists() else {}
-    for path, value in changes.items():
-        set_path(candidate, path, value)
-
-    problem = validate_candidate(config_path, candidate)
-    if problem:
-        return HeadlessResult(written=False, error=problem)
-
-    write_local(target, candidate)
-    return HeadlessResult(written=True, changed=sorted(changes))
+__all__ = [
+    "FIELDS",
+    "SECTIONS",
+    "ConfigApp",
+    "FieldSpec",
+    "HeadlessResult",
+    "apply_changes",
+    "effective_value",
+    "field_description",
+    "get_path",
+    "set_path",
+    "validate_candidate",
+    "write_local",
+]

@@ -172,13 +172,14 @@ Language-specific handling:
 | Path | Responsibility |
 |---|---|
 | `src/kotonoha/config.py` | Layered configuration, role placement resolution |
+| `src/kotonoha/config_store.py` | Atomic configuration validation and persistence |
 | `src/kotonoha/shmring.py` | Shared-memory audio ring buffer |
 | `src/kotonoha/transport.py` | Audio payload abstraction, PCM encoding |
 | `src/kotonoha/metrics.py` | Five-point turn instrumentation, budget comparison |
 | `src/kotonoha/audio/` | Capture, noise suppression, VAD segmentation, playback |
 | `src/kotonoha/core/` | State machine, language routing, quality gate, clause streaming, orchestrator |
 | `src/kotonoha/clients/` | Service clients, placement router, failover |
-| `src/kotonoha/services/` | Resident model servers, bearer-token middleware |
+| `src/kotonoha/services/` | Resident model servers, bearer-token middleware, remote configuration API |
 | `src/kotonoha/prompts/` | ASR context biasing, single-pass translation prompt |
 | `src/kotonoha/store/` | SQLite glossary, turn history, Traditional Chinese rules |
 | `src/kotonoha/tui/` | Terminal interface and configuration editor |
@@ -548,9 +549,10 @@ English fragment on a translated screen.
 kotonoha config
 ```
 
-Edits are written to `config/local.yaml`, the highest-priority layer.
-`config/default.yaml` and any overlay passed with `--config` are never modified, so the
-committed baseline survives updates and a device keeps its own values.
+The target selector switches between the local device and the remote A6000. Local edits
+are written to `config/local.yaml`. Remote edits are sent to the authenticated management
+API on the remote ASR service and written to `config/remote-server.local.yaml` on that
+host. Baseline and overlay files are never modified.
 
 | Key | Action |
 |---|---|
@@ -559,10 +561,20 @@ committed baseline survives updates and a device keeps its own values.
 | `m` | Focus the category menu |
 | `q` | Exit |
 
-The left navigation menu contains Interface, Session, Audio devices, Audio frontend,
-Models and External server. The right panel contains the fields for the selected
-category. Switching categories keeps unsaved widget values in memory. A count beside a
-category identifies values already present in `local.yaml`.
+The editor reflects every leaf in the `Settings` pydantic model. The current schema
+contains 105 editable values in 13 categories: Interface, Session, Audio, Frontend,
+Runtime services, External server, Primary ASR, Verification ASR, Translation LLM,
+Speech synthesis, Language processing, Context and storage, and Observability.
+
+The local target exposes the complete schema. The remote target exposes only settings
+consumed by the resident ASR, verification ASR, LLM and TTS processes. The remote API
+returns this capability list and rejects client-owned paths, including credentials,
+routing policy, audio devices and local storage.
+
+The right panel contains the fields for the selected category. Switching categories
+keeps unsaved widget values in memory. A count beside a category identifies values
+already present in the active override file. Lists and mappings use YAML flow syntax,
+for example `[ko, en]` and `{llm: remote}`.
 
 Each field shows the dotted configuration path, the effective value, and a localized
 description. Paths are not translated: they are what has to be typed into a YAML file.
@@ -573,7 +585,18 @@ order the runtime uses. Nothing is written unless that succeeds, so the editor c
 leave a device with a configuration that fails to load. Constraints declared on the model
 are enforced here as well; `frontend.vad.preroll_ms` below 200 ms is rejected.
 
-Saved values take effect on the next start.
+Remote access uses `remote.services.asr`, `remote.token`, `remote.verify_tls` and
+`remote.ca_bundle` from the local client configuration. The `/admin/config` endpoint is
+covered by the same Bearer middleware as transcription endpoints. It is unavailable
+without a valid `KOTONOHA_SERVICE_TOKEN` when authentication is enabled.
+
+The remote management API also writes `config/remote-llm.env`. `run_llm.sh` sources that
+file so changes to the LLM profile, model file, context size, batch size, models directory
+and GPU-layer count apply after the remote stack restarts. The API does not reload
+resident models in the request path.
+
+Saved local values take effect on the next interpreter start. Saved remote values take
+effect after restarting the remote services.
 
 ## Evaluation
 

@@ -205,4 +205,6 @@ eval/data/
 eval/out/
 # 기기별 설정 (오디오 장치 인덱스, Phase 0 결론)
 config/local.yaml
+config/remote-server.local.yaml
+config/remote-llm.env
 .DS_Store

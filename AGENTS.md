@@ -25,7 +25,7 @@ verified by measurement on the Orin, not by inspection.
 | Link measurement | `uv run kotonoha netcheck` |
 
 `uv run ruff check .` and `uv run pytest -q` must both pass before any change is reported
-as complete. Current baseline: 89 tests, zero lint findings.
+as complete. Current baseline: 97 tests, zero lint findings.
 
 Dependencies are managed with uv. Use `uv add`, `uv add --group dev`, and
 `uv lock --upgrade-package`. Do not edit `uv.lock` by hand. Do not invoke `pip`.
@@ -146,6 +146,7 @@ that property.
 | `test_routing_and_quality.py` | Language normalization, inheritance fallback, routing modes, verification gate |
 | `test_state_and_metrics.py` | State transitions, five-point instrumentation, budget overrun reporting |
 | `test_remote_mode.py` | Role placement, PCM encoding, failover behavior |
+| `test_config_admin.py` | Remote configuration authorization, allowlist, validation, persistence |
 | `test_i18n.py` | Catalog parity, placeholder parity, locale resolution, configuration editor persistence |
 | `test_tui.py` | Both interfaces compose, bindings and labels follow the locale |
 
@@ -207,12 +208,20 @@ identifiers that also appear in YAML.
 
 ## Configuration editor
 
-`kotonoha config` edits `config/local.yaml`, the highest-priority YAML layer.
-`config/default.yaml` and any `--config` overlay are never written.
+`kotonoha config` edits either the local device or the remote A6000. Local edits go to
+`config/local.yaml`. Remote edits go through the authenticated `/admin/config` endpoint
+on the remote ASR service and are persisted in `config/remote-server.local.yaml`.
+Baseline and overlay files are never written.
 
-`FIELDS` in `src/kotonoha/tui/config_app.py` is curated, not reflected from the pydantic
-model. When adding an entry, add the matching `cfg.f.<path>` description to all four
-catalogs; `tests/test_i18n.py` checks that every field has one.
+The local target exposes every `Settings` leaf. The remote endpoint publishes and
+enforces an allowlist containing settings consumed by resident model services. Do not
+expose client policy, credentials, audio devices, or local storage through the remote
+management API.
+
+`FIELDS` in `src/kotonoha/tui/config_app.py` is reflected from the pydantic model. Nested
+models are expanded; lists and mappings remain YAML-valued leaf fields. Adding a field to
+`Settings` must make it appear automatically. Add a specific `cfg.f.<path>` description
+when the generic type description is insufficient.
 
 `SECTIONS` defines the category menu order. Every `FieldSpec.section` must appear there.
 All category panels remain mounted while only the selected panel is displayed. Preserve
@@ -221,6 +230,10 @@ that behavior so navigating between categories does not discard unsaved widget v
 `validate_candidate` constructs `Settings` from the same layer order the runtime uses.
 Nothing is written unless that succeeds. Preserve that ordering: an unloadable
 configuration on a device is worse than a rejected edit.
+
+Remote changes require a service restart because models remain resident. Do not add live
+model reloads to the management request path. LLM settings that affect llama.cpp are
+mirrored to `config/remote-llm.env`, which `scripts/run_llm.sh` sources on restart.
 
 ## High-performance mode
 

@@ -361,7 +361,7 @@ def load_settings(path: str | Path | None = None) -> Settings:
         layers.append(DEFAULT_CONFIG)
     if chosen.exists() and chosen.resolve() != DEFAULT_CONFIG.resolve():
         layers.append(chosen)
-    local = DEFAULT_CONFIG.parent / "local.yaml"
+    local = local_config_path()
     if local.exists():
         layers.append(local)
 
@@ -390,6 +390,16 @@ def config_layers(path: str | Path | None = None) -> list[Path]:
 
 LOCAL_CONFIG = DEFAULT_CONFIG.parent / "local.yaml"
 
+
+def local_config_path() -> Path:
+    """Return the host-specific override path.
+
+    The Orin uses config/local.yaml. Remote containers set KOTONOHA_LOCAL_CONFIG
+    to a separate file, so editing the A6000 cannot overwrite the Orin's values
+    when both trees are mounted from the same development checkout.
+    """
+    return Path(os.environ.get("KOTONOHA_LOCAL_CONFIG", LOCAL_CONFIG))
+
 __all__ = [
     "Settings",
     "load_settings",
@@ -402,4 +412,5 @@ __all__ = [
     "REPO_ROOT",
     "DEFAULT_CONFIG",
     "LOCAL_CONFIG",
+    "local_config_path",
 ]
