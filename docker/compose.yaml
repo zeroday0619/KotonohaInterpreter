@@ -1,0 +1,80 @@
+# Kotonoha — 서비스 분리 (§3)
+#
+# 중요한 두 가지:
+#   ipc: host        공유 메모리 오디오 링버퍼가 프로세스 경계를 넘으려면 /dev/shm 을
+#                    공유해야 한다. 이게 없으면 오디오를 HTTP body 로 실어야 하고
+#                    턴마다 100~200ms 를 버린다.
+#   network_mode: host  127.0.0.1:800x 주소가 컨테이너 안팎에서 같아진다.
+#
+# 베이스 이미지 태그는 임의로 올리지 않는다(§2). r36.4.0 계열로 고정하고,
+# 실제 존재하는 태그는 실기에서 `jetson-containers` 의 autotag 로 확인해 .env 에 적는다.
+
+x-jetson: &jetson
+  runtime: nvidia
+  ipc: host
+  network_mode: host
+  restart: unless-stopped
+  environment:
+    - KOTONOHA_CONFIG=/app/config/default.yaml
+    - HF_HOME=/models/hf
+    - TRANSFORMERS_OFFLINE=1 # 완전 오프라인(§1). 모델은 미리 받아둔다.
+    - HF_HUB_OFFLINE=1
+  volumes:
+    - ../:/app
+    - ../models:/models
+    - ../data:/app/data
+  working_dir: /app
+
+services:
+  asr:
+    <<: *jetson
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.asr
+      args:
+        BASE_IMAGE: ${ASR_BASE:-dustynv/transformers:r36.4.0}
+    command: uvicorn kotonoha.services.asr_server:app --host 0.0.0.0 --port 8001
+
+  asr-verify:
+    <<: *jetson
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.asr-verify
+      args:
+        BASE_IMAGE: ${VERIFY_BASE:-dustynv/faster-whisper:r36.4.0}
+    command: uvicorn kotonoha.services.asr_verify_server:app --host 0.0.0.0 --port 8002
+
+  llm:
+    <<: *jetson
+    image: ${LLM_IMAGE:-dustynv/llama_cpp:r36.4.0}
+    environment:
+      - LLM_PROFILE=${LLM_PROFILE:-dense} # Spike 3 결과로 확정
+      - LLAMA_BIN=/opt/llama.cpp/build/bin
+      - MODELS_DIR=/models/gguf
+      - LLM_PORT=8003
+    command: bash /app/scripts/run_llm.sh
+
+  tts:
+    <<: *jetson
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.tts
+      args:
+        BASE_IMAGE: ${TTS_BASE:-dustynv/pytorch:r36.4.0}
+    command: uvicorn kotonoha.services.tts_server:app --host 0.0.0.0 --port 8004
+
+  orchestrator:
+    <<: *jetson
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.orchestrator
+      args:
+        BASE_IMAGE: ${ORCH_BASE:-dustynv/pytorch:r36.4.0}
+    depends_on: [asr, asr-verify, llm, tts]
+    devices:
+      - /dev/snd:/dev/snd # 브라우저 마이크는 쓰지 않는다(§12). 장치를 직접 연다.
+    group_add:
+      - audio
+    stdin_open: true
+    tty: true
+    command: python3 -m kotonoha.cli run

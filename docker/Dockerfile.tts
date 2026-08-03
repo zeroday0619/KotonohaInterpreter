@@ -1,0 +1,19 @@
+# TTS — Qwen3-TTS 0.6B, MeloTTS 폴백
+# Qwen3-TTS 모델 카드 예시는 flash_attention_2 를 쓴다. sm_87 빌드 가능 여부가
+# Spike 2 의 질문이므로 여기서는 flash-attn 설치를 강제하지 않는다.
+ARG BASE_IMAGE=dustynv/pytorch:r36.4.0
+FROM ${BASE_IMAGE}
+
+RUN apt-get update && apt-get install -y --no-install-recommends libsndfile1 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY pyproject.toml README.md LICENSE ./
+COPY src ./src
+RUN pip3 install --no-cache-dir -e . soundfile \
+ && (pip3 install --no-cache-dir qwen-tts || echo "!! qwen-tts 실패 — Melo 폴백으로 기동") \
+ && (pip3 install --no-cache-dir melotts || echo "!! melotts 실패 — 폴백 없음")
+
+ENV PYTHONUNBUFFERED=1
+EXPOSE 8004
+CMD ["uvicorn", "kotonoha.services.tts_server:app", "--host", "0.0.0.0", "--port", "8004"]

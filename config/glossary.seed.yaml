@@ -1,0 +1,42 @@
+# 초기 용어집 시드. `kotonoha glossary import config/glossary.seed.yaml` 로 넣는다.
+#
+# §5 대만 어휘 고정: 번역 LLM 은 방치하면 대륙 어휘(软件/视频/信息/鼠标)를
+# 자형만 번체로 바꿔 軟件/視頻/信息/鼠標 로 낸다. 대만 화자에게는 어색하다.
+# src_lang: '*' 는 모든 소스 언어에 적용.
+
+glossary:
+  # --- 대만 어휘: 각 소스 언어 → zh-TW ---
+  - { src_lang: en, src_term: software, tgt_lang: zh-TW, tgt_term: 軟體, kind: vocab, priority: 10 }
+  - { src_lang: en, src_term: video, tgt_lang: zh-TW, tgt_term: 影片, kind: vocab, priority: 10 }
+  - { src_lang: en, src_term: information, tgt_lang: zh-TW, tgt_term: 資訊, kind: vocab, priority: 10 }
+  - { src_lang: en, src_term: mouse, tgt_lang: zh-TW, tgt_term: 滑鼠, kind: vocab, priority: 10, note: "포인팅 장치" }
+  - { src_lang: en, src_term: network, tgt_lang: zh-TW, tgt_term: 網路, kind: vocab, priority: 10 }
+  - { src_lang: en, src_term: program, tgt_lang: zh-TW, tgt_term: 程式, kind: vocab, priority: 10 }
+  - { src_lang: en, src_term: printer, tgt_lang: zh-TW, tgt_term: 印表機, kind: vocab, priority: 10 }
+  - { src_lang: en, src_term: hard disk, tgt_lang: zh-TW, tgt_term: 硬碟, kind: vocab, priority: 10 }
+
+  - { src_lang: ko, src_term: 소프트웨어, tgt_lang: zh-TW, tgt_term: 軟體, kind: vocab, priority: 10 }
+  - { src_lang: ko, src_term: 영상, tgt_lang: zh-TW, tgt_term: 影片, kind: vocab, priority: 10 }
+  - { src_lang: ko, src_term: 정보, tgt_lang: zh-TW, tgt_term: 資訊, kind: vocab, priority: 10 }
+  - { src_lang: ko, src_term: 마우스, tgt_lang: zh-TW, tgt_term: 滑鼠, kind: vocab, priority: 10 }
+  - { src_lang: ko, src_term: 네트워크, tgt_lang: zh-TW, tgt_term: 網路, kind: vocab, priority: 10 }
+  - { src_lang: ko, src_term: 프로그램, tgt_lang: zh-TW, tgt_term: 程式, kind: vocab, priority: 10 }
+  - { src_lang: ko, src_term: 프린터, tgt_lang: zh-TW, tgt_term: 印表機, kind: vocab, priority: 10 }
+
+  - { src_lang: ja, src_term: ソフトウェア, tgt_lang: zh-TW, tgt_term: 軟體, kind: vocab, priority: 10 }
+  - { src_lang: ja, src_term: 動画, tgt_lang: zh-TW, tgt_term: 影片, kind: vocab, priority: 10 }
+  - { src_lang: ja, src_term: 情報, tgt_lang: zh-TW, tgt_term: 資訊, kind: vocab, priority: 10 }
+  - { src_lang: ja, src_term: マウス, tgt_lang: zh-TW, tgt_term: 滑鼠, kind: vocab, priority: 10 }
+  - { src_lang: ja, src_term: ネットワーク, tgt_lang: zh-TW, tgt_term: 網路, kind: vocab, priority: 10 }
+  - { src_lang: ja, src_term: プログラム, tgt_lang: zh-TW, tgt_term: 程式, kind: vocab, priority: 10 }
+
+# OpenCC s2twp 이후 마지막으로 적용되는 치환. 자형만 바뀌고 어휘가 안 바뀐 경우를 잡는다.
+zh_rules:
+  - { pattern: 軟件, replacement: 軟體, note: "s2twp가 놓치는 케이스" }
+  - { pattern: 視頻, replacement: 影片 }
+  - { pattern: 鼠標, replacement: 滑鼠 }
+  - { pattern: 網絡, replacement: 網路 }
+  - { pattern: 打印機, replacement: 印表機 }
+  - { pattern: 硬盤, replacement: 硬碟 }
+  - { pattern: 內存, replacement: 記憶體 }
+  - { pattern: 質量, replacement: 品質, note: "물리 '질량'이 아닌 품질 문맥에서" }

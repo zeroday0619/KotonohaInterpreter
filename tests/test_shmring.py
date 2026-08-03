@@ -1,0 +1,46 @@
+from __future__ import annotations
+
+import numpy as np
+import pytest
+
+from kotonoha.shmring import AudioRef, AudioRing, StaleSlotError
+
+NAME = "kotonoha_test_ring"
+
+
+def test_publish_and_read_across_attach():
+    ring = AudioRing.create(NAME, slots=3, slot_seconds=1, sample_rate=16000)
+    try:
+        pcm = np.linspace(-1, 1, 8000, dtype=np.float32)
+        ref = ring.publish(pcm)
+
+        # 서비스 쪽에서 참조만 받아 attach 하는 상황
+        consumer = AudioRing.attach(NAME)
+        got = consumer.read(AudioRef.from_json(ref.to_json()))
+        assert got.shape == pcm.shape
+        assert np.allclose(got, pcm)
+        assert ref.seconds == pytest.approx(0.5)
+    finally:
+        ring.close()
+
+
+def test_overwrite_is_detected_not_silently_wrong():
+    ring = AudioRing.create(NAME, slots=2, slot_seconds=1, sample_rate=16000)
+    try:
+        old = ring.publish(np.zeros(1000, dtype=np.float32))
+        for _ in range(2):
+            ring.publish(np.ones(1000, dtype=np.float32))
+        with pytest.raises(StaleSlotError):
+            ring.read(old)
+    finally:
+        ring.close()
+
+
+def test_oversized_utterance_is_truncated_not_crashing():
+    ring = AudioRing.create(NAME, slots=2, slot_seconds=1, sample_rate=16000)
+    try:
+        ref = ring.publish(np.ones(50000, dtype=np.float32))
+        assert ref.frames == 16000
+        assert ring.read(ref).size == 16000
+    finally:
+        ring.close()

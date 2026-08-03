@@ -1,0 +1,21 @@
+# 오케스트레이터 + 오디오 프런트엔드 + TUI (CPU)
+ARG BASE_IMAGE=dustynv/pytorch:r36.4.0
+FROM ${BASE_IMAGE}
+
+# PortAudio 와 libsndfile 은 apt 로. pip wheel 은 aarch64 에서 신뢰할 수 없다.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libportaudio2 portaudio19-dev libsndfile1 alsa-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY pyproject.toml README.md LICENSE ./
+COPY src ./src
+
+# onnxruntime(VAD)·deepfilternet(잡음 제거)은 aarch64 지원을 실기에서 확인한 뒤
+# 넣는다(작업 규칙 3). 실패해도 이미지 빌드는 계속되고, 런타임에 폴백된다.
+RUN pip3 install --no-cache-dir -e . \
+ && (pip3 install --no-cache-dir onnxruntime || echo "!! onnxruntime 실패 — VAD 폴백") \
+ && (pip3 install --no-cache-dir deepfilternet || echo "!! deepfilternet 실패 — 잡음 제거 없음")
+
+ENV PYTHONUNBUFFERED=1
+CMD ["python3", "-m", "kotonoha.cli", "run"]

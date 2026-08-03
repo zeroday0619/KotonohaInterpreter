@@ -1,0 +1,17 @@
+# 1차 ASR — Qwen3-ASR 1.7B (transformers 경로)
+# Spike 1 에서 vLLM 이 확인되면 ghcr.io/nvidia-ai-iot/vllm:r36.4-tegra-aarch64-cu126-22.04
+# 기반으로 별도 Dockerfile 을 만든다. 확인 전에는 만들지 않는다.
+ARG BASE_IMAGE=dustynv/transformers:r36.4.0
+FROM ${BASE_IMAGE}
+
+RUN apt-get update && apt-get install -y --no-install-recommends libsndfile1 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY pyproject.toml README.md LICENSE ./
+COPY src ./src
+RUN pip3 install --no-cache-dir -e . && pip3 install --no-cache-dir "transformers>=4.57" accelerate
+
+ENV PYTHONUNBUFFERED=1
+EXPOSE 8001
+CMD ["uvicorn", "kotonoha.services.asr_server:app", "--host", "0.0.0.0", "--port", "8001"]

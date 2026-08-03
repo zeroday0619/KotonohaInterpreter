@@ -1,0 +1,15 @@
+# 교차 검증 ASR — faster-whisper large-v3 (CTranslate2)
+# CTranslate2 의 aarch64 CUDA 빌드가 깨지면 whisper.cpp CUDA 로 폴백한다(§7).
+# 그 경우 asr_verify.backend: whisper_cpp 로 바꾸고 WHISPER_CPP_URL 을 준다.
+ARG BASE_IMAGE=dustynv/faster-whisper:r36.4.0
+FROM ${BASE_IMAGE}
+
+WORKDIR /app
+COPY pyproject.toml README.md LICENSE ./
+COPY src ./src
+RUN pip3 install --no-cache-dir -e . \
+ && python3 -c "import ctranslate2, faster_whisper; print('ct2', ctranslate2.__version__)"
+
+ENV PYTHONUNBUFFERED=1
+EXPOSE 8002
+CMD ["uvicorn", "kotonoha.services.asr_verify_server:app", "--host", "0.0.0.0", "--port", "8002"]

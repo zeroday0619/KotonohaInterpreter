@@ -1,0 +1,72 @@
+[project]
+name = "kotonoha-interpreter"
+version = "0.1.0"
+description = "Consecutive (non-simultaneous) 4-language offline speech interpreter for Jetson AGX Orin"
+readme = "README.md"
+license = { file = "LICENSE" }
+# Jetson JetPack 6.2 컨테이너의 시스템 파이썬은 3.10이다.
+# 개발용 macOS에서 3.12 등을 쓰더라도 문법은 3.10 호환을 유지한다.
+requires-python = ">=3.10"
+
+dependencies = [
+  "numpy>=1.24,<2.3",
+  "pydantic>=2.7",
+  "pydantic-settings>=2.3",
+  "PyYAML>=6.0",
+  "httpx>=0.27",
+  "structlog>=24.1",
+  "textual>=0.79",
+  "rich>=13.7",
+  "soxr>=0.5",
+  "sounddevice>=0.4.7",
+  "opencc-python-reimplemented>=0.1.7",
+  "fastapi>=0.111",
+  "uvicorn>=0.30",
+]
+
+[project.optional-dependencies]
+# --- 개발 PC(macOS)에서 설치 가능한 것들 ---
+dev = [
+  "pytest>=8.2",
+  "pytest-asyncio>=0.23",
+  "ruff>=0.5",
+  "jiwer>=3.0",
+]
+# --- Jetson 실기 전용. aarch64 wheel 존재 여부는 Phase 0에서 실측 확인한다. ---
+# macOS에서 이 extra를 설치하려 하지 말 것.
+device = [
+  "onnxruntime>=1.18",          # silero-vad
+  "deepfilternet>=0.5.6",       # DeepFilterNet3
+  "faster-whisper>=1.0.3",      # CTranslate2 backend
+  "transformers>=4.57",         # Qwen3-ASR / Qwen3-TTS
+  "accelerate>=0.33",
+  "soundfile>=0.12",
+]
+# --- 평가는 개발 PC에서만. Orin에 올리지 않는다(§11). ---
+eval = [
+  "jiwer>=3.0",
+  "unbabel-comet>=2.2",
+  "pandas>=2.2",
+]
+
+[project.scripts]
+kotonoha = "kotonoha.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kotonoha"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["B008"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
