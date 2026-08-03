@@ -80,11 +80,39 @@ MESSAGES: dict[str, str] = {
     "tui.menu.configuration.description": "Edit local and remote settings",
     "tui.menu.tools": "Operations",
     "tui.menu.tools.description": "Run diagnostics, services, replay, and glossary commands",
+    "tui.menu.license": "License",
+    "tui.menu.license.description": "Review project and installed dependency licenses",
     "tui.menu.quit": "Exit",
     "tui.menu.key.interpreter": "Interpreter",
     "tui.menu.key.configuration": "Configuration",
     "tui.menu.key.tools": "Operations",
+    "tui.menu.key.license": "License",
     "tui.menu.key.quit": "Exit",
+    # -- TUI: license ----------------------------------------------------
+    "license.title": "License information",
+    "license.subtitle": "Project and installed dependencies",
+    "license.tab.project": "Project license",
+    "license.tab.dependencies": "Installed dependencies",
+    "license.project.name": "Product:",
+    "license.project.version": "Version:",
+    "license.project.type": "License:",
+    "license.unavailable": "The project license text is unavailable in this installation.",
+    "license.dependencies.notice": (
+        "License identifiers are read from installed package metadata. Retain any license "
+        "files required by each distributed package."
+    ),
+    "license.models.notice": (
+        "Downloaded model artifacts are not covered by the project MIT license. Review and "
+        "retain the license files supplied with each model."
+    ),
+    "license.column.package": "Package",
+    "license.column.version": "Version",
+    "license.column.license": "Declared license",
+    "license.unknown": "See package metadata",
+    "license.none": "No direct dependencies detected",
+    "license.key.project": "Project",
+    "license.key.dependencies": "Dependencies",
+    "license.key.back": "Back",
     # -- TUI: operations -------------------------------------------------
     "tools.title": "Kotonoha operations",
     "tools.subtitle": "Configuration: {config}",

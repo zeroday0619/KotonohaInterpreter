@@ -9,7 +9,7 @@ from kotonoha.tui import workflow
 
 
 async def test_unified_workflow_returns_to_menu_and_reloads_settings(monkeypatch) -> None:
-    selections = iter(("configuration", "tools", "interpreter", None))
+    selections = iter(("configuration", "tools", "license", "interpreter", None))
     events: list[str] = []
     settings = load_settings()
     load_count = 0
@@ -47,11 +47,16 @@ async def test_unified_workflow_returns_to_menu_and_reloads_settings(monkeypatch
         async def run_async(self) -> None:
             events.append("tools")
 
+    class LicenseApplication:
+        async def run_async(self) -> None:
+            events.append("license")
+
     monkeypatch.setattr(workflow, "load_settings", load)
     monkeypatch.setattr(workflow, "TuiMenuApp", MenuApplication)
     monkeypatch.setattr(workflow, "ConfigApp", ConfigApplication)
     monkeypatch.setattr(workflow, "KotonohaApp", InterpreterApplication)
     monkeypatch.setattr(workflow, "ToolsApp", ToolsApplication)
+    monkeypatch.setattr(workflow, "LicenseApp", LicenseApplication)
     monkeypatch.setattr(
         workflow,
         "setup_logging",
@@ -65,5 +70,5 @@ async def test_unified_workflow_returns_to_menu_and_reloads_settings(monkeypatch
         ),
     )
 
-    assert events == ["configuration", "tools", "interpreter"]
-    assert load_count == 4
+    assert events == ["configuration", "tools", "license", "interpreter"]
+    assert load_count == 5

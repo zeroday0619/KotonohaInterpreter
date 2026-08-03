@@ -493,12 +493,14 @@ validated before the command body runs, and shell completion is installed with
 `kotonoha --install-completion`.
 
 `kotonoha tui` is the primary operator entry point. The control center opens the
-interpreter, the local and remote configuration editor, or the operations screen. The
-operations screen exposes replay, device discovery, service startup, diagnostics, link
-measurement, glossary management, and shell completion with the same arguments and
-validation as the CLI. It streams child-process output and can terminate long-running
-replay and service processes. Exiting any screen returns to the control center. Settings
-saved in the editor are reloaded before the interpreter starts.
+interpreter, the local and remote configuration editor, the operations screen, or the
+license screen. The operations screen exposes replay, device discovery, service startup,
+diagnostics, link measurement, glossary management, and shell completion with the same
+arguments and validation as the CLI. It streams child-process output and can terminate
+long-running replay and service processes. The license screen displays the packaged MIT
+license and the version and declared license of each installed direct dependency. Model
+artifacts are identified as separately licensed. Exiting any screen returns to the
+control center. Settings saved in the editor are reloaded before the interpreter starts.
 
 Prefix commands with `uv run` on the development workstation. Inside containers the
 package is installed into the system Python and the prefix is unnecessary.

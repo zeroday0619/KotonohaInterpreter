@@ -80,11 +80,41 @@ MESSAGES: dict[str, str] = {
     "tui.menu.configuration.description": "ローカルとリモートの設定を編集します",
     "tui.menu.tools": "運用ツール",
     "tui.menu.tools.description": "診断、サービス、再生、用語集のコマンドを実行します",
+    "tui.menu.license": "ライセンス",
+    "tui.menu.license.description": (
+        "プロジェクトとインストール済み依存関係のライセンスを確認します"
+    ),
     "tui.menu.quit": "終了",
     "tui.menu.key.interpreter": "通訳",
     "tui.menu.key.configuration": "設定",
     "tui.menu.key.tools": "運用ツール",
+    "tui.menu.key.license": "ライセンス",
     "tui.menu.key.quit": "終了",
+    # -- TUI: license ----------------------------------------------------
+    "license.title": "ライセンス情報",
+    "license.subtitle": "プロジェクトとインストール済み依存関係",
+    "license.tab.project": "プロジェクトライセンス",
+    "license.tab.dependencies": "インストール済み依存関係",
+    "license.project.name": "製品:",
+    "license.project.version": "バージョン:",
+    "license.project.type": "ライセンス:",
+    "license.unavailable": "この環境ではプロジェクトのライセンス全文を取得できません。",
+    "license.dependencies.notice": (
+        "ライセンス識別子はインストール済みパッケージのメタデータから取得します。配布する各"
+        "パッケージが要求するライセンスファイルを保持してください。"
+    ),
+    "license.models.notice": (
+        "ダウンロードしたモデル成果物にはプロジェクトの MIT ライセンスは適用されません。"
+        "各モデルに付属するライセンスファイルを確認し、保持してください。"
+    ),
+    "license.column.package": "パッケージ",
+    "license.column.version": "バージョン",
+    "license.column.license": "宣言ライセンス",
+    "license.unknown": "パッケージメタデータを参照",
+    "license.none": "直接依存関係が見つかりません",
+    "license.key.project": "プロジェクト",
+    "license.key.dependencies": "依存関係",
+    "license.key.back": "戻る",
     # -- TUI: operations -------------------------------------------------
     "tools.title": "Kotonoha 運用ツール",
     "tools.subtitle": "設定: {config}",

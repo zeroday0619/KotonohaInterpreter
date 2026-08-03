@@ -10,6 +10,7 @@ from ..config import Settings, load_settings
 from ..logging_setup import setup_logging
 from .app import KotonohaApp
 from .config_app import ConfigApp
+from .license_app import LicenseApp
 from .menu_app import TuiMenuApp
 from .tools_app import ToolsApp
 
@@ -35,5 +36,7 @@ async def run_unified_tui(
             await ConfigApp(config_path=config_path).run_async()
         elif selection == "tools":
             await ToolsApp(config_path=config_path).run_async()
+        elif selection == "license":
+            await LicenseApp().run_async()
         else:
             return

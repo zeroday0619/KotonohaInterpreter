@@ -103,7 +103,7 @@ class StatusBar(Static):
 
 
 class Pane(Static):
-    """Plain text panel, no scrolling. Shows only the last N turns."""
+    """Plain text panel for the active interpretation turn."""
 
     def __init__(self, title: str, style: str = "white", **kw):
         super().__init__(**kw)
@@ -122,6 +122,11 @@ class Pane(Static):
         else:
             self._lines.append(line)
         self.refresh()
+
+    def clear(self) -> None:
+        if self._lines:
+            self._lines.clear()
+            self.refresh()
 
     def render(self) -> Text:
         t = Text()
@@ -344,7 +349,9 @@ class KotonohaApp(App):
         if ev.kind == "state":
             self.status.state = p["state"]
             self.status.mic = p["state"] != "SPEAKING"
-            if p["state"] == "IDLE":
+            if p["state"] == "LISTENING":
+                self._clear_transcripts()
+            elif p["state"] == "IDLE":
                 self._talking = False
         elif ev.kind == "level":
             self._frame_accumulator.push_level(p.get("rms", 0.0))
@@ -429,8 +436,9 @@ class KotonohaApp(App):
         self.status.routing = s.routing
 
     def action_clear(self) -> None:
+        self._clear_transcripts()
+
+    def _clear_transcripts(self) -> None:
         self._frame_accumulator.discard_translation()
-        self.src._lines.clear()
-        self.tgt._lines.clear()
-        self.src.refresh()
-        self.tgt.refresh()
+        self.src.clear()
+        self.tgt.clear()

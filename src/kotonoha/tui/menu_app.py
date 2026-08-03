@@ -32,6 +32,7 @@ class TuiMenuApp(App[str | None]):
         ("i", "interpreter", ""),
         ("s", "configuration", ""),
         ("t", "tools", ""),
+        ("l", "license", ""),
         ("q", "quit", ""),
     ]
 
@@ -43,6 +44,7 @@ class TuiMenuApp(App[str | None]):
                 Binding("i", "interpreter", t("tui.menu.key.interpreter")),
                 Binding("s", "configuration", t("tui.menu.key.configuration")),
                 Binding("t", "tools", t("tui.menu.key.tools")),
+                Binding("l", "license", t("tui.menu.key.license")),
                 Binding("q", "quit", t("tui.menu.key.quit")),
             ]
         )
@@ -78,6 +80,8 @@ class TuiMenuApp(App[str | None]):
             yield Static(t("tui.menu.configuration.description"), classes="menu-description")
             yield Button(t("tui.menu.tools"), id="tools", classes="menu-button")
             yield Static(t("tui.menu.tools.description"), classes="menu-description")
+            yield Button(t("tui.menu.license"), id="license", classes="menu-button")
+            yield Static(t("tui.menu.license.description"), classes="menu-description")
             yield Button(t("tui.menu.quit"), id="quit", classes="menu-button")
         yield Footer()
 
@@ -93,6 +97,8 @@ class TuiMenuApp(App[str | None]):
             self.action_configuration()
         elif event.button.id == "tools":
             self.action_tools()
+        elif event.button.id == "license":
+            self.action_license()
         else:
             self.action_quit()
 
@@ -104,6 +110,9 @@ class TuiMenuApp(App[str | None]):
 
     def action_tools(self) -> None:
         self.exit("tools")
+
+    def action_license(self) -> None:
+        self.exit("license")
 
     def action_quit(self) -> None:
         self.exit(None)

@@ -30,7 +30,7 @@ verified by measurement on the Orin, not by inspection.
 | Uninstall A6000 services | `bash scripts/deploy.sh uninstall a6000` |
 
 `uv run ruff check .` and `uv run pytest -q` must both pass before any change is reported
-as complete. Current baseline: 143 tests, zero lint findings.
+as complete. Current baseline: 147 tests, zero lint findings.
 
 Dependencies are managed with uv. Use `uv add`, `uv add --group dev`, and
 `uv lock --upgrade-package`. Do not edit `uv.lock` by hand. Do not invoke `pip`.
@@ -156,6 +156,7 @@ that property.
 | `test_i18n.py` | Catalog parity, placeholder parity, locale resolution, configuration editor persistence |
 | `test_tui.py` | Interfaces compose, bindings and labels follow the locale |
 | `test_tui_logging.py` | TUI log buffering, JSON parsing, formatting, and file preservation |
+| `test_tui_license.py` | Packaged license and installed dependency metadata discovery |
 | `test_tui_rendering.py` | Frame coalescing, level interpolation, and bounded event bursts |
 | `test_tui_tools.py` | Operations command construction and input validation |
 | `test_tui_workflow.py` | Control-center sequencing and settings reload behavior |

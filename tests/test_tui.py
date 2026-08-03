@@ -19,11 +19,13 @@ from textual.widgets import Button
 from kotonoha.clients.config_admin import RemoteConfigSnapshot
 from kotonoha.config import load_settings
 from kotonoha.config_store import set_path
+from kotonoha.core.events import UiEvent
 from kotonoha.i18n import CATALOGS, set_locale
 from kotonoha.services.config_admin import REMOTE_EDITABLE_PATHS
 from kotonoha.tui import tools_app
 from kotonoha.tui.app import KotonohaApp
 from kotonoha.tui.config_app import FIELDS, SECTIONS, ConfigApp
+from kotonoha.tui.license_app import LicenseApp
 from kotonoha.tui.menu_app import TuiMenuApp
 from kotonoha.tui.tools_app import OPERATION_FIELDS, OPERATIONS, ToolsApp
 
@@ -62,10 +64,14 @@ async def test_control_center_composes_with_localized_actions():
             "tui.menu.configuration"
         ]
         assert str(app.query_one("#tools", Button).label) == CATALOGS["ja"]["tui.menu.tools"]
+        assert str(app.query_one("#license", Button).label) == CATALOGS["ja"][
+            "tui.menu.license"
+        ]
         assert [binding.description for binding in app._bindings.shown_keys] == [
             CATALOGS["ja"]["tui.menu.key.interpreter"],
             CATALOGS["ja"]["tui.menu.key.configuration"],
             CATALOGS["ja"]["tui.menu.key.tools"],
+            CATALOGS["ja"]["tui.menu.key.license"],
             CATALOGS["ja"]["tui.menu.key.quit"],
         ]
 
@@ -75,6 +81,32 @@ async def test_control_center_keyboard_action_selects_interpreter():
     async with app.run_test() as pilot:
         await pilot.press("i")
     assert app.return_value == "interpreter"
+
+
+async def test_control_center_keyboard_action_selects_license():
+    app = TuiMenuApp(load_settings())
+    async with app.run_test() as pilot:
+        await pilot.press("l")
+    assert app.return_value == "license"
+
+
+async def test_license_screen_composes_with_localized_tabs():
+    set_locale("zh-TW")
+    app = LicenseApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert app.title == CATALOGS["zh-TW"]["license.title"]
+        assert app.license_text is not None
+        assert "MIT License" in app.license_text
+        assert app.query_one("#dependency-table").row_count == len(app.dependencies)
+        assert [binding.description for binding in app._bindings.shown_keys] == [
+            CATALOGS["zh-TW"]["license.key.project"],
+            CATALOGS["zh-TW"]["license.key.dependencies"],
+            CATALOGS["zh-TW"]["license.key.back"],
+        ]
+
+        await pilot.press("d")
+        assert app.query_one("#license-tabs").active == "dependencies"
 
 
 async def test_operations_screen_composes_every_cli_operation():
@@ -345,5 +377,12 @@ async def test_main_interface_composes_with_localized_labels(wav_path, tmp_path,
             CATALOGS["ko"]["tui.key.clear"],
             CATALOGS["ko"]["tui.key.quit"],
         ]
+        app.src.push("previous source")
+        app.tgt.push("previous translation")
+        app._frame_accumulator.push_translation("stale pending translation")
+        app._apply(UiEvent("state", {"state": "LISTENING"}))
+        assert app.src._lines == []
+        assert app.tgt._lines == []
+        assert not app._frame_accumulator.advance().translation_changed
     setup_logging()
     reset_terminal_interface_logs()

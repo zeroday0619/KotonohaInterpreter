@@ -80,11 +80,39 @@ MESSAGES: dict[str, str] = {
     "tui.menu.configuration.description": "로컬 및 원격 설정을 편집합니다",
     "tui.menu.tools": "운영 도구",
     "tui.menu.tools.description": "진단, 서비스, 재생 및 용어집 명령을 실행합니다",
+    "tui.menu.license": "라이선스",
+    "tui.menu.license.description": "프로젝트와 설치된 의존성의 라이선스를 확인합니다",
     "tui.menu.quit": "종료",
     "tui.menu.key.interpreter": "통역기",
     "tui.menu.key.configuration": "설정",
     "tui.menu.key.tools": "운영 도구",
+    "tui.menu.key.license": "라이선스",
     "tui.menu.key.quit": "종료",
+    # -- TUI: license ----------------------------------------------------
+    "license.title": "라이선스 정보",
+    "license.subtitle": "프로젝트와 설치된 의존성",
+    "license.tab.project": "프로젝트 라이선스",
+    "license.tab.dependencies": "설치된 의존성",
+    "license.project.name": "제품:",
+    "license.project.version": "버전:",
+    "license.project.type": "라이선스:",
+    "license.unavailable": "이 설치에서 프로젝트 라이선스 전문을 찾을 수 없습니다.",
+    "license.dependencies.notice": (
+        "라이선스 식별자는 설치된 패키지 메타데이터에서 읽습니다. 배포하는 각 패키지가 "
+        "요구하는 라이선스 파일을 보존해야 합니다."
+    ),
+    "license.models.notice": (
+        "다운로드한 모델 아티팩트에는 프로젝트 MIT 라이선스가 적용되지 않습니다. 각 모델과 "
+        "함께 제공되는 라이선스 파일을 확인하고 보존해야 합니다."
+    ),
+    "license.column.package": "패키지",
+    "license.column.version": "버전",
+    "license.column.license": "선언된 라이선스",
+    "license.unknown": "패키지 메타데이터 확인",
+    "license.none": "직접 의존성을 찾지 못했습니다",
+    "license.key.project": "프로젝트",
+    "license.key.dependencies": "의존성",
+    "license.key.back": "뒤로",
     # -- TUI: operations -------------------------------------------------
     "tools.title": "Kotonoha 운영 도구",
     "tools.subtitle": "설정: {config}",

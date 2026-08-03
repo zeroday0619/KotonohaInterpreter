@@ -84,11 +84,37 @@ MESSAGES: dict[str, str] = {
     "tui.menu.configuration.description": "編輯本機與遠端設定",
     "tui.menu.tools": "維運工具",
     "tui.menu.tools.description": "執行診斷、服務、重播與詞彙表命令",
+    "tui.menu.license": "授權條款",
+    "tui.menu.license.description": "檢視專案與已安裝相依套件的授權條款",
     "tui.menu.quit": "結束",
     "tui.menu.key.interpreter": "口譯",
     "tui.menu.key.configuration": "設定",
     "tui.menu.key.tools": "維運工具",
+    "tui.menu.key.license": "授權條款",
     "tui.menu.key.quit": "結束",
+    # -- TUI: license ----------------------------------------------------
+    "license.title": "授權資訊",
+    "license.subtitle": "專案與已安裝相依套件",
+    "license.tab.project": "專案授權條款",
+    "license.tab.dependencies": "已安裝相依套件",
+    "license.project.name": "產品：",
+    "license.project.version": "版本：",
+    "license.project.type": "授權條款：",
+    "license.unavailable": "此安裝環境中無法取得專案授權條款全文。",
+    "license.dependencies.notice": (
+        "授權識別碼取自已安裝套件的中繼資料。散布時必須保留各套件要求的授權檔案。"
+    ),
+    "license.models.notice": (
+        "下載的模型成品不適用本專案的 MIT 授權條款。請檢查並保留各模型隨附的授權檔案。"
+    ),
+    "license.column.package": "套件",
+    "license.column.version": "版本",
+    "license.column.license": "宣告的授權條款",
+    "license.unknown": "請參閱套件中繼資料",
+    "license.none": "未偵測到直接相依套件",
+    "license.key.project": "專案",
+    "license.key.dependencies": "相依套件",
+    "license.key.back": "返回",
     # -- TUI: operations -------------------------------------------------
     "tools.title": "Kotonoha 維運工具",
     "tools.subtitle": "設定：{config}",
