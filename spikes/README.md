@@ -1,53 +1,97 @@
-# Phase 0 — 검증 스파이크
+# Phase 0 — Validation Spikes
 
-**이 세 가지를 실기에서 돌리고 결과를 보고한 뒤 멈춘다.** 결과에 따라 이후
-아키텍처가 갈라진다.
+## Objective
 
-macOS 개발 PC에서는 실행할 수 없다. aarch64 + CUDA + Orin 대역폭이 있어야
-의미 있는 수치가 나온다. 여기 있는 것은 실기에 그대로 올려 돌릴 스크립트다.
+Resolve three architectural decisions by measurement on the target hardware. Each decision
+gates work that cannot proceed correctly without it.
 
-## 준비
+| Spike | Question | Decision | Setting |
+|---|---|---|---|
+| 1 | Does the Jetson vLLM container load Qwen3-ASR, and can it produce N-best output? | ASR runtime | `asr.backend` |
+| 2 | Does flash-attn build and execute on sm_87, and does Qwen3-TTS load? | TTS backend | `tts.backend` |
+| 3 | What is the measured token generation rate for the 30B MoE and the dense 14B? | Translation model class | `llm.profile` |
+
+Execution stops after Phase 0. Results are reported before Phase 1 begins.
+
+## Preconditions
+
+The spikes require Jetson AGX Orin hardware. They produce no meaningful data on a
+development workstation: the measurements depend on aarch64, CUDA, sm_87, and the
+204.8 GB/s memory bandwidth of the target.
 
 ```bash
-sudo nvpmodel -m 0 && sudo jetson_clocks       # MAXN + 클럭 고정
-jtop                                            # 스로틀링 확인 (별도 터미널)
+sudo nvpmodel -m 0
+sudo jetson_clocks
+jtop
 ```
 
-측정 중 `jtop` 에서 열 스로틀링이 걸리면 그 측정치는 버린다.
+Discard any measurement taken during thermal throttling. Confirm the state in `jtop` in a
+separate terminal for the duration of each run.
 
-## Spike 1 — vLLM 이 Qwen3-ASR 을 로드하는가
+Spike 3 requires both GGUF artifacts, 27.6 GB combined. Download them with
+`scripts/fetch_models.sh` before starting.
+
+A real recording of approximately six seconds improves Spike 1. Without one the harness
+generates synthetic audio; timing remains valid, transcription content does not.
+
+## Spike 1 — vLLM and Qwen3-ASR
+
+Run the vLLM path inside the vLLM container:
 
 ```bash
 jetson-containers run ghcr.io/nvidia-ai-iot/vllm:r36.4-tegra-aarch64-cu126-22.04
-# 컨테이너 안에서
-python3 spikes/spike1_asr_load.py --wav samples/ko_6s.wav --only vllm --out spikes/out/spike1_vllm.json
+python3 spikes/spike1_asr_load.py --wav samples/ko_6s.wav --only vllm \
+    --out spikes/out/spike1_vllm.json
 ```
 
-transformers 경로는 별도 컨테이너에서:
+Run the transformers path in an r36.4.0 image:
 
 ```bash
-python3 spikes/spike1_asr_load.py --wav samples/ko_6s.wav --only transformers --out spikes/out/spike1.json
+python3 spikes/spike1_asr_load.py --wav samples/ko_6s.wav --only transformers \
+    --out spikes/out/spike1.json
 ```
 
-두 결과를 하나로 합칠 때는 `spike1.json` 에 `vllm` 키를 채워 넣는다.
+Merge the two results by copying the `vllm` key into `spike1.json`.
 
-확인 항목: 로드 성공 / 6초 전사 시간 / **N-best 5 출력 가능 여부** / 로그확률 획득 여부.
-N-best 가 안 나오면 §5.2 를 만족하지 못하므로 그 경로는 채택할 수 없다.
+Acceptance criteria:
 
-## Spike 2 — flash-attn 이 sm_87 에서 빌드되는가
+| Criterion | Requirement |
+|---|---|
+| Model load | Succeeds |
+| N-best output | Exactly 5 sequences |
+| Log-probabilities | Available per sequence |
+| N-best transcription time | 900 ms or less for a 6 s utterance |
+
+A path that transcribes but cannot produce N-best fails the requirement in the design
+constraints and is not eligible, regardless of its latency.
+
+## Spike 2 — flash-attn on sm_87
 
 ```bash
 jetson-containers run $(autotag flash-attention)
 python3 spikes/spike2_flash_attn.py --out spikes/out/spike2.json
 ```
 
-import 성공만으로 판정하지 않는다. 실제 커널을 한 번 돌려서 확인한다.
-Qwen3-TTS 는 `flash_attention_2` → `sdpa` → `eager` 순으로 시도해, flash-attn
-없이도 뜨는지를 함께 본다. 전부 실패하면 MeloTTS 로 Phase 1~3 을 시작한다.
+The harness does not accept a successful import as evidence. An aarch64 wheel can import
+and then fail inside the kernel, so a `flash_attn_func` call is executed and its output
+checked for finiteness.
 
-## Spike 3 — MoE vs 밀집 14B 실측 tok/s
+Qwen3-TTS is loaded three times, with `flash_attention_2`, `sdpa`, and `eager`. The
+harness records which implementations load and the synthesis time for each. When no
+implementation loads, MeloTTS is measured as the fallback.
 
-GGUF 를 먼저 받아둔다 (`scripts/fetch_models.sh`). 합쳐서 약 28GB.
+Acceptance criteria:
+
+| Criterion | Requirement |
+|---|---|
+| TTS backend | At least one of Qwen3-TTS or MeloTTS loads |
+| Single-clause synthesis time | 300 ms or less |
+
+If Qwen3-TTS loads without flash-attn, no further effort is spent on building flash-attn.
+If no Qwen3-TTS configuration loads, Phases 1 through 3 proceed on MeloTTS and Qwen3-TTS
+becomes a separate work item.
+
+## Spike 3 — MoE against dense 14B
 
 ```bash
 python3 spikes/spike3_llm_tokrate.py \
@@ -56,25 +100,54 @@ python3 spikes/spike3_llm_tokrate.py \
     --out spikes/out/spike3.json
 ```
 
-조건은 컨텍스트 2048, 배치 1, 출력 60토큰. `llama-bench` 의 순수 생성 속도와,
-실제 번역 프롬프트로 `llama-server` 를 때린 값을 **둘 다** 잰다. 후자가 우리가
-실제로 겪을 값이다 — 프롬프트 처리 시간이 §6 의 '첫 절 0.7초'에 들어간다.
+Measurement conditions: context 2048, batch 1, 60 output tokens.
 
-**판정: 5 tok/s 미만이면 밀집 14B로 회귀.**
+Two figures are recorded for each profile:
 
-## 보고서 생성
+| Source | Measures |
+|---|---|
+| `llama-bench` | Raw generation rate |
+| `llama-server` with a representative translation prompt | Time to first token and generation rate under production prompt shape |
 
-세 스파이크는 각자 맞는 컨테이너 안에서 시스템 `python3` 로 돌린다(그 이미지의
-torch·CUDA 를 그대로 써야 하므로 uv venv 를 만들지 않는다). 보고서 병합은 표준
-라이브러리만 쓰므로 개발 PC 에서 `uv run` 으로 돌려도 된다.
+The second figure governs the decision. Prompt processing time falls inside the 700 ms
+allocated to correction and translation up to the first clause.
+
+Acceptance criterion: 5 tok/s. Below that, clause-level streaming does not sustain
+playback and the profile reverts to the dense 14B. The MoE is selected only when it meets
+the threshold and is not slower than the dense model.
+
+The MoE reads only active parameters, which favors it on a bandwidth-limited device.
+Routing changes the set of experts touched per token, which reduces locality. The net
+effect at Orin bandwidth is not predictable from these two properties, which is why it is
+measured.
+
+## Reporting
 
 ```bash
-python3 spikes/report.py --dir spikes/out --md spikes/out/PHASE0.md --patch spikes/out/local.yaml
-# 개발 PC 라면
-uv run spikes/report.py --dir spikes/out --md spikes/out/PHASE0.md --patch spikes/out/local.yaml
-
-cp spikes/out/local.yaml config/local.yaml     # 결론을 설정에 반영
+python3 spikes/report.py --dir spikes/out \
+    --md spikes/out/PHASE0.md --patch spikes/out/local.yaml
+cp spikes/out/local.yaml config/local.yaml
 ```
 
-`config/local.yaml` 은 `config/default.yaml` 위에 자동으로 덮어써진다.
-Phase 0 의 결론이 코드 수정이 아니라 설정 변경으로 끝나도록 만들어 두었다.
+`report.py` uses only the standard library and may also be run on the development
+workstation with `uv run`.
+
+Outputs:
+
+| File | Content |
+|---|---|
+| `spikes/out/PHASE0.md` | Result tables, verdicts, and a latency budget reconciliation |
+| `spikes/out/local.yaml` | Configuration patch applying the three decisions |
+
+`config/local.yaml` is the third configuration layer and overrides `config/default.yaml`.
+Applying Phase 0 results requires no code change.
+
+## Batch execution
+
+`spikes/run_all.sh` executes whichever spikes the current container supports and then
+generates the report. Because the three spikes require different images, running it once
+per image and collecting results in `spikes/out` is the expected workflow.
+
+```bash
+LLAMA_BIN=/opt/llama.cpp/build/bin bash spikes/run_all.sh
+```

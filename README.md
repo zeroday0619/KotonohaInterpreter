@@ -1,331 +1,573 @@
 # Kotonoha Interpreter
 
-순차식(consecutive) 4언어 오프라인 음성 통역기. NVIDIA Jetson AGX Orin 64GB 전용.
+Consecutive speech interpreter for NVIDIA Jetson AGX Orin 64GB, with an optional
+high-performance mode backed by an external RTX A6000 server.
 
-한 사람이 한 발화를 마치면 기기가 그것을 다른 언어로 말한다. 동시통역이 아니다.
-클라우드 호출은 없다. 정확도가 지연보다 우선하고, 발화 종료 후 첫 음성까지 약 3초를
-목표로 한다.
+## Overview
 
-| | |
+The system converts a completed utterance into speech in a target language. It is
+consecutive, not simultaneous: translation begins after end-of-utterance is detected.
+All inference runs on hardware owned by the operator. No cloud service is contacted.
+
+| Property | Value |
 |---|---|
-| 언어 | 한국어 · English · 繁體中文(臺灣) · 日本語 — 12방향 |
-| 소스 언어 | 자동 판별(LID) + 짧은 발화 승계 폴백 |
-| 타깃 언어 | 세션 설정 (2언어 페어 / 고정 타깃 / 브로드캐스트) |
-| 실행 환경 | JetPack 6.2 (L4T r36.4.x), CUDA 12.6, aarch64 |
-| UI | TUI (Textual) |
+| Languages | Korean, English, Traditional Chinese (Taiwan), Japanese |
+| Directions | 12 |
+| Source language | Automatic identification, with inheritance fallback for short utterances |
+| Target language | Session configuration: language pair, fixed target, or broadcast |
+| Latency target | 2.9 s from end-of-utterance to first audio |
+| Priority | Accuracy over latency |
+| User interface | Terminal UI (Textual) |
 
----
+## Status
 
-## 지금 상태
+Phase 0 validation spikes have not been executed. They require the target hardware and
+determine three architectural decisions.
 
-**Phase 0 (검증 스파이크) 미실행.** 스파이크는 Jetson 실기에서만 의미가 있고,
-그 결과에 따라 세 가지가 갈린다.
-
-| 갈림길 | 결정할 설정 | 스파이크 |
-|---|---|---|
-| ASR 을 vLLM 으로 돌리는가 | `asr.backend` | Spike 1 |
-| Qwen3-TTS 를 띄울 수 있는가 | `tts.backend` | Spike 2 |
-| MoE 를 쓰는가 밀집 14B 로 가는가 | `llm.profile` | Spike 3 |
-
-세 갈림길을 **코드가 아니라 설정**으로 처리했다. 스파이크 결과를
-`spikes/report.py` 에 넣으면 `config/local.yaml` 이 나오고, 그걸 복사하면 끝난다.
-결과가 나오기 전 기본값은 보수적인 쪽(`transformers` / `melo` / `dense`)이다.
-
-추측으로 채우지 않은 곳이 하나 있다. `services/asr_server.py` 의 `VllmBackend` 는
-명시적으로 `NotImplementedError` 를 던진다. vLLM 이 Qwen3-ASR 을 어떤 형태로 로드하고
-N-best 를 내는지가 Spike 1 의 질문 그 자체이므로, 답이 나오기 전에 구현하면 지연 예산
-계산이 통째로 틀어진다.
-
-개발 PC(macOS)에서 확인한 것: 단위 테스트 53개 통과, ruff 클린, 목 서비스를 붙인
-전 구간 통합 스모크(다섯 지점 계측 · 상태 전이 · 절 스트리밍 · 번역 저장)까지 동작.
-고성능 모드(§ 아래)도 업로드 경로와 링크 페일오버까지 같은 방식으로 확인했다.
-
----
-
-## 구조
-
-```
-[마이크 48k]
-   ↓ sounddevice
-오디오 프런트엔드 (CPU)        audio/capture.py  denoise.py  vad.py
-  · DeepFilterNet3 (48k)
-  · Silero VAD + 프리롤 300ms  ← 타협 불가
-  · EOU = 침묵 800ms
-   ↓ 공유메모리 링버퍼          shmring.py
-오케스트레이터 (asyncio)        core/orchestrator.py
-  · 상태기계 · 언어 라우팅 · 품질 게이트
-   ↓
-:8001 asr          Qwen3-ASR 1.7B, N-best 5 + LID
-:8002 asr-verify   faster-whisper large-v3  (조건부)
-:8003 llm          llama.cpp server, 정정+번역 단일 패스
-:8004 tts          Qwen3-TTS 0.6B / MeloTTS
-   ↓
-[스피커 + TUI]
-```
-
-오디오는 HTTP body 에 태우지 않는다. 공유 메모리 링버퍼(`shmring.py`)에 쓰고
-`{name, slot, seq, frames}` 짜리 참조만 JSON 으로 넘긴다. 6초 PCM 을 base64 로
-왕복시키면 턴마다 100~200ms 가 그냥 사라진다.
-
-### 타협하지 않은 다섯 가지
-
-1. **VAD 프리롤 300ms** — `audio/vad.py`. 없으면 한국어 초성 파열음과 일본어 촉음의
-   첫 음절이 잘리고, 그러면 ASR 품질 문제로 오진하게 된다. 회귀 테스트로 고정해 뒀다
-   (`tests/test_vad_segmenter.py`).
-2. **ASR N-best 5** — 순차식이므로 그리디를 쓸 이유가 없다.
-3. **정정과 번역을 단일 LLM 패스로** — `prompts/translate.py`. N-best + 히스토리 +
-   용어집을 함께 주고 "문맥으로 정정한 뒤 번역"까지 한 번에 시킨다. 단계를 나누면
-   정정 단계가 만든 오류를 번역 단계가 확대한다.
-4. **절 단위 스트리밍 핸드오프** — `core/clauses.py`. LLM 출력이 끝나기를 기다리지
-   않고 절이 완성되는 즉시 TTS 로 넘긴다. 성립 조건은 5 tok/s 이상.
-5. **조건부 교차 검증** — `core/quality.py`. 평균 로그확률 미달 · N-best 불일치 ·
-   1초 미만 발화일 때만 Whisper 를 부른다. 상시 호출하면 매 턴 0.8초가 붙는다.
-
-### 반이중 게이팅
-
-`SPEAKING` 진입 시 마이크를 닫는다. TTS 출력이 마이크로 되돌아가 새 발화로 인식되면
-무한 루프가 된다. 게이팅은 `Orchestrator._on_state_change` **한 군데에서만** 하고,
-`MicCapture.close_gate()` 는 큐에 남은 잔향까지 버린 뒤 리샘플러·VAD 상태를 리셋한다.
-
----
-
-## 설치
-
-패키지 관리는 [uv](https://docs.astral.sh/uv/)로 한다. `uv.lock` 을 커밋해 두었으므로
-개발 PC와 실기가 같은 버전을 쓴다.
-
-### 개발 PC (macOS / Linux)
-
-모델 없이 프런트엔드·상태기계·프롬프트·계측을 돌려볼 수 있다.
-
-```bash
-uv sync                     # .python-version(3.12) 기준으로 venv 생성 + dev 그룹까지
-uv run pytest -q
-uv run ruff check .
-uv run kotonoha doctor
-```
-
-`uv sync` 는 `dev` 그룹까지만 넣는다. 평가 도구(COMET 등)는 무거우니 필요할 때만:
-
-```bash
-uv sync --group eval
-```
-
-`device` extra 는 macOS 에서 설치하지 말 것 (aarch64/CUDA 전용). 잠금 파일의 대상
-환경도 `darwin-arm64` 와 `linux-aarch64` 둘로 제한해 두었다 — x86 휠이 섞여
-들어오지 않는다.
-
-의존성을 바꿨다면:
-
-```bash
-uv add <pkg>                # 런타임
-uv add --group dev <pkg>    # 개발 도구
-uv lock --upgrade-package <pkg>
-```
-
-### Jetson AGX Orin
-
-```bash
-sudo nvpmodel -m 0 && sudo jetson_clocks     # MAXN + 클럭 고정
-bash scripts/fetch_models.sh                  # 모델 전량 로컬로 (약 40GB)
-docker compose -f docker/compose.yaml up -d asr asr-verify llm tts
-docker compose -f docker/compose.yaml run --rm orchestrator
-```
-
-베이스 이미지 태그는 `r36.4.0` 계열로 고정한다. 검증된 조합이므로 임의로 올리지
-않는다. 실제 존재하는 태그는 `jetson-containers` 의 `autotag` 로 확인해 `.env` 에 적는다.
-
-컨테이너 안에서는 `uv sync` 로 별도 venv 를 만들지 않는다. 베이스 이미지의 시스템
-파이썬에 `uv pip install` 로 얹는다(`UV_SYSTEM_PYTHON=1`). venv 를 만들면 이미지에
-들어 있는 CUDA 빌드 torch 가 가려지기 때문이다. 런타임 의존성은
-`uv export --frozen` 으로 잠금 파일에서 뽑아 고정 설치하고, aarch64 해석이 개발 PC 와
-다른 패키지(`onnxruntime`, `deepfilternet`, `qwen-tts`, `melotts`)만 잠금 밖에서
-best-effort 로 설치한다. 각 이미지는 빌드 마지막에 `torch.version.cuda` 를 찍어,
-그 설치가 CUDA 빌드를 PyPI CPU 빌드로 덮어썼는지 그 자리에서 드러나게 해 두었다.
-
----
-
-## 사용
-
-```bash
-uv run kotonoha run                     # TUI
-uv run kotonoha doctor                  # 환경·서비스 점검 (배치 포함)
-uv run kotonoha netcheck                # 외부 A6000 링크 지연·대역폭 실측
-uv run kotonoha devices                 # 오디오 장치 목록
-uv run kotonoha replay foo.wav          # 마이크 없이 WAV 로 전 구간 재생 (EOU 회귀 확인)
-uv run kotonoha glossary import config/glossary.seed.yaml
-uv run kotonoha serve asr               # 개별 서비스 기동 (도커 없이)
-```
-
-컨테이너 안에서는 시스템 파이썬에 설치돼 있으므로 `uv run` 없이 `kotonoha ...` 로 쓴다.
-
-TUI 키: `space` 말하기(토글) · `a` PTT/자동 · `r` 라우팅 · `c` 지우기 · `q` 종료.
-
-터미널은 키를 뗀 이벤트를 주지 않으므로 push-to-talk 은 토글이다. PTT 라도 프리롤은
-살아 있다 — 사람은 키보다 먼저 말하기 시작한다.
-
----
-
-## 고성능 모드 — 외부 RTX A6000
-
-Orin 단독으로는 Spike 3의 5 tok/s 기준을 통과하지 못할 수 있고, 통과하더라도 밀집
-14B로 물러나야 한다. 외부 A6000(48GB, sm_86)이 있으면 그 제약이 사라진다. 모드는 셋이다.
-
-| 모드 | Orin | A6000 | 오디오가 기기 밖으로 |
+| Decision | Setting | Spike | Current default |
 |---|---|---|---|
-| `onboard` | 전부 | — | 아니오 |
-| `hybrid` | 오디오·ASR·TTS | **LLM만** | **아니오** |
-| `remote` | 오디오 프런트엔드 | ASR·검증·LLM·TTS | 예 |
+| ASR runtime | `asr.backend` | 1 | `transformers` |
+| TTS backend | `tts.backend` | 2 | `melo` |
+| Translation model class | `llm.profile` | 3 | `dense` |
 
-`hybrid`를 먼저 보라. LLM은 지연 이득이 가장 크면서 **텍스트만 오간다** —
-30B MoE를 A6000에서 돌리고도 발화 오디오는 기기를 벗어나지 않는다. §1이 요구한
-성질을 지키면서 §6에서 가장 큰 항목을 해결하는 지점이다.
+Each decision is expressed as configuration, not code. `spikes/report.py` converts spike
+output into `config/local.yaml`, which is layered over the defaults without code changes.
 
-`remote`는 더 빠르지만 발화 오디오가 네트워크를 건넌다. 이건 명세가 상정한 조건이
-아니므로, 이 모드에서는 로그와 TUI 상태줄(`⇗audio`)에 그 사실을 계속 표시한다.
+`VllmBackend` in `src/kotonoha/services/asr_server.py` raises `NotImplementedError`.
+Whether vLLM loads Qwen3-ASR on sm_87 and whether it exposes N-best output is the question
+Spike 1 answers. Implementing it beforehand would invalidate the latency budget.
 
-### 쓰는 법
+Verified on a macOS development workstation: 53 unit tests pass, `ruff` reports no
+findings, and end-to-end smoke runs against mock services exercise the on-board path, the
+remote upload path, and link failover. These runs validate control flow and
+instrumentation. They do not measure model inference time.
 
-A6000 쪽:
+## Requirements
+
+### Hardware
+
+| Component | Specification | Constraint |
+|---|---|---|
+| Compute module | Jetson AGX Orin 64GB | Unified memory; model size is not the limiting factor |
+| Memory bandwidth | 204.8 GB/s | Primary bottleneck |
+| GPU architecture | sm_87 | Excludes kernels built only for sm_80 or sm_86 |
+| Instruction set | aarch64 | Excludes x86-only wheels and AVX-dependent libraries |
+| External accelerator (optional) | RTX A6000, 48 GB, sm_86 | Used by the high-performance mode |
+
+Set MAXN power mode and lock clocks before any measurement. Verify with `jtop` that
+thermal throttling did not occur during the measurement window.
+
+```bash
+sudo nvpmodel -m 0
+sudo jetson_clocks
+```
+
+### Software
+
+| Component | Version | Notes |
+|---|---|---|
+| JetPack | 6.2 | L4T r36.4.x |
+| CUDA | 12.6 | |
+| Python | 3.10 on device, 3.12 on workstation | Source targets 3.10 syntax |
+| Package manager | uv 0.12 | `uv.lock` is committed |
+| Base images | `dustynv/*:r36.4.0` | Verified combination; do not upgrade without revalidation |
+| vLLM container | `ghcr.io/nvidia-ai-iot/vllm:r36.4-tegra-aarch64-cu126-22.04` | Spike 1 only |
+
+## Architecture
+
+### Process topology
+
+The audio frontend and orchestrator run on the Orin. Model services are resident
+processes. No model is loaded per request.
+
+```
+[microphone 48 kHz]
+   |
+   v  sounddevice
+Audio frontend (CPU)              audio/capture.py, denoise.py, vad.py
+  DeepFilterNet3 (48 kHz)
+  Silero VAD, 300 ms preroll
+  End-of-utterance: 800 ms silence
+   |
+   v  shared-memory ring          shmring.py
+Orchestrator (asyncio)            core/orchestrator.py
+  State machine, language routing, quality gate
+   |
+   +--> :8001 asr          Qwen3-ASR 1.7B, N-best 5, language identification
+   +--> :8002 asr-verify   faster-whisper large-v3, conditional
+   +--> :8003 llm          llama.cpp server, single-pass correction and translation
+   +--> :8004 tts          Qwen3-TTS 0.6B or MeloTTS
+   |
+   v
+[speaker + terminal UI]
+```
+
+Utterance audio is transferred through a shared-memory ring buffer. Services receive a
+reference of the form `{name, slot, seq, frames}` as JSON. Base64 transport of a
+six-second PCM buffer costs 100-200 ms per turn and is not used.
+
+Ring geometry is 8 slots of 30 s at 16 kHz float32, 15.4 MB total. A consumer re-reads the
+slot descriptor after reading and raises `StaleSlotError` when the sequence number
+changed, rather than returning audio from a later utterance.
+
+### Turn workflow
+
+| Step | Component | Output |
+|---|---|---|
+| 1 | VAD segmenter | Utterance PCM including preroll |
+| 2 | DeepFilterNet3 | Noise-suppressed 48 kHz audio, resampled to 16 kHz |
+| 3 | Shared-memory ring | `AudioRef` |
+| 4 | Primary ASR | Five hypotheses with average log-probability, language tag |
+| 5 | Language decision | Language code and provenance, `lid` or `inherited` |
+| 6 | Quality gate | Cross-verification decision |
+| 7 | Cross-verification ASR | Second hypothesis, conditional |
+| 8 | Translation LLM | Streamed translation, then reconstructed source |
+| 9 | Clause streamer | Clause boundaries |
+| 10 | TTS | PCM chunks |
+| 11 | Playback | Audio output, five instrumentation marks |
+
+State machine:
+
+| State | Action | Transition |
+|---|---|---|
+| `IDLE` | VAD active, microphone open | Speech detected, to `LISTENING` |
+| `LISTENING` | Accumulate audio including preroll | 800 ms silence, to `PROCESSING` |
+| `PROCESSING` | ASR, language identification, translation | First clause, to `SPEAKING` |
+| `SPEAKING` | Play TTS queue, microphone closed | Queue drained, to `IDLE` |
+
+Half-duplex gating occurs in `Orchestrator._on_state_change` and nowhere else.
+`MicCapture.close_gate()` discards queued blocks and resets resampler and VAD state.
+Without this gating, TTS output re-enters the microphone, is detected as a new utterance,
+and produces an unbounded loop.
+
+## Design constraints
+
+The following are requirements, not optimization targets.
+
+| Constraint | Implementation | Rationale |
+|---|---|---|
+| VAD preroll 200-300 ms | `audio/vad.py` | Korean tense-stop onsets and the pause preceding a Japanese sokuon are clipped without it. The failure presents as an ASR quality defect. |
+| ASR N-best 5 | `services/asr_server.py` | Consecutive operation removes the reason to decode greedily. |
+| Single-pass correction and translation | `prompts/translate.py` | Separated stages allow the translation stage to amplify correction-stage errors. |
+| Clause-level streaming handoff | `core/clauses.py` | Requires 5 tok/s or higher; approximately 4-5 tokens are consumed per second of speech. |
+| Conditional cross-verification | `core/quality.py` | Unconditional invocation adds 0.8 s per turn on the Orin. |
+
+Preroll length is computed with `math.ceil` plus one frame slot. The additional slot
+accounts for the frame that triggered speech onset, which belongs to the utterance rather
+than to the preroll. `tests/test_vad_segmenter.py` asserts that preroll frames are present
+at the head of the emitted utterance.
+
+Language-specific handling:
+
+- Traditional Chinese: the ASR context prompt is written in Traditional characters, and
+  OpenCC `s2twp` is applied to both ASR output and translation output. Residual Mainland
+  vocabulary is corrected through the `zh_rules` table.
+- Short utterances: below `asr.lid.min_duration_s` (1.0 s) or below
+  `asr.lid.min_confidence` (0.60), the previously detected language is inherited and the
+  provenance is displayed.
+- Translation is direct between source and target. English pivoting is not used.
+
+## Components
+
+| Path | Responsibility |
+|---|---|
+| `src/kotonoha/config.py` | Layered configuration, role placement resolution |
+| `src/kotonoha/shmring.py` | Shared-memory audio ring buffer |
+| `src/kotonoha/transport.py` | Audio payload abstraction, PCM encoding |
+| `src/kotonoha/metrics.py` | Five-point turn instrumentation, budget comparison |
+| `src/kotonoha/audio/` | Capture, noise suppression, VAD segmentation, playback |
+| `src/kotonoha/core/` | State machine, language routing, quality gate, clause streaming, orchestrator |
+| `src/kotonoha/clients/` | Service clients, placement router, failover |
+| `src/kotonoha/services/` | Resident model servers, bearer-token middleware |
+| `src/kotonoha/prompts/` | ASR context biasing, single-pass translation prompt |
+| `src/kotonoha/store/` | SQLite glossary, turn history, Traditional Chinese rules |
+| `src/kotonoha/tui/` | Terminal interface |
+| `spikes/` | Phase 0 validation harness |
+| `eval/` | Evaluation set recording and scoring |
+
+## High-performance mode
+
+### Modes
+
+The Orin cannot be assumed to sustain 5 tok/s on a 30B MoE at Q4_K_M. An external
+RTX A6000 removes that constraint. Three modes are defined, separated by whether utterance
+audio leaves the device.
+
+| Mode | Orin | RTX A6000 | Audio leaves device |
+|---|---|---|---|
+| `onboard` | All roles | None | No |
+| `hybrid` | Audio frontend, ASR, verification, TTS | LLM | No |
+| `remote` | Audio frontend | ASR, verification, LLM, TTS | Yes |
+
+`hybrid` moves the largest latency contributor while transferring text only. It preserves
+the self-contained property of the device.
+
+`remote` produces lower total latency when the link is adequate. Utterance audio crosses
+the network in this mode. The condition is logged at startup and displayed in the terminal
+UI status bar.
+
+Per-role overrides are available through the `placement` mapping and take precedence over
+`perf_mode`. When `remote.enabled` is `false`, all roles resolve to `local` regardless of
+`perf_mode`. A mode pointing at an unreachable host would otherwise produce a per-turn
+timeout.
+
+### Audio transport
+
+Shared memory does not cross host boundaries. Remote ASR and verification receive audio as
+a multipart binary part on `POST /transcribe/upload`. Base64 encoding is not used.
+
+| Encoding | 6 s utterance at 16 kHz | Transfer time at 1 Gb/s |
+|---|---|---|
+| `f32le` | 384,000 bytes | 3.2 ms |
+| `s16le` | 192,000 bytes | 1.6 ms |
+
+`s16le` is the default. Quantization to 16-bit is inaudible at 16 kHz and does not affect
+ASR output. `AudioPayload` carries both the shared-memory reference and the PCM buffer;
+the client selects according to its side. The orchestrator does not branch on placement.
+
+TTS negotiates the return encoding. The client requests `s16le` when remote and trusts the
+`X-Encoding` response header over its own request, so that a service which ignores the
+parameter cannot corrupt the stream.
+
+### Failover
+
+Every remote role retains a loaded on-board counterpart.
+
+| Condition | Behavior |
+|---|---|
+| Transport failure on a unary call | The call is retried once on the on-board service. The turn completes. |
+| `remote.failover_after` consecutive failures | The role is marked degraded and routed on-board. |
+| Remote healthy for `remote.recover_after_s` | The role returns to remote. |
+| Transport failure on a stream, before the first chunk | The stream is restarted on the on-board service. |
+| Transport failure on a stream, after the first chunk | Reported as an error. No rewind is attempted. |
+| Application error, 4xx | Not counted as a transport failure and not retried elsewhere. |
+
+Successful calls reset the failure counter, so isolated failures do not accumulate into a
+placement change. Turn records include `placement` and `failovers`. Without them, a turn
+served by the on-board fallback is indistinguishable from one served by the A6000.
+
+### Configuration
+
+`config/performance.yaml` is a complete overlay applied over `config/default.yaml`.
+
+```yaml
+perf_mode: remote
+
+remote:
+  enabled: true
+  services:
+    asr: http://a6000.lan:8001
+    asr_verify: http://a6000.lan:8002
+    llm: http://a6000.lan:8003
+    tts: http://a6000.lan:8004
+  token: null
+  verify_tls: true
+  failover_after: 2
+  recover_after_s: 30.0
+  audio_encoding: s16le
+
+llm:
+  profile: moe
+  n_ctx: 4096
+  max_tokens: 768
+
+asr:
+  backend: transformers
+  n_best: 5
+
+asr_verify:
+  mode: always
+  compute_type: float16
+
+tts:
+  backend: qwen3
+```
+
+Differences from the on-board configuration:
+
+| Setting | On-board | RTX A6000 | Reason |
+|---|---|---|---|
+| `llm.profile` | `dense` | `moe` | 48 GB holds the 30B MoE at Q4_K_M |
+| `llm.n_ctx` | 2048 | 4096 | Six turns of history plus glossary |
+| `asr_verify.mode` | `conditional` | `always` | Verification cost no longer justifies gating |
+| `asr_verify.compute_type` | `int8_float16` | `float16` | Quantization was a bandwidth concession |
+| `tts.backend` | `melo` | `qwen3` | flash-attn builds for sm_86 |
+
+VAD preroll, the 800 ms end-of-utterance threshold, and clause streaming thresholds are
+unchanged. Those are frontend properties and the frontend remains on the Orin.
+
+`asr.backend` remains `transformers` in the overlay. sm_86 is a supported vLLM target, but
+the value is changed only after Spike 1 is executed on the A6000 itself.
+
+### Deployment
+
+On the RTX A6000 host:
 
 ```bash
 export KOTONOHA_SERVICE_TOKEN=$(openssl rand -hex 32)
 docker compose -f docker/compose.remote.yaml up -d
 ```
 
-Orin 쪽 — **먼저 링크를 재고** 나서 켠다:
+`docker/compose.remote.yaml` does not set `ipc: host`. Services in this deployment receive
+audio over HTTP. Service configuration is `config/remote-server.yaml`.
+
+On the Orin:
 
 ```bash
-export KOTONOHA__REMOTE__TOKEN=<위와 같은 값>
+export KOTONOHA__REMOTE__TOKEN=<value from the A6000 host>
 uv run kotonoha -c config/performance.yaml netcheck
 uv run kotonoha -c config/performance.yaml run
 ```
 
-`netcheck`는 역할별 RTT와 6초 발화 업로드 실측치를 내고, 그 합이 §6 예산의 몇 %를
-먹는지까지 계산한다. 25%를 넘으면 `hybrid`를 권한다. 추정하지 말고 이걸 돌릴 것.
-
-### 오디오 전송
-
-§3은 "오디오를 HTTP body에 태우지 말라"고 했고, 이유는 로컬 홉에서 base64에 낭비되는
-100~200ms였다. 기계가 다르면 붙일 공유메모리가 없으므로 오디오는 가야 한다 — 다만
-여전히 base64는 쓰지 않는다. multipart 바이너리 파트로, 기본 s16le다.
+`netcheck` reports per-role round-trip time and measured upload throughput, then compares
+aggregate link overhead against the latency budget. Overhead above 25 % of the budget
+indicates that `hybrid` is the appropriate mode. Output against a loopback mock service:
 
 ```
-6초 발화 @16kHz    f32le 384KB / s16le 192KB    기가비트에서 ~1.6ms + RTT
+perf_mode   remote
+placement   asr=remote  asr_verify=remote  llm=remote  tts=remote
+probe       6.0s utterance, s16le, 192000 bytes
+
+  asr         UP    rtt p50    1.0ms   p95    5.0ms   http://127.0.0.1:8099
+  asr         upload median    1.0ms   192.4 MB/s
 ```
 
-`AudioPayload`가 shm 참조와 PCM을 모두 들고 다니고 클라이언트가 고른다
-([transport.py](src/kotonoha/transport.py)). 오케스트레이터는 어느 쪽인지 모른다.
+### Security considerations
 
-### 링크가 끊기면
+Services on the A6000 listen on a routable interface. An unauthenticated `/transcribe`
+endpoint is an open transcription service for any host that can reach it.
 
-§10을 링크에도 그대로 적용했다. 원격 역할은 온보드 짝을 계속 띄워둔다.
+- Setting `KOTONOHA_SERVICE_TOKEN` on a service enables bearer-token enforcement.
+  `/health`, `/docs`, and `/openapi.json` remain open so that health checks and `netcheck`
+  function.
+- Token comparison uses `hmac.compare_digest`.
+- When the variable is unset, the service logs `auth.disabled` at startup. Absence of
+  authentication is never silent.
+- `remote.verify_tls` and `remote.ca_bundle` control certificate validation on the client.
 
-- 전송 실패는 **그 호출을 온보드로 한 번 재시도**한다. 링크 장애가 턴을 통째로
-  날리지 않는다.
-- 연속 `failover_after`회 실패하면 그 역할은 온보드로 내려가고, 원격이
-  `recover_after_s` 동안 계속 건강해야 돌아온다. 링크가 흔들려도 턴마다 배치가
-  뒤집히지 않는다.
-- 스트리밍(LLM·TTS)은 **첫 청크 전까지만** 폴백한다. 소리가 나가기 시작한 뒤에는
-  되감을 방법이 없으므로 그대로 오류로 보고한다.
-- 어느 쪽에서 돌았는지는 턴 로그의 `placement`·`failovers`에 남는다. 이게 없으면
-  조용히 온보드로 떨어진 턴과 A6000을 쓴 턴을 구분할 수 없다.
+The mechanism is a shared secret on a trusted network. It does not replace network
+isolation of the A6000 host.
 
-### A6000에서 달라지는 것
+In `remote` mode, utterance audio is transmitted to a second host. Where that is not
+acceptable, `hybrid` provides the majority of the latency benefit with text-only transfer.
 
-- **교차 검증 상시화** (`asr_verify.mode: always`). §5.5가 조건부인 이유는 Orin에서
-  0.8초가 붙기 때문이다. 여기서는 싸므로 매 턴 돌린다 — 외부 서버가 사주는 가장 큰
-  정확도 이득이다.
-- MoE 30B Q4_K_M, 컨텍스트 4096, fp16 whisper (int8은 Orin 대역폭 양보였다).
-- sm_86은 flash-attn이 빌드되므로 Qwen3-TTS가 제대로 뜰 가능성이 높다. 실제로 어떤
-  attention 구현으로 떴는지는 `/health`가 알려준다.
+## Configuration
 
-### 보안
+Three layers are merged in order. Each layer overrides the previous one.
 
-A6000 서비스는 LAN에 열려 있다. `KOTONOHA_SERVICE_TOKEN`을 설정하면 베어러 토큰을
-요구하고(`/health`만 열어둠), 설정하지 않으면 기동 로그에 경고를 남긴다 — 무방비
-상태가 조용히 지나가지 않게 했다. 신뢰된 망 안의 공유 비밀일 뿐이고, 이 상자를
-공개 인터넷에 두지 않는 것을 대신하지는 못한다.
+| Order | Source | Purpose |
+|---|---|---|
+| 1 | `config/default.yaml` | Complete baseline |
+| 2 | File passed to `--config` or `KOTONOHA_CONFIG` | Overlay stating only differences |
+| 3 | `config/local.yaml` | Host-specific values and Phase 0 results |
 
----
-
-## 설정
-
-레이어는 셋이고, 뒤가 앞을 덮는다.
-
-1. `config/default.yaml` — 전체 기준값
-2. `--config` 로 준 파일 (`performance.yaml` 처럼 차이만 적은 오버레이)
-3. `config/local.yaml` — 기기별 값 (오디오 장치 인덱스, Phase 0 결론)
-
-환경변수가 이 셋을 모두 이긴다.
+Environment variables override all three. Nested keys use a double underscore.
 
 ```bash
 KOTONOHA__PERF_MODE=hybrid KOTONOHA__REMOTE__ENABLED=true kotonoha run
 ```
 
----
+`Settings.settings_customise_sources` reorders the pydantic-settings sources so that
+environment variables outrank the loaded YAML. The default ordering places initialization
+values first, which silently discards these overrides.
 
-## 계측
+## Installation
 
-매 턴 다섯 지점을 찍어 `data/logs/turns.jsonl` 에 한 줄로 남긴다.
+Dependencies are managed with uv. `uv.lock` is committed so that the development
+workstation and the target device resolve identical versions. Lock environments are
+restricted to `darwin-arm64` and `linux-aarch64`, which prevents x86-only wheels from
+entering the lock file.
 
+### Development workstation
+
+```bash
+uv sync
+uv run pytest -q
+uv run ruff check .
+uv run kotonoha doctor
 ```
-EOU 감지 → ASR 완료 → 첫 절 → 첫 오디오 패킷 → 큐 소진
+
+`uv sync` installs the `dev` group. Evaluation tooling is installed separately with
+`uv sync --group eval`. The `device` extra targets aarch64 with CUDA and must not be
+installed on the workstation.
+
+### Jetson AGX Orin
+
+```bash
+sudo nvpmodel -m 0 && sudo jetson_clocks
+bash scripts/fetch_models.sh
+docker compose -f docker/compose.yaml up -d asr asr-verify llm tts
+docker compose -f docker/compose.yaml run --rm orchestrator
 ```
 
-함께: 판정 언어와 그 출처(lid/inherited), LID 신뢰도, ASR 평균 로그확률,
-교차 검증 발동 여부, 입력 오디오 길이, 출력 토큰 수, tok/s, 예산 초과 단계.
+Container images install into the base image system Python with `UV_SYSTEM_PYTHON=1`. A
+project virtual environment would shadow the CUDA build of PyTorch present in the base
+image. Runtime dependencies are installed from `uv export --frozen`. Four packages are
+installed outside the lock file because their aarch64 resolution differs from the
+development workstation: `onnxruntime`, `deepfilternet`, `qwen-tts`, `melotts`. Each image
+prints `torch.version.cuda` at the end of the build, so replacement of the CUDA build by a
+PyPI CPU build is detected at build time rather than on the device.
 
-예산을 넘긴 단계는 `over_budget_ms` 에 어느 단계가 얼마나 넘겼는지로 나온다.
-TUI 하단에도 실측/예산이 같이 뜬다.
+### Model artifacts
 
-애플리케이션 로그는 `data/logs/kotonoha.jsonl` 로 분리돼 있다 — 섞으면 턴 로그를
-그대로 파싱할 수 없다.
+| Repository | Artifact | Size |
+|---|---|---|
+| `Qwen/Qwen3-ASR-1.7B-hf` | Full repository | 4.7 GB |
+| `Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice` | Full repository | Required only if Spike 2 succeeds |
+| `Systran/faster-whisper-large-v3` | Full repository | |
+| `unsloth/Qwen3-14B-GGUF` | `Qwen3-14B-Q4_K_M.gguf` | 9 GB |
+| `unsloth/Qwen3-30B-A3B-Instruct-2507-GGUF` | `Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf` | 18.6 GB |
+| snakers4/silero-vad | `silero_vad.onnx` | 2 MB |
 
-| 단계 | 목표 |
+`scripts/fetch_models.sh` downloads all artifacts. Repository identifiers were confirmed
+by lookup in 2026-08.
+
+## Operations
+
+### Command line
+
+| Command | Function |
 |---|---|
-| 침묵 대기 | 0.8초 |
-| 프런트엔드 | 0.1초 |
-| ASR (N-best 5) | 0.9초 |
-| 교차 검증 (조건부 평균) | 0.1초 |
-| 정정 + 번역 첫 절 | 0.7초 |
-| TTS 첫 패킷 | 0.3초 |
-| **발화 종료 → 첫 음성** | **약 2.9초** |
+| `kotonoha run` | Start the terminal UI |
+| `kotonoha doctor` | Report environment, role placement, and service health |
+| `kotonoha netcheck` | Measure link latency and throughput to the A6000 |
+| `kotonoha devices` | List audio devices |
+| `kotonoha replay <wav>` | Run the pipeline from a WAV file without a microphone |
+| `kotonoha glossary import <yaml>` | Load glossary and Traditional Chinese rules |
+| `kotonoha serve <asr\|verify\|tts>` | Start one service without Docker |
 
----
+`kotonoha replay` forces automatic mode, because no key is available to signal
+push-to-talk. It is the regression path for end-of-utterance and preroll behavior.
 
-## 평가
+Prefix commands with `uv run` on the development workstation. Inside containers the
+package is installed into the system Python and the prefix is unnecessary.
 
-**Phase 1 과 병행해 만든다.** 없으면 이후 튜닝이 전부 체감에 의존하고 반드시 퇴행한다.
+### Terminal UI
+
+| Key | Function |
+|---|---|
+| `space` | Start or stop speaking |
+| `a` | Toggle push-to-talk and automatic mode |
+| `r` | Cycle target routing mode |
+| `c` | Clear transcript panels |
+| `q` | Exit |
+
+Push-to-talk is a toggle because terminals do not deliver key-release events. Preroll
+remains active in push-to-talk mode.
+
+The status bar reports state, microphone gating, performance mode, and, in `remote` mode,
+an indicator that audio is leaving the device. The service panel reports the side serving
+each role and whether it is degraded.
+
+### Instrumentation
+
+Each turn appends one JSON object to `data/logs/turns.jsonl`.
+
+```
+EOU detected -> ASR complete -> first clause -> first audio packet -> queue drained
+```
+
+Recorded fields: detected language, language provenance, language-identification
+confidence, ASR average log-probability, cross-verification invocation and divergence,
+input audio duration, output token count, tokens per second, performance mode, role
+placement, failover count, and per-stage budget overruns.
+
+Application logs are written to `data/logs/kotonoha.jsonl`. The files are separate so that
+the turn log can be parsed without filtering.
+
+Latency budget:
+
+| Stage | Target |
+|---|---|
+| Silence wait | 800 ms |
+| Frontend | 100 ms |
+| ASR, N-best 5 | 900 ms |
+| Cross-verification, conditional average | 100 ms |
+| Correction and translation, first clause | 700 ms |
+| TTS, first packet | 300 ms |
+| End-of-utterance to first audio | 2,900 ms |
+
+Stages exceeding their allocation appear in `over_budget_ms` with the overrun in
+milliseconds. The terminal UI displays measured values against targets.
+
+### Failure handling
+
+| Condition | Response |
+|---|---|
+| Language-identification confidence below threshold, or utterance shorter than 1.0 s | Inherit previous language, display provenance |
+| Empty ASR result | Treat as silence, return to `IDLE`, play nothing |
+| LLM first clause exceeds 3 s | Display transcript, skip TTS |
+| TTS failure | MeloTTS fallback inside the service |
+| Remote transport failure | Retry on-board, then degrade the role |
+| Unhandled exception during a turn | Log, emit UI error, force `IDLE` |
+
+## Evaluation
+
+The evaluation set is constructed in parallel with Phase 1. Without it, subsequent tuning
+depends on subjective assessment and regressions are not detected.
 
 ```bash
 uv run eval/record_set.py --lang ko --prompts eval/prompts/ko.txt --out eval/data/ko
 uv run eval/run_asr.py    --manifest eval/data/ko/manifest.jsonl --out eval/out/ko.hyp.jsonl
 uv run eval/score_cer.py  --manifest eval/data/ko/manifest.jsonl --hyp eval/out/ko.hyp.jsonl
-uv run --group eval eval/score_comet.py --hyp eval/out/ko2en.jsonl   # 개발 PC 에서만
+uv run --group eval eval/score_comet.py --hyp eval/out/ko2en.jsonl
 ```
 
-- 4개 언어 각 100발화. **실제 사용할 마이크로, 실제 사용할 공간에서** 녹음한다.
-- ASR 은 CER(`jiwer`), 번역은 COMET(`unbabel-comet`). BLEU 는 쓰지 않는다 —
-  한국어·일본어 품질과 상관이 낮다.
-- COMET 은 Orin 에 올리지 않는다. `score_comet.py` 는 aarch64 에서 기본적으로 거부한다.
+Requirements:
 
----
+- 100 utterances per language, recorded with the microphone and in the acoustic
+  environment used in deployment.
+- Reference transcripts and reference translations.
+- ASR scored with character error rate using `jiwer`. Word error rate is not comparable
+  across Korean, Japanese, and Chinese because word boundaries are defined differently.
+- Translation scored with COMET using `unbabel-comet`. BLEU correlates poorly with Korean
+  and Japanese quality and is not used.
+- COMET executes on the development workstation. `eval/score_comet.py` refuses to run on
+  aarch64 unless `--force-on-device` is supplied.
 
-## 로드맵
+## Limitations
 
-- [ ] **Phase 0** 검증 스파이크 (`spikes/README.md`) ← **여기서 멈춰 있음**
-- [ ] Phase 1 영↔한 최소 경로 + 평가셋 구축
-- [ ] Phase 2 절 단위 스트리밍 체인, 첫 음성 3초 달성
-- [ ] Phase 3 게이팅·상태기계·실패 처리 전체
-- [ ] Phase 4 4언어 확장, 번체 후처리, 라우팅 3종
-- [ ] Phase 5 정확도 튜닝 (N-best 정정, 조건부 교차검증, 6턴 컨텍스트, 역번역 검증)
-- [x] 고성능 모드 — 외부 RTX A6000 (onboard / hybrid / remote, 링크 페일오버)
+| Item | Status |
+|---|---|
+| Phase 0 measurements | Not executed. ASR runtime, TTS backend, and LLM profile are unconfirmed. |
+| vLLM ASR backend | Not implemented. Blocked on Spike 1. |
+| Noise suppression | Applied per utterance, not per frame. Frame-level processing requires the libdf frame API. Measured duration is recorded in `notes.denoise_ms` and compared against the 100 ms frontend budget. |
+| Language-identification confidence | Derived from agreement among the five hypotheses, because the model does not expose a language probability. Correlation with actual accuracy is unverified. |
+| TTS streaming | The Qwen3-TTS model card documents no streaming API. Synthesis is per clause, so first-packet latency equals single-clause synthesis time. |
+| aarch64 package support | `onnxruntime`, `deepfilternet`, and `ctranslate2` are unverified on the target. `kotonoha doctor` reports availability. |
+| Container base image tags | Placeholders. Confirm with `jetson-containers` `autotag` and record in `.env`. |
+| Push-to-talk | Implemented as a toggle. Terminals do not report key release. |
 
-## 하지 않는 것
+## Phase plan
 
-클라우드 API · 동시통역 정책(AlignAtt, LocalAgreement) · 벡터DB/임베딩 ·
-영어 피벗 번역 · 브라우저 마이크 캡처 · 요청마다 모델 로드 ·
-검증되지 않은 JetPack/CUDA/베이스 이미지 업그레이드.
+| Phase | Scope | State |
+|---|---|---|
+| 0 | Validation spikes | Pending hardware |
+| 1 | English-Korean minimal path, evaluation set construction | Not started |
+| 2 | Clause streaming chain, 3 s first-audio verification | Not started |
+| 3 | Gating, state machine, complete failure handling | Not started |
+| 4 | Four-language expansion, Traditional Chinese post-processing, routing modes | Not started |
+| 5 | Accuracy tuning: N-best correction, conditional verification, six-turn context, back-translation checks | Not started |
+| — | High-performance mode with external RTX A6000 | Implemented |
 
-정확도 개선은 프런트엔드 → 프롬프트·컨텍스트 → N-best·정정 → 모델 크기 순으로 한다.
+## Out of scope
+
+- Cloud APIs for translation, ASR, or TTS
+- Simultaneous interpretation policies such as AlignAtt or LocalAgreement
+- Vector databases and embedding models; the glossary is injected as a prompt prefix
+- English-pivot translation
+- Browser-based microphone capture; gating and preroll control require direct device access
+- Per-request model loading
+- Unvalidated JetPack, CUDA, or base image upgrades
+
+Accuracy work proceeds in the order: frontend, prompt and context, N-best correction,
+model size.
+
+## References
+
+- `spikes/README.md` — Phase 0 procedure and acceptance criteria
+- `config/default.yaml` — complete configuration baseline
+- `config/performance.yaml` — high-performance mode overlay
+- `config/remote-server.yaml` — service configuration for the RTX A6000 host
+- `docker/compose.yaml` — Jetson deployment
+- `docker/compose.remote.yaml` — RTX A6000 deployment
