@@ -188,6 +188,9 @@ MESSAGES: dict[str, str] = {
     "cfg.field.collection": "{path}의 YAML 목록 또는 매핑.",
     # -- Configuration editor: field descriptions ------------------------
     "cfg.f.ui.language": "인터페이스 언어. auto는 시스템 로케일을 따른다.",
+    "cfg.f.ui.refresh_hz": (
+        "TUI 프레임 스케줄러의 최대 주사율. 유휴 프레임은 터미널을 다시 그리지 않는다."
+    ),
     "cfg.f.session.mode": "push_to_talk은 키 입력이 필요하고, auto는 VAD가 발화를 자른다.",
     "cfg.f.session.routing": "pair는 두 언어를 오가고, fixed는 항상 한 언어로 보낸다.",
     "cfg.f.audio.input_device": "마이크 인덱스 또는 이름. 비우면 시스템 기본값.",

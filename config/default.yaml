@@ -164,6 +164,7 @@ zh:
 ui:
   # auto follows KOTONOHA_LANG, then the system locale, then English.
   language: auto # auto | en | ko | ja | zh-TW
+  refresh_hz: 60 # idle frames do not trigger terminal repaint
 
 context:
   history_turns: 6 # §3

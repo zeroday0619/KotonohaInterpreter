@@ -188,6 +188,9 @@ MESSAGES: dict[str, str] = {
     "cfg.field.collection": "YAML list or mapping for {path}.",
     # -- Configuration editor: field descriptions ------------------------
     "cfg.f.ui.language": "Interface language. auto follows the system locale.",
+    "cfg.f.ui.refresh_hz": (
+        "Maximum TUI frame scheduler rate. Idle frames do not repaint the terminal."
+    ),
     "cfg.f.session.mode": "push_to_talk requires a key press; auto segments on the VAD.",
     "cfg.f.session.routing": "pair swaps between two languages; fixed always targets one.",
     "cfg.f.audio.input_device": "Microphone index or name. Empty selects the system default.",

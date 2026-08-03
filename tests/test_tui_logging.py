@@ -63,6 +63,27 @@ def test_terminal_log_buffer_discards_the_oldest_records() -> None:
     assert records[-1]["sequence"] == 504
 
 
+def test_terminal_log_buffer_drains_bounded_frames_in_order() -> None:
+    reset_terminal_interface_logs()
+    handler = TerminalInterfaceLogHandler()
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    for sequence in range(3):
+        handler.emit(
+            logging.LogRecord(
+                "test",
+                logging.INFO,
+                __file__,
+                1,
+                str(sequence),
+                (),
+                None,
+            )
+        )
+
+    assert drain_terminal_interface_logs(maximum=2) == ["0", "1"]
+    assert drain_terminal_interface_logs(maximum=2) == ["2"]
+
+
 def test_json_log_is_rendered_as_a_human_readable_record() -> None:
     rendered = format_json_log(
         json.dumps(

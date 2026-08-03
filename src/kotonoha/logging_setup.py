@@ -39,11 +39,14 @@ def reset_terminal_interface_logs() -> None:
         _terminal_log_messages.clear()
 
 
-def drain_terminal_interface_logs() -> list[str]:
-    """Return buffered JSON lines and atomically clear the shared buffer."""
+def drain_terminal_interface_logs(maximum: int | None = None) -> list[str]:
+    """Remove a bounded group of buffered JSON lines in arrival order."""
     with _terminal_log_lock:
-        messages = list(_terminal_log_messages)
-        _terminal_log_messages.clear()
+        if maximum is None or maximum >= len(_terminal_log_messages):
+            messages = list(_terminal_log_messages)
+            _terminal_log_messages.clear()
+        else:
+            messages = [_terminal_log_messages.popleft() for _message_index in range(maximum)]
     return messages
 
 

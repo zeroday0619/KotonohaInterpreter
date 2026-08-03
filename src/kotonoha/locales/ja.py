@@ -188,6 +188,9 @@ MESSAGES: dict[str, str] = {
     "cfg.field.collection": "{path} の YAML リストまたはマッピング。",
     # -- Configuration editor: field descriptions ------------------------
     "cfg.f.ui.language": "表示言語。auto はシステムロケールに従う。",
+    "cfg.f.ui.refresh_hz": (
+        "TUI フレームスケジューラーの最大更新頻度。アイドルフレームは再描画しない。"
+    ),
     "cfg.f.session.mode": "push_to_talk はキー操作が必要、auto は VAD が発話を区切る。",
     "cfg.f.session.routing": "pair は 2 言語間を往復し、fixed は常に 1 言語へ送る。",
     "cfg.f.audio.input_device": "マイクの番号または名前。空欄でシステム既定。",

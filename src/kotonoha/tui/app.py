@@ -28,6 +28,7 @@ from ..core.events import UiEvent
 from ..i18n import t as _
 from ..logging_setup import drain_terminal_interface_logs
 from .log_panel import format_json_log
+from .rendering import FrameAccumulator
 
 STATE_STYLE = {
     "IDLE": "dim white",
@@ -35,6 +36,24 @@ STATE_STYLE = {
     "PROCESSING": "bold yellow",
     "SPEAKING": "bold green",
 }
+METER_WIDTH = 8
+METER_PARTIALS = " ▏▎▍▌▋▊▉"
+LOG_RECORDS_PER_FRAME = 32
+
+
+def level_meter_units(level: float) -> int:
+    """Map the useful microphone RMS range onto sub-character meter units."""
+    return round(min(1.0, max(0.0, level) * 12.0) * METER_WIDTH * 8)
+
+
+def level_meter_text(units: int) -> str:
+    """Render one eighth-cell precision without changing the status-bar width."""
+    bounded_units = min(METER_WIDTH * 8, max(0, units))
+    full_cells, partial_units = divmod(bounded_units, 8)
+    meter = "█" * full_cells
+    if full_cells < METER_WIDTH and partial_units:
+        meter += METER_PARTIALS[partial_units]
+    return meter.ljust(METER_WIDTH, "·")
 
 
 class StatusBar(Static):
@@ -44,9 +63,20 @@ class StatusBar(Static):
     lang = reactive("—")
     lang_source = reactive("")
     mic = reactive(True)
-    level = reactive(0.0)
     perf = reactive("onboard")
     offbox_audio = reactive(False)
+
+    def __init__(self, **widget_options):
+        super().__init__(**widget_options)
+        self.level = 0.0
+        self._meter_units = 0
+
+    def set_level(self, level: float) -> None:
+        self.level = level
+        meter_units = level_meter_units(level)
+        if meter_units != self._meter_units:
+            self._meter_units = meter_units
+            self.refresh()
 
     def render(self) -> Text:
         t = Text()
@@ -55,8 +85,7 @@ class StatusBar(Static):
         t.append("│ mic ", style="dim")
         label = _("tui.mic.open") if self.mic else _("tui.mic.shut")
         t.append(f"{label} ", style="green" if self.mic else "red bold")
-        bars = int(min(1.0, self.level * 12) * 10)
-        t.append("▁▂▃▄▅▆▇█"[: max(0, bars // 2)].ljust(5, "·"), style="cyan")
+        t.append(level_meter_text(self._meter_units), style="cyan")
         t.append(" │ ", style="dim")
         t.append(f"{self.mode}", style="magenta")
         t.append(" / ", style="dim")
@@ -228,6 +257,7 @@ class KotonohaApp(App):
         super().__init__()
         self.orch = orch
         self._talking = False
+        self._frame_accumulator = FrameAccumulator()
         # Replace the map rather than calling bind() on it: Textual builds the map
         # from the class attribute, so mutating it would leak one instance's locale
         # into the next.
@@ -277,8 +307,11 @@ class KotonohaApp(App):
             self.log_output.write(Text(_("tui.logs.disabled"), style="dim"))
         await self.orch.start()
         self.run_worker(self._drain(), exclusive=False)
-        if self.orch.s.logging.console:
-            self.run_worker(self._drain_logs(), exclusive=False)
+        self.set_interval(
+            1.0 / self.orch.s.ui.refresh_hz,
+            self._render_frame,
+            name="display-frame",
+        )
 
     async def on_unmount(self) -> None:
         await self.orch.stop()
@@ -287,19 +320,24 @@ class KotonohaApp(App):
     async def _drain(self) -> None:
         while True:
             try:
-                ev: UiEvent = await self.orch.bus.get()
+                first_event: UiEvent = await self.orch.bus.get()
             except asyncio.CancelledError:
                 return
-            self._apply(ev)
+            events = [first_event, *self.orch.bus.drain_nowait()]
+            with self.batch_update():
+                for event in events:
+                    self._apply(event)
+            await asyncio.sleep(0)
 
-    async def _drain_logs(self) -> None:
-        while True:
-            try:
-                for raw_message in drain_terminal_interface_logs():
+    def _render_frame(self) -> None:
+        update = self._frame_accumulator.advance()
+        with self.batch_update():
+            self.status.set_level(update.level)
+            if update.translation_changed:
+                self.tgt.replace_last(update.translation or "")
+            if self.orch.s.logging.console:
+                for raw_message in drain_terminal_interface_logs(LOG_RECORDS_PER_FRAME):
                     self.log_output.write(format_json_log(raw_message))
-                await asyncio.sleep(0.1)
-            except asyncio.CancelledError:
-                return
 
     def _apply(self, ev: UiEvent) -> None:
         p = ev.payload
@@ -309,7 +347,7 @@ class KotonohaApp(App):
             if p["state"] == "IDLE":
                 self._talking = False
         elif ev.kind == "level":
-            self.status.level = p.get("rms", 0.0)
+            self._frame_accumulator.push_level(p.get("rms", 0.0))
         elif ev.kind == "lang":
             self.status.lang = p.get("lang") or "—"
             self.status.lang_source = p.get("source") or ""
@@ -336,10 +374,11 @@ class KotonohaApp(App):
             elif p.get("state") == "running":
                 self.src.push("  … " + _("tui.verify.running", reason=p.get("reason", "")))
         elif ev.kind == "translation_delta":
-            self.tgt.replace_last(p.get("text", ""))
+            self._frame_accumulator.push_translation(p.get("text", ""))
         elif ev.kind == "clause":
             pass
         elif ev.kind == "translation":
+            self._frame_accumulator.discard_translation()
             if p.get("timeout"):
                 self.tgt.replace_last(_("tui.llm.timeout"))
             else:
@@ -390,6 +429,7 @@ class KotonohaApp(App):
         self.status.routing = s.routing
 
     def action_clear(self) -> None:
+        self._frame_accumulator.discard_translation()
         self.src._lines.clear()
         self.tgt._lines.clear()
         self.src.refresh()

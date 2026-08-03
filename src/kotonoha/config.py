@@ -223,6 +223,7 @@ class ContextCfg(BaseModel):
 class UiCfg(BaseModel):
     # auto follows KOTONOHA_LANG, then the system locale, then English.
     language: Literal["auto", "en", "ko", "ja", "zh-TW"] = "auto"
+    refresh_hz: int = Field(60, ge=15, le=60)
 
 
 class StoreCfg(BaseModel):

@@ -529,6 +529,12 @@ terminal because it would corrupt the Textual display. Model service processes c
 to emit raw JSON to their container consoles. The service panel reports the side serving
 each role and whether it is degraded.
 
+The interpreter uses a configurable frame scheduler, `ui.refresh_hz`, with a default of
+60 Hz. Audio levels use time-based attack and release interpolation over a 65-step meter.
+Translation deltas and event bursts are coalesced before each Textual refresh batch, so a
+fast model cannot schedule one terminal repaint per token. Idle scheduler ticks do not
+repaint the terminal.
+
 ### Instrumentation
 
 Each turn appends one JSON object to `data/logs/turns.jsonl`.

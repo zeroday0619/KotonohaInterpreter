@@ -192,6 +192,9 @@ MESSAGES: dict[str, str] = {
     "cfg.field.collection": "{path} 的 YAML 清單或對應表。",
     # -- Configuration editor: field descriptions ------------------------
     "cfg.f.ui.language": "介面語言。auto 依系統地區設定。",
+    "cfg.f.ui.refresh_hz": (
+        "TUI 畫面排程器的最高更新頻率。閒置畫面不會重新繪製終端機。"
+    ),
     "cfg.f.session.mode": "push_to_talk 需按鍵，auto 由 VAD 切分語句。",
     "cfg.f.session.routing": "pair 在兩種語言間往返，fixed 一律譯往同一語言。",
     "cfg.f.audio.input_device": "麥克風編號或名稱。留空使用系統預設。",

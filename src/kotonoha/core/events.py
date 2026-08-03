@@ -31,3 +31,13 @@ class EventBus:
 
     async def get(self) -> UiEvent:
         return await self.q.get()
+
+    def drain_nowait(self, maximum: int = 127) -> list[UiEvent]:
+        """Remove a bounded burst so the consumer can commit it as one frame."""
+        events: list[UiEvent] = []
+        for _event_index in range(maximum):
+            try:
+                events.append(self.q.get_nowait())
+            except asyncio.QueueEmpty:
+                break
+        return events
