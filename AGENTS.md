@@ -25,7 +25,7 @@ verified by measurement on the Orin, not by inspection.
 | Link measurement | `uv run kotonoha netcheck` |
 
 `uv run ruff check .` and `uv run pytest -q` must both pass before any change is reported
-as complete. Current baseline: 86 tests, zero lint findings.
+as complete. Current baseline: 89 tests, zero lint findings.
 
 Dependencies are managed with uv. Use `uv add`, `uv add --group dev`, and
 `uv lock --upgrade-package`. Do not edit `uv.lock` by hand. Do not invoke `pip`.
@@ -213,6 +213,10 @@ identifiers that also appear in YAML.
 `FIELDS` in `src/kotonoha/tui/config_app.py` is curated, not reflected from the pydantic
 model. When adding an entry, add the matching `cfg.f.<path>` description to all four
 catalogs; `tests/test_i18n.py` checks that every field has one.
+
+`SECTIONS` defines the category menu order. Every `FieldSpec.section` must appear there.
+All category panels remain mounted while only the selected panel is displayed. Preserve
+that behavior so navigating between categories does not discard unsaved widget values.
 
 `validate_candidate` constructs `Settings` from the same layer order the runtime uses.
 Nothing is written unless that succeeds. Preserve that ordering: an unloadable

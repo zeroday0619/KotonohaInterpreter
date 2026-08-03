@@ -24,8 +24,8 @@ from pydantic import ValidationError
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding, BindingsMap
-from textual.containers import Horizontal, VerticalScroll
-from textual.widgets import Footer, Header, Input, Select, Static, Switch
+from textual.containers import Container, Horizontal, VerticalScroll
+from textual.widgets import Footer, Header, Input, ListItem, ListView, Select, Static, Switch
 
 from ..config import LOCAL_CONFIG, Settings, config_layers, deep_merge, load_settings, read_yaml
 from ..i18n import LOCALE_NAMES, t
@@ -194,11 +194,48 @@ class FieldRow(Static):
         return raw
 
 
+class CategoryItem(ListItem):
+    """One category in the navigation menu."""
+
+    def __init__(self, section: str, modified: int):
+        super().__init__(id=f"category-{section}")
+        self.section = section
+        self.modified = modified
+
+    def compose(self) -> ComposeResult:
+        label = Text(t(f"cfg.section.{self.section}"))
+        if self.modified:
+            label.append(f"  {self.modified}", style="yellow bold")
+        yield Static(label)
+
+
 class ConfigApp(App):
     CSS = """
     Screen { layout: vertical; }
-    #body { height: 1fr; padding: 0 2; }
-    .section { padding: 1 0 0 0; text-style: bold underline; color: $accent; }
+    #workspace { height: 1fr; }
+    #navigation {
+        width: 28;
+        height: 1fr;
+        border-right: solid $primary;
+        background: $surface;
+    }
+    #navigation-title {
+        height: 3;
+        padding: 1 2 0 2;
+        text-style: bold;
+        color: $text-muted;
+    }
+    #category-list { height: 1fr; }
+    #category-list ListItem { padding: 1 2; }
+    #category-list ListItem.-highlight { background: $accent; color: $text; }
+    #content { width: 1fr; height: 1fr; }
+    .category-panel { width: 1fr; height: 1fr; padding: 0 3 1 3; }
+    .category-title {
+        padding: 1 0;
+        text-style: bold;
+        color: $accent;
+        border-bottom: solid $primary-darken-2;
+    }
     .fieldlabel { padding: 1 0 0 0; }
     .fieldrow { height: 3; }
     .fielddesc { color: $text-muted; }
@@ -212,6 +249,7 @@ class ConfigApp(App):
     BINDINGS = [
         ("s", "save", ""),
         ("r", "reload", ""),
+        ("m", "menu", ""),
         ("q", "quit", ""),
     ]
 
@@ -222,6 +260,7 @@ class ConfigApp(App):
         self.settings = load_settings(config_path)
         self.local = read_yaml(self.local_path) if self.local_path.exists() else {}
         self._rows: list[FieldRow] = []
+        self.current_section = SECTIONS[0]
         # Replace the map rather than calling bind() on it: Textual builds the map
         # from the class attribute, so mutating it would leak one instance's locale
         # into the next.
@@ -229,25 +268,41 @@ class ConfigApp(App):
             [
                 Binding("s", "save", t("cfg.key.save")),
                 Binding("r", "reload", t("cfg.key.reload")),
+                Binding("m", "menu", t("cfg.key.menu")),
                 Binding("q", "quit", t("cfg.key.quit")),
             ]
         )
 
     def compose(self) -> ComposeResult:
         yield Header()
-        with VerticalScroll(id="body"):
-            for section in SECTIONS:
-                yield Static(t(f"cfg.section.{section}"), classes="section")
-                for spec in FIELDS:
-                    if spec.section != section:
-                        continue
-                    row = FieldRow(
-                        spec,
-                        effective_value(self.settings, spec.path),
-                        get_path(self.local, spec.path) is not None,
-                    )
-                    self._rows.append(row)
-                    yield row
+        with Horizontal(id="workspace"):
+            with Container(id="navigation"):
+                yield Static(t("cfg.categories"), id="navigation-title")
+                with ListView(id="category-list"):
+                    for section in SECTIONS:
+                        modified = sum(
+                            get_path(self.local, spec.path) is not None
+                            for spec in FIELDS
+                            if spec.section == section
+                        )
+                        yield CategoryItem(section, modified)
+            with Container(id="content"):
+                for section in SECTIONS:
+                    with VerticalScroll(
+                        id=f"panel-{section}",
+                        classes="category-panel",
+                    ):
+                        yield Static(t(f"cfg.section.{section}"), classes="category-title")
+                        for spec in FIELDS:
+                            if spec.section != section:
+                                continue
+                            row = FieldRow(
+                                spec,
+                                effective_value(self.settings, spec.path),
+                                get_path(self.local, spec.path) is not None,
+                            )
+                            self._rows.append(row)
+                            yield row
         self.status = Static("", id="status")
         yield self.status
         yield Footer()
@@ -255,6 +310,21 @@ class ConfigApp(App):
     def on_mount(self) -> None:
         self.title = t("cfg.title")
         self.sub_title = t("cfg.subtitle", path=self.local_path)
+        self._show_section(self.current_section)
+        self.query_one("#category-list", ListView).index = 0
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        item = event.item
+        if isinstance(item, CategoryItem):
+            self._show_section(item.section)
+
+    def _show_section(self, section: str) -> None:
+        """Display one category while keeping every editor mounted and stateful."""
+        if section not in SECTIONS:
+            return
+        self.current_section = section
+        for candidate in SECTIONS:
+            self.query_one(f"#panel-{candidate}").display = candidate == section
 
     # -- actions -----------------------------------------------------------
     def action_save(self) -> None:
@@ -301,6 +371,9 @@ class ConfigApp(App):
             else:
                 row.editor.value = "" if current is None else str(current)
         self._say(t("cfg.reloaded"), "dim")
+
+    def action_menu(self) -> None:
+        self.query_one("#category-list", ListView).focus()
 
     def _say(self, message: str, style: str) -> None:
         self.status.update(Text(message, style=style))

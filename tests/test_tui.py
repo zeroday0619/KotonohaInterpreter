@@ -56,8 +56,45 @@ async def test_config_editor_titles_follow_the_locale(tmp_path):
         assert [b.description for b in app._bindings.shown_keys] == [
             CATALOGS["ja"]["cfg.key.save"],
             CATALOGS["ja"]["cfg.key.reload"],
+            CATALOGS["ja"]["cfg.key.menu"],
             CATALOGS["ja"]["cfg.key.quit"],
         ]
+
+
+async def test_config_editor_shows_one_category_at_a_time(tmp_path):
+    app = ConfigApp(local_path=tmp_path / "local.yaml")
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert app.current_section == "interface"
+        assert app.query_one("#panel-interface").display
+        assert not app.query_one("#panel-models").display
+
+        await pilot.click("#category-models")
+        await pilot.pause()
+        assert app.current_section == "models"
+        assert app.query_one("#panel-models").display
+        assert not app.query_one("#panel-interface").display
+
+
+async def test_category_switch_preserves_unsaved_input(tmp_path):
+    app = ConfigApp(local_path=tmp_path / "local.yaml")
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._show_section("remote")
+        row = next(r for r in app._rows if r.spec.path == "remote.services.llm")
+        row.editor.value = "http://a6000.internal:8003"
+
+        app._show_section("interface")
+        app._show_section("remote")
+        assert row.editor.value == "http://a6000.internal:8003"
+
+
+async def test_menu_action_focuses_category_navigation(tmp_path):
+    app = ConfigApp(local_path=tmp_path / "local.yaml")
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.action_menu()
+        assert app.focused is app.query_one("#category-list")
 
 
 async def test_saving_without_edits_writes_nothing(tmp_path):

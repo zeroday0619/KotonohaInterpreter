@@ -556,9 +556,15 @@ committed baseline survives updates and a device keeps its own values.
 |---|---|
 | `s` | Validate and save |
 | `r` | Reload from disk |
+| `m` | Focus the category menu |
 | `q` | Exit |
 
-Each row shows the dotted configuration path, the effective value, and a localized
+The left navigation menu contains Interface, Session, Audio devices, Audio frontend,
+Models and External server. The right panel contains the fields for the selected
+category. Switching categories keeps unsaved widget values in memory. A count beside a
+category identifies values already present in `local.yaml`.
+
+Each field shows the dotted configuration path, the effective value, and a localized
 description. Paths are not translated: they are what has to be typed into a YAML file.
 A field already present in `local.yaml` is marked as modified.
 
