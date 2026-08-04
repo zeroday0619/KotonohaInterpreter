@@ -467,14 +467,14 @@ List ALSA and PortAudio devices from the same container context used at runtime:
 
 ```bash
 docker compose -f docker/compose.yaml run --rm orchestrator \
-  python3 -m kotonoha.cli devices
+  python3 -m kotonoha._cli devices
 ```
 
 Open the configuration TUI:
 
 ```bash
 docker compose -f docker/compose.yaml run --rm orchestrator \
-  python3 -m kotonoha.cli config
+  python3 -m kotonoha._cli config
 ```
 
 Set `audio.input_device` and `audio.output_device` to a stable device name when possible.
@@ -485,14 +485,14 @@ Import the baseline glossary:
 
 ```bash
 docker compose -f docker/compose.yaml run --rm orchestrator \
-  python3 -m kotonoha.cli glossary import config/glossary.seed.yaml
+  python3 -m kotonoha._cli glossary import config/glossary.seed.yaml
 ```
 
 ### Run diagnostics
 
 ```bash
 docker compose -f docker/compose.yaml run --rm orchestrator \
-  python3 -m kotonoha.cli doctor
+  python3 -m kotonoha._cli doctor
 ```
 
 Resolve every required-module failure, missing VAD artifact, down service, and CUDA
@@ -723,7 +723,7 @@ export KOTONOHA__REMOTE__TOKEN=<same-token-as-a6000>
 ```bash
 docker compose -f docker/compose.yaml run --rm \
   -e KOTONOHA__REMOTE__TOKEN="$KOTONOHA__REMOTE__TOKEN" \
-  orchestrator python3 -m kotonoha.cli \
+  orchestrator python3 -m kotonoha._cli \
   -c config/performance.yaml netcheck
 ```
 
@@ -736,7 +736,7 @@ of the post-silence latency budget.
 ```bash
 docker compose -f docker/compose.yaml run --rm \
   -e KOTONOHA__REMOTE__TOKEN="$KOTONOHA__REMOTE__TOKEN" \
-  orchestrator python3 -m kotonoha.cli \
+  orchestrator python3 -m kotonoha._cli \
   -c config/performance.yaml config
 ```
 
@@ -760,7 +760,7 @@ after saving:
 ```bash
 docker compose -f docker/compose.yaml run --rm \
   -e KOTONOHA__REMOTE__TOKEN="$KOTONOHA__REMOTE__TOKEN" \
-  orchestrator python3 -m kotonoha.cli \
+  orchestrator python3 -m kotonoha._cli \
   -c config/performance.yaml run
 ```
 

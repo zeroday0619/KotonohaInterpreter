@@ -11,18 +11,40 @@ the Jetson containers get their catalogs: they install with
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, ClassVar, Final, TypeVar
 
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
+
+CallableType = TypeVar("CallableType", bound=Callable[..., Any])
+
+if TYPE_CHECKING:
+    from typing_extensions import override as override
+else:
+
+    def override(
+        function: CallableType,
+        /,
+    ) -> CallableType:
+        function.__override__ = True
+        return function
 
 LOCALE_DIR = Path("src") / "kotonoha" / "locale"
 DOMAIN = "kotonoha"
 
 
 class LocaleBuildHook(BuildHookInterface):
-    PLUGIN_NAME = "kotonoha-locale"
+    __slots__: ClassVar[tuple[str, ...]] = ()
+    PLUGIN_NAME: Final = "kotonoha-locale"
 
-    def initialize(self, version: str, build_data: dict) -> None:
+    @override
+    def initialize(
+        self,
+        /,
+        version: str,
+        build_data: dict,
+    ) -> None:
         from babel.messages.mofile import write_mo
         from babel.messages.pofile import read_po
 

@@ -42,17 +42,17 @@ def main() -> int:
     data = [{"src": r["src"], "mt": r["mt"], "ref": r["ref"]} for r in rows]
 
     model = load_from_checkpoint(download_model(a.model))
-    res = model.predict(data, batch_size=a.batch_size, gpus=a.gpus)
+    result = model.predict(data, batch_size=a.batch_size, gpus=a.gpus)
 
     scored = sorted(
         (
             {"id": r["id"], "score": s, **d}
-            for r, d, s in zip(rows, data, res.scores, strict=True)
+            for r, d, s in zip(rows, data, result.scores, strict=True)
         ),
         key=lambda x: x["score"],
     )
     print(f"항목 {len(rows)}건")
-    print(f"COMET (system) {res.system_score:.4f}")
+    print(f"COMET (system) {result.system_score:.4f}")
     print("\n최저 10건:")
     for x in scored[:10]:
         print(f"  {x['score']:.3f}  {x['id']}")
@@ -64,7 +64,7 @@ def main() -> int:
         a.out.parent.mkdir(parents=True, exist_ok=True)
         a.out.write_text(
             json.dumps(
-                {"model": a.model, "system_score": res.system_score, "items": scored},
+                {"model": a.model, "system_score": result.system_score, "items": scored},
                 ensure_ascii=False,
                 indent=2,
             ),

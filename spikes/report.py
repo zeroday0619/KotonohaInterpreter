@@ -16,19 +16,34 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import Any
 
 
-def load(d: Path, n: int) -> dict | None:
+def load(
+    d: Path,
+    /,
+    n: int,
+) -> dict | None:
     p = d / f"spike{n}.json"
     if not p.exists():
         return None
     return json.loads(p.read_text(encoding="utf-8"))
 
 
-def md_report(s1: dict | None, s2: dict | None, s3: dict | None) -> str:
+def md_report(
+    s1: dict | None,
+    /,
+    s2: dict | None,
+    s3: dict | None,
+) -> str:
     L: list[str] = ["# Phase 0 — 검증 스파이크 결과", ""]
 
-    def section(title: str, data: dict | None, body) -> None:
+    def section(
+        title: str,
+        /,
+        data: dict | None,
+        body: Any,
+    ) -> None:
         L.append(f"## {title}")
         if data is None:
             L.append("")
@@ -38,7 +53,10 @@ def md_report(s1: dict | None, s2: dict | None, s3: dict | None) -> str:
         L.extend(body(data))
         L.append("")
 
-    def b1(d: dict) -> list[str]:
+    def b1(
+        d: dict,
+        /,
+    ) -> list[str]:
         v = d.get("verdict", {})
         out = [
             "",
@@ -63,7 +81,10 @@ def md_report(s1: dict | None, s2: dict | None, s3: dict | None) -> str:
         out += ["", f"**판정: `asr.backend: {v.get('recommended_backend')}`** — {v.get('note')}"]
         return out
 
-    def b2(d: dict) -> list[str]:
+    def b2(
+        d: dict,
+        /,
+    ) -> list[str]:
         v = d.get("verdict", {})
         fa = d.get("flash_attn", {})
         fa_err = str(fa.get("kernel_error") or fa.get("error"))[:70]
@@ -92,7 +113,10 @@ def md_report(s1: dict | None, s2: dict | None, s3: dict | None) -> str:
         out += ["", f"**판정: `tts.backend: {v.get('tts_backend')}`** — {v.get('note')}"]
         return out
 
-    def b3(d: dict) -> list[str]:
+    def b3(
+        d: dict,
+        /,
+    ) -> list[str]:
         v = d.get("verdict", {})
         c = d.get("conditions", {})
         out = [
@@ -150,7 +174,12 @@ def md_report(s1: dict | None, s2: dict | None, s3: dict | None) -> str:
     return "\n".join(L) + "\n"
 
 
-def patch_yaml(s1: dict | None, s2: dict | None, s3: dict | None) -> str:
+def patch_yaml(
+    s1: dict | None,
+    /,
+    s2: dict | None,
+    s3: dict | None,
+) -> str:
     lines = ["# Phase 0 결과로 확정된 값. config/local.yaml 로 복사하면 자동 적용된다.", ""]
     if s1:
         b = (s1.get("verdict") or {}).get("recommended_backend")

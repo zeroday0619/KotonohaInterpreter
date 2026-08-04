@@ -36,7 +36,7 @@ services:
       dockerfile: docker/Dockerfile.asr
       args:
         BASE_IMAGE: ${ASR_BASE:-dustynv/transformers:r36.4.0}
-    command: uvicorn kotonoha.services.asr_server:app --host 0.0.0.0 --port 8001 --loop uvloop
+    command: uvicorn kotonoha.services._asr_server:app --host 0.0.0.0 --port 8001 --loop uvloop
 
   asr-verify:
     <<: *jetson
@@ -45,7 +45,7 @@ services:
       dockerfile: docker/Dockerfile.asr-verify
       args:
         BASE_IMAGE: ${VERIFY_BASE:-dustynv/faster-whisper:r36.4.0}
-    command: uvicorn kotonoha.services.asr_verify_server:app --host 0.0.0.0 --port 8002 --loop uvloop
+    command: uvicorn kotonoha.services._asr_verify_server:app --host 0.0.0.0 --port 8002 --loop uvloop
 
   llm:
     <<: *jetson
@@ -64,7 +64,7 @@ services:
       dockerfile: docker/Dockerfile.tts
       args:
         BASE_IMAGE: ${TTS_BASE:-dustynv/pytorch:r36.4.0}
-    command: uvicorn kotonoha.services.tts_server:app --host 0.0.0.0 --port 8004 --loop uvloop
+    command: uvicorn kotonoha.services._tts_server:app --host 0.0.0.0 --port 8004 --loop uvloop
 
   orchestrator:
     <<: *jetson
@@ -80,4 +80,4 @@ services:
       - audio
     stdin_open: true
     tty: true
-    command: python3 -m kotonoha.cli run
+    command: python3 -m kotonoha._cli run

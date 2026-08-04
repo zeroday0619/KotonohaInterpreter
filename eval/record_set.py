@@ -22,16 +22,27 @@ import queue
 import sys
 import wave
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
 
-def record_until_enter(rate: int, device=None) -> np.ndarray:
+def record_until_enter(
+    rate: int,
+    /,
+    device: Any = None,
+) -> np.ndarray:
     import sounddevice as sd
 
     q: queue.Queue[np.ndarray] = queue.Queue()
 
-    def cb(indata, frames, t, status):  # noqa: ANN001
+    def cb(
+        indata: Any,
+        /,
+        frames: Any,
+        t: Any,
+        status: Any,
+    ) -> None:  # noqa: ANN001
         if status:
             print(status, file=sys.stderr)
         q.put(indata[:, 0].copy())
@@ -44,7 +55,12 @@ def record_until_enter(rate: int, device=None) -> np.ndarray:
     return np.concatenate(parts) if parts else np.zeros(0, dtype=np.float32)
 
 
-def write_wav(path: Path, x: np.ndarray, rate: int) -> None:
+def write_wav(
+    path: Path,
+    /,
+    x: np.ndarray,
+    rate: int,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with wave.open(str(path), "wb") as w:
         w.setnchannels(1)

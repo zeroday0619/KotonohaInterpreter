@@ -29,4 +29,4 @@ RUN python3 -c "import transformers, sys; sys.exit(0 if tuple(map(int, transform
 RUN python3 -c "import torch, transformers; print('torch', torch.__version__, 'cuda', torch.version.cuda, '| transformers', transformers.__version__)"
 
 EXPOSE 8001
-CMD ["uvicorn", "kotonoha.services.asr_server:app", "--host", "0.0.0.0", "--port", "8001", "--loop", "uvloop"]
+CMD ["uvicorn", "kotonoha.services._asr_server:app", "--host", "0.0.0.0", "--port", "8001", "--loop", "uvloop"]

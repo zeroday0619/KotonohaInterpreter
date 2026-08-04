@@ -41,4 +41,4 @@ RUN (uv pip install --no-cache onnxruntime || echo "!! onnxruntime failed — VA
 RUN python3 -c "import torch; print('torch', torch.__version__, 'cuda', torch.version.cuda)" \
     || echo "!! could not check torch"
 
-CMD ["python3", "-m", "kotonoha.cli", "run"]
+CMD ["python3", "-m", "kotonoha._cli", "run"]

@@ -17,13 +17,18 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from kotonoha.cli import load_wav  # noqa: E402
-from kotonoha.clients import AsrClient  # noqa: E402
-from kotonoha.config import load_settings  # noqa: E402
-from kotonoha.shmring import AudioRing  # noqa: E402
+from kotonoha._cli import load_wav  # noqa: E402
+from kotonoha._config import load_settings  # noqa: E402
+from kotonoha._shmring import AudioRing  # noqa: E402
+from kotonoha.clients._asr import AsrClient  # noqa: E402
 
 
-async def run(manifest: Path, out: Path, config: str | None) -> int:
+async def run(
+    manifest: Path,
+    /,
+    out: Path,
+    config: str | None,
+) -> int:
     s = load_settings(config)
     ring = AudioRing.create(
         name=s.shm.name + "_eval",

@@ -63,7 +63,7 @@ uv run ruff check .
 uv run pytest -q
 ```
 
-Current baseline: 201 tests and zero lint findings.
+Current baseline: 202 tests and zero lint findings.
 
 ## Non-negotiable constraints
 
@@ -71,13 +71,13 @@ Changing these constraints requires explicit user instruction and a regression t
 
 | Constraint | Authority | Failure mode |
 |---|---|---|
-| VAD preroll remains 200-300 ms | `src/kotonoha/audio/vad.py` | Clips Korean stop onsets and Japanese sokuon context |
-| Primary ASR returns N-best 5 | `src/kotonoha/services/asr_server.py` | Removes correction-pass evidence |
-| One LLM pass performs correction and translation | `src/kotonoha/prompts/translate.py` | Compounds transcription errors |
-| LLM output reaches TTS by clause | `src/kotonoha/core/clauses.py` | Delays first audio until full completion |
-| Cross-verification remains conditional on Orin | `src/kotonoha/core/quality.py` | Adds approximately 0.8 seconds to every turn |
-| Half-duplex gating remains in `Orchestrator._on_state_change` | `src/kotonoha/core/orchestrator.py` | TTS re-enters the microphone and loops |
-| Audio transport remains binary or shared memory | `src/kotonoha/shmring.py`, `src/kotonoha/transport.py` | Base64 adds avoidable latency and allocation |
+| VAD preroll remains 200-300 ms | `src/kotonoha/audio/_vad.py` | Clips Korean stop onsets and Japanese sokuon context |
+| Primary ASR returns N-best 5 | `src/kotonoha/services/_asr_server.py` | Removes correction-pass evidence |
+| One LLM pass performs correction and translation | `src/kotonoha/prompts/_translate.py` | Compounds transcription errors |
+| LLM output reaches TTS by clause | `src/kotonoha/core/_clauses.py` | Delays first audio until full completion |
+| Cross-verification remains conditional on Orin | `src/kotonoha/core/_quality.py` | Adds approximately 0.8 seconds to every turn |
+| Half-duplex gating remains in `Orchestrator._on_state_change` | `src/kotonoha/core/_orchestrator.py` | TTS re-enters the microphone and loops |
+| Audio transport remains binary or shared memory | `src/kotonoha/_shmring.py`, `src/kotonoha/_transport.py` | Base64 adds avoidable latency and allocation |
 
 Do not introduce:
 
@@ -106,7 +106,7 @@ Identifiers confirmed as of 2026-08:
 | Dense GGUF | `unsloth/Qwen3-14B-GGUF` |
 | Jetson vLLM image | `ghcr.io/nvidia-ai-iot/vllm:r36.4-tegra-aarch64-cu126-22.04` |
 
-`VllmBackend` in `src/kotonoha/services/asr_server.py` must continue raising
+`VllmBackend` in `src/kotonoha/services/_asr_server.py` must continue raising
 `NotImplementedError` until Spike 1 verifies model loading and N-best output on sm_87.
 
 ## Python and source standards
@@ -261,7 +261,7 @@ Pending hardware decisions remain configuration values, not hard-coded branches.
 
 When adding a setting:
 
-1. Add the typed field to `src/kotonoha/config.py`.
+1. Add the typed field to `src/kotonoha/_config.py`.
 2. Add the baseline value and rationale to `config/default.yaml`.
 3. Keep overlay files limited to differences from the baseline.
 4. Confirm that the local configuration TUI exposes the new leaf.
@@ -285,7 +285,7 @@ Supported locales are `en`, `ko`, `ja`, and `zh-TW`.
 
 | Path | Purpose |
 |---|---|
-| `src/kotonoha/i18n.py` | Locale resolution and `_`, `N_`, `pgettext` |
+| `src/kotonoha/_i18n.py` | Locale resolution and `_`, `N_`, `pgettext` |
 | `src/kotonoha/locale/kotonoha.pot` | Generated extraction template |
 | `src/kotonoha/locale/<lang>/LC_MESSAGES/kotonoha.po` | Translation source |
 | `src/kotonoha/locale/<lang>/LC_MESSAGES/kotonoha.mo` | Generated, gitignored catalog |
@@ -350,8 +350,8 @@ Preserve these contracts:
 ## Tests
 
 The test suite must run without models, microphones, target hardware, or network access.
-`tests/conftest.py` sets `KOTONOHA_SKIP_LOCAL_CONFIG` so device endpoints and tokens from
-`config/local.yaml` never enter tests.
+`tests/kotonoha/conftest.py` sets `KOTONOHA_SKIP_LOCAL_CONFIG` so device endpoints and
+tokens from `config/local.yaml` never enter tests.
 
 | Test module | Contract |
 |---|---|
@@ -364,6 +364,7 @@ The test suite must run without models, microphones, target hardware, or network
 | `test_config_admin.py` | Remote authorization, allowlist, validation, persistence |
 | `test_deploy_script.py` | Deployment interface and host templates |
 | `test_i18n.py` | Catalog completeness, placeholders, locale resolution |
+| `test_python_style.py` | Module privacy, declarations, type hints, imports, and class slots |
 | `test_history.py` | History filters, escaping, panel, browser |
 | `test_text_mode.py` | Script detection, typed routing, text input |
 | `test_tui.py` | Composition, bindings, localized labels |

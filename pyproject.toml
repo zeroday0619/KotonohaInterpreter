@@ -62,7 +62,7 @@ eval = [
 ]
 
 [project.scripts]
-kotonoha = "kotonoha.cli:main"
+kotonoha = "kotonoha._cli:main"
 
 [build-system]
 # Babel compiles the translation catalogs in hatch_build.py. .po files are

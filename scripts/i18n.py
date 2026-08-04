@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import Any
 
 from babel.messages.catalog import Catalog
 from babel.messages.extract import extract_from_dir
@@ -24,7 +25,7 @@ from babel.messages.pofile import read_po, write_po
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from kotonoha.i18n import (  # noqa: E402
+from kotonoha._i18n import (  # noqa: E402
     DEFAULT_LOCALE,
     DOMAIN,
     GETTEXT_NAMES,
@@ -73,12 +74,18 @@ def build_template() -> Catalog:
     return template
 
 
-def _has_placeholder(message) -> bool:
+def _has_placeholder(
+    message: Any,
+    /,
+) -> bool:
     text = message if isinstance(message, str) else (message[0] if message else "")
     return "{" in text and "}" in text
 
 
-def cmd_extract(_args) -> int:
+def cmd_extract(
+    _args: Any,
+    /,
+) -> int:
     template = build_template()
     POT_PATH.parent.mkdir(parents=True, exist_ok=True)
     with POT_PATH.open("wb") as handle:
@@ -87,7 +94,10 @@ def cmd_extract(_args) -> int:
     return 0
 
 
-def cmd_update(_args) -> int:
+def cmd_update(
+    _args: Any,
+    /,
+) -> int:
     template = build_template()
     for locale in TRANSLATOR_LANGUAGES:
         target = po_path(locale)
@@ -106,7 +116,10 @@ def cmd_update(_args) -> int:
     return 0
 
 
-def cmd_compile(_args) -> int:
+def cmd_compile(
+    _args: Any,
+    /,
+) -> int:
     for locale in TRANSLATOR_LANGUAGES:
         source = po_path(locale)
         if not source.exists():
@@ -122,7 +135,10 @@ def cmd_compile(_args) -> int:
     return 0
 
 
-def cmd_check(_args) -> int:
+def cmd_check(
+    _args: Any,
+    /,
+) -> int:
     template = build_template()
     template_ids = {(entry.context, entry.id) for entry in template if entry.id}
     problems = 0
@@ -164,7 +180,10 @@ def cmd_check(_args) -> int:
     return 1 if problems else 0
 
 
-def _untranslated(catalog: Catalog) -> int:
+def _untranslated(
+    catalog: Catalog,
+    /,
+) -> int:
     return sum(1 for entry in catalog if entry.id and not entry.string)
 
 

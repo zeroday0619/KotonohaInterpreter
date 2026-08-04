@@ -1,0 +1,489 @@
+"""Configuration loading — YAML plus environment variables (pydantic-settings).
+
+Precedence: environment (KOTONOHA__*) > the YAML given with --config >
+config/default.yaml. Nested keys are overridden with a double underscore,
+e.g. KOTONOHA__LLM__PROFILE=moe
+"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from typing import Any, ClassVar, Literal
+
+import yaml
+from pydantic import BaseModel, Field, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from kotonoha._typing import override
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_CONFIG = REPO_ROOT / "config" / "default.yaml"
+
+SupportedLanguage = Literal["ko", "en", "zh-TW", "ja"]
+
+
+class SessionConfig(BaseModel):
+    # text closes the microphone and takes utterances from the keyboard.
+    __slots__: ClassVar[tuple[str, ...]] = ()
+    mode: Literal["push_to_talk", "auto", "text"] = "push_to_talk"
+    # Source language for typed input. auto reads it from the script.
+    text_source_language: Literal["auto", "ko", "en", "zh-TW", "ja"] = "auto"
+    routing: Literal["pair", "fixed", "broadcast"] = "pair"
+    pair: list[SupportedLanguage] = ["ko", "en"]
+    fixed_target: SupportedLanguage = "en"
+    broadcast_targets: list[SupportedLanguage] = ["ko", "en", "zh-TW", "ja"]
+    languages: list[SupportedLanguage] = ["ko", "en", "zh-TW", "ja"]
+
+    @model_validator(mode="after")
+    def _check_pair(
+        self,
+        /,
+    ) -> SessionConfig:
+        if self.routing == "pair" and len(self.pair) != 2:
+            raise ValueError("session.pair must contain exactly 2 languages")
+        return self
+
+
+class AudioConfig(BaseModel):
+    __slots__: ClassVar[tuple[str, ...]] = ()
+    input_device: int | str | None = None
+    output_device: int | str | None = None
+    capture_sample_rate: int = 48000
+    capture_block_ms: int = 20
+    channels: int = 1
+    work_sample_rate: int = 16000
+    playback_sample_rate: int = 24000
+
+    @property
+    def capture_block_frames(
+        self,
+        /,
+    ) -> int:
+        return int(self.capture_sample_rate * self.capture_block_ms / 1000)
+
+
+class DenoiseConfig(BaseModel):
+    __slots__: ClassVar[tuple[str, ...]] = ()
+    enabled: bool = True
+    backend: Literal["deepfilternet3", "none"] = "deepfilternet3"
+    post_filter_beta: float = 0.02
+
+
+class VadConfig(BaseModel):
+    # "energy" is a development-machine fallback only; the device uses silero_onnx.
+    __slots__: ClassVar[tuple[str, ...]] = ()
+    backend: Literal["silero_onnx", "energy"] = "silero_onnx"
+    model_path: Path = Path("./models/silero_vad.onnx")
+    threshold: float = 0.5
+    neg_threshold: float = 0.35
+    preroll_ms: int = Field(300, ge=200, le=500, description="non-negotiable, see §5.1")
+    min_speech_ms: int = 120
+    silence_ms: int = 800
+    max_utterance_ms: int = 30000
+    frame_ms: int = 32
+
+
+class FrontendConfig(BaseModel):
+    __slots__: ClassVar[tuple[str, ...]] = ()
+    denoise: DenoiseConfig = DenoiseConfig()
+    vad: VadConfig = VadConfig()
+
+
+class SharedMemoryConfig(BaseModel):
+    __slots__: ClassVar[tuple[str, ...]] = ()
+    name: str = "kotonoha_audio"
+    slots: int = 8
+    slot_seconds: int = 30
+    sample_rate: int = 16000
+
+
+class ServiceEndpointsConfig(BaseModel):
+    __slots__: ClassVar[tuple[str, ...]] = ()
+    asr: str = "http://127.0.0.1:8001"
+    asr_verify: str = "http://127.0.0.1:8002"
+    llm: str = "http://127.0.0.1:8003"
+    tts: str = "http://127.0.0.1:8004"
+
+
+ROLES = ("asr", "asr_verify", "llm", "tts")
+Placement = Literal["local", "remote"]
+
+# Which side runs each role, per performance mode.
+#
+#   onboard  everything on the Orin. The original design.
+#   hybrid   only the LLM goes to the A6000. It is text-only, so audio remains
+#            on the device.
+#   remote   ASR, verification and TTS also move to the external server.
+#            Utterance audio crosses the network.
+PERF_PLACEMENT: dict[str, dict[str, Placement]] = {
+    "onboard": {"asr": "local", "asr_verify": "local", "llm": "local", "tts": "local"},
+    "hybrid": {"asr": "local", "asr_verify": "local", "llm": "remote", "tts": "local"},
+    "remote": {"asr": "remote", "asr_verify": "remote", "llm": "remote", "tts": "remote"},
+}
+
+
+class RemoteConfig(BaseModel):
+    """The external RTX A6000 box.
+
+    This server is private infrastructure rather than a cloud API, so §12 still
+    applies. In `remote` mode, utterance audio leaves the device. The `hybrid`
+    mode keeps audio processing on the device.
+    """
+    __slots__: ClassVar[tuple[str, ...]] = ()
+
+    enabled: bool = False
+    services: ServiceEndpointsConfig = ServiceEndpointsConfig(
+        asr="http://a6000.lan:8001",
+        asr_verify="http://a6000.lan:8002",
+        llm="http://a6000.lan:8003",
+        tts="http://a6000.lan:8004",
+    )
+    token: str | None = None  # bearer token; prefer KOTONOHA__REMOTE__TOKEN
+    verify_tls: bool = True
+    ca_bundle: Path | None = None
+    connect_timeout_s: float = 1.5
+
+    # Failover (§10 applied to the link): drop to the on-board service after
+    # this many consecutive transport failures, and only return once the remote
+    # has been healthy again for recover_after_s.
+    failover_after: int = 2
+    recover_after_s: float = 30.0
+    health_interval_s: float = 10.0
+
+    # Audio upload encoding. s16le halves the bytes on the wire against f32le
+    # and costs nothing in ASR quality at 16 kHz.
+    audio_encoding: Literal["s16le", "f32le"] = "s16le"
+
+
+class LanguageIdentificationConfig(BaseModel):
+    __slots__: ClassVar[tuple[str, ...]] = ()
+    min_confidence: float = 0.60
+    min_duration_s: float = 1.0
+
+
+class AsrConfig(BaseModel):
+    __slots__: ClassVar[tuple[str, ...]] = ()
+    backend: Literal["transformers", "vllm"] = "transformers"
+    model_id: str = "Qwen/Qwen3-ASR-1.7B-hf"
+    vllm_model_id: str = "Qwen/Qwen3-ASR-1.7B"
+    dtype: str = "float16"
+    n_best: int = 5
+    num_beams: int = 5
+    max_new_tokens: int = 256
+    timeout_s: float = 4.0
+    avg_logprob_threshold: float = -0.55
+    lid: LanguageIdentificationConfig = LanguageIdentificationConfig()
+
+
+class AsrVerificationConfig(BaseModel):
+    __slots__: ClassVar[tuple[str, ...]] = ()
+    enabled: bool = True
+    # §5.5 makes verification conditional because it costs 0.8 s on the Orin.
+    # The policy remains configurable for measured remote deployments.
+    mode: Literal["conditional", "always"] = "conditional"
+    backend: Literal["faster_whisper", "whisper_cpp"] = "faster_whisper"
+    model_id: str = "large-v3"
+    compute_type: str = "int8_float16"
+    device: str = "cuda"
+    beam_size: int = 5
+    timeout_s: float = 3.0
+    divergence_cer: float = 0.25
+
+
+class LanguageModelProfile(BaseModel):
+    __slots__: ClassVar[tuple[str, ...]] = ()
+    repo: str
+    file: str
+    n_gpu_layers: int = -1
+
+
+class LanguageModelConfig(BaseModel):
+    __slots__: ClassVar[tuple[str, ...]] = ()
+    profile: Literal["moe", "dense"] = "dense"
+    profiles: dict[str, LanguageModelProfile]
+    models_dir: Path = Path("./models/gguf")
+    n_ctx: int = 2048
+    n_batch: int = 512
+    temperature: float = 0.2
+    top_p: float = 0.9
+    repeat_penalty: float = 1.05
+    max_tokens: int = 512
+    stream: bool = True
+    timeout_s: float = 3.0
+    min_tok_per_s: float = 5.0
+
+    @property
+    def active(
+        self,
+        /,
+    ) -> LanguageModelProfile:
+        return self.profiles[self.profile]
+
+    @property
+    def gguf_path(
+        self,
+        /,
+    ) -> Path:
+        return self.models_dir / self.active.file
+
+
+class TextToSpeechConfig(BaseModel):
+    __slots__: ClassVar[tuple[str, ...]] = ()
+    backend: Literal["qwen3", "melo"] = "melo"
+    model_id: str = "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"
+    sample_rate: int = 24000
+    chunk_ms: int = 200
+    timeout_s: float = 5.0
+    fallback: Literal["melo", "none"] = "melo"
+    voices: dict[str, str] = {}
+    melo_speakers: dict[str, str] = {}
+
+
+class TraditionalChineseConfig(BaseModel):
+    __slots__: ClassVar[tuple[str, ...]] = ()
+    opencc_config: str = "s2twp"
+    apply_to: list[Literal["asr", "translation"]] = ["asr", "translation"]
+
+
+class ContextConfig(BaseModel):
+    __slots__: ClassVar[tuple[str, ...]] = ()
+    history_turns: int = 6
+    glossary_max_terms: int = 64
+
+
+class UserInterfaceConfig(BaseModel):
+    # auto follows KOTONOHA_LANG, then the system locale, then English.
+    __slots__: ClassVar[tuple[str, ...]] = ()
+    language: Literal["auto", "en", "ko", "ja", "zh-TW"] = "auto"
+    refresh_hz: int = Field(60, ge=15, le=60)
+    # Completed turns kept on screen beside the live panes. 0 hides the panel.
+    history_turns: int = Field(20, ge=0, le=200)
+
+
+class StoreConfig(BaseModel):
+    __slots__: ClassVar[tuple[str, ...]] = ()
+    path: Path = Path("./data/kotonoha.db")
+
+
+class LoggingConfig(BaseModel):
+    __slots__: ClassVar[tuple[str, ...]] = ()
+    level: str = "INFO"
+    # Application logs and turn metrics go to separate files. Mixed together, the
+    # turn log (§11) can no longer be parsed as-is and every reader needs a filter.
+    log_path: Path = Path("./data/logs/kotonoha.jsonl")
+    turn_log_path: Path = Path("./data/logs/turns.jsonl")
+    console: bool = True
+
+
+class LatencyBudgetConfig(BaseModel):
+    """Latency budget in milliseconds (§6)."""
+    __slots__: ClassVar[tuple[str, ...]] = ()
+
+    silence: int = 800
+    frontend: int = 100
+    asr: int = 900
+    verify: int = 100
+    llm_first_clause: int = 700
+    tts_first_packet: int = 300
+    total: int = 2900
+
+
+class Settings(BaseSettings):
+    __slots__: ClassVar[tuple[str, ...]] = ()
+    model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
+        env_prefix="KOTONOHA__",
+        env_nested_delimiter="__",
+        extra="forbid",
+    )
+
+    # onboard | hybrid | remote — see PERF_PLACEMENT.
+    perf_mode: Literal["onboard", "hybrid", "remote"] = "onboard"
+    # Explicit per-role override. Anything omitted follows perf_mode.
+    placement: dict[str, Placement] = {}
+
+    session: SessionConfig = SessionConfig()
+    audio: AudioConfig = AudioConfig()
+    frontend: FrontendConfig = FrontendConfig()
+    shm: SharedMemoryConfig = SharedMemoryConfig()
+    services: ServiceEndpointsConfig = ServiceEndpointsConfig()
+    remote: RemoteConfig = RemoteConfig()
+    asr: AsrConfig = AsrConfig()
+    asr_verify: AsrVerificationConfig = AsrVerificationConfig()
+    llm: LanguageModelConfig
+    tts: TextToSpeechConfig = TextToSpeechConfig()
+    zh: TraditionalChineseConfig = TraditionalChineseConfig()
+    context: ContextConfig = ContextConfig()
+    ui: UserInterfaceConfig = UserInterfaceConfig()
+    store: StoreConfig = StoreConfig()
+    logging: LoggingConfig = LoggingConfig()
+    budget_ms: LatencyBudgetConfig = LatencyBudgetConfig()
+
+    # Kept so relative paths can be resolved against the repository root.
+    root: Path = REPO_ROOT
+
+    def resolve(
+        self,
+        /,
+        path: Path,
+    ) -> Path:
+        return path if path.is_absolute() else (self.root / path).resolve()
+
+    # -- role placement ----------------------------------------------------
+    def resolved_placement(
+        self,
+        /,
+    ) -> dict[str, Placement]:
+        """Where each role actually runs.
+
+        With the remote disabled everything collapses to local, whatever
+        perf_mode says. A mode that silently points at an unreachable box would
+        just turn into a per-turn timeout.
+        """
+        resolved = dict(PERF_PLACEMENT[self.perf_mode])
+        for role, side in self.placement.items():
+            if role not in ROLES:
+                raise ValueError(f"unknown role in placement: {role}")
+            resolved[role] = side
+        if not self.remote.enabled:
+            return dict.fromkeys(ROLES, "local")
+        return resolved
+
+    def url_for(
+        self,
+        /,
+        role: str,
+        side: Placement,
+    ) -> str:
+        services = self.remote.services if side == "remote" else self.services
+        return getattr(services, role)
+
+    @property
+    def audio_leaves_device(
+        self,
+        /,
+    ) -> bool:
+        """True when utterance audio is sent off the box. Surfaced in the TUI."""
+        placement = self.resolved_placement()
+        return placement["asr"] == "remote" or placement["asr_verify"] == "remote"
+
+    @classmethod
+    @override
+    def settings_customise_sources(
+        cls,
+        /,
+        settings_cls: Any,
+        init_settings: Any,
+        env_settings: Any,
+        dotenv_settings: Any,
+        file_secret_settings: Any,
+    ) -> Any:
+        """Environment variables beat the YAML file.
+
+        pydantic-settings defaults to init (i.e. the loaded YAML) outranking env,
+        which silently ignores one-off overrides like KOTONOHA__LLM__PROFILE=moe.
+        Per-device tuning and the spikes lean on those overrides, so flip the order.
+        """
+        return (env_settings, dotenv_settings, init_settings, file_secret_settings)
+
+
+def deep_merge(
+    base: dict[str, Any],
+    /,
+    overlay: dict[str, Any],
+) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in overlay.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def read_yaml(
+    path: Path,
+    /,
+) -> dict[str, Any]:
+    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+
+
+def load_settings(
+    path: str | Path | None = None,
+    /,
+) -> Settings:
+    """Read the YAML layers and build Settings.
+
+    Layers, each merged over the previous:
+
+      1. config/default.yaml       the full baseline
+      2. the file given by --config or KOTONOHA_CONFIG, if it is a different one
+      3. config/local.yaml         per-device overrides, if present
+
+    Layer 2 exists so files like performance.yaml can be small overlays that say
+    only what differs, instead of duplicating the whole baseline and drifting
+    from it. Environment variables still beat all three.
+
+    KOTONOHA_SKIP_LOCAL_CONFIG drops layer 3 when it resolves to this machine's own
+    config/local.yaml. The test suite sets it: that file carries a real device's
+    remote endpoints and token, and a suite that read it would dial the external
+    server instead of running offline. An explicit KOTONOHA_LOCAL_CONFIG still
+    applies, so the layer itself remains testable.
+    """
+    chosen = Path(path or os.environ.get("KOTONOHA_CONFIG") or DEFAULT_CONFIG)
+    if not chosen.exists() and (path is not None or os.environ.get("KOTONOHA_CONFIG")):
+        raise FileNotFoundError(f"config not found: {chosen}")
+
+    layers: list[Path] = []
+    if DEFAULT_CONFIG.exists():
+        layers.append(DEFAULT_CONFIG)
+    if chosen.exists() and chosen.resolve() != DEFAULT_CONFIG.resolve():
+        layers.append(chosen)
+    # The skip applies to this machine's own file, not to the mechanism: a caller
+    # that names a path with KOTONOHA_LOCAL_CONFIG still gets that layer, which is
+    # how the management API and its tests exercise it.
+    skip_local = bool(os.environ.get("KOTONOHA_SKIP_LOCAL_CONFIG")) and not os.environ.get(
+        "KOTONOHA_LOCAL_CONFIG"
+    )
+    if not skip_local:
+        local = local_config_path()
+        if local.exists():
+            layers.append(local)
+
+    data: dict[str, Any] = {}
+    for layer in layers:
+        data = deep_merge(data, read_yaml(layer))
+
+    data.setdefault("root", str(REPO_ROOT))
+    return Settings(**data)
+
+
+def config_layers(
+    path: str | Path | None = None,
+    /,
+) -> list[Path]:
+    """The YAML files load_settings would merge, in order.
+
+    The configuration editor needs this to validate a candidate local.yaml against
+    the same layering the runtime uses.
+    """
+    chosen = Path(path or os.environ.get("KOTONOHA_CONFIG") or DEFAULT_CONFIG)
+    layers: list[Path] = []
+    if DEFAULT_CONFIG.exists():
+        layers.append(DEFAULT_CONFIG)
+    if chosen.exists() and chosen.resolve() != DEFAULT_CONFIG.resolve():
+        layers.append(chosen)
+    return layers
+
+
+LOCAL_CONFIG = DEFAULT_CONFIG.parent / "local.yaml"
+
+
+def local_config_path() -> Path:
+    """Return the host-specific override path.
+
+    The Orin uses config/local.yaml. Remote containers set KOTONOHA_LOCAL_CONFIG
+    to a separate file, so editing the A6000 cannot overwrite the Orin's values
+    when both trees are mounted from the same development checkout.
+    """
+    return Path(os.environ.get("KOTONOHA_LOCAL_CONFIG", LOCAL_CONFIG))

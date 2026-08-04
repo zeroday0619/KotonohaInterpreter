@@ -18,7 +18,11 @@ import unicodedata
 from pathlib import Path
 
 
-def norm(s: str, keep_punct: bool = False) -> str:
+def norm(
+    s: str,
+    /,
+    keep_punct: bool = False,
+) -> str:
     s = unicodedata.normalize("NFKC", s).strip().lower()
     if keep_punct:
         return " ".join(s.split())
@@ -27,7 +31,10 @@ def norm(s: str, keep_punct: bool = False) -> str:
     )
 
 
-def read_jsonl(p: Path) -> dict[str, dict]:
+def read_jsonl(
+    p: Path,
+    /,
+) -> dict[str, dict]:
     out = {}
     for line in p.read_text(encoding="utf-8").splitlines():
         if line.strip():

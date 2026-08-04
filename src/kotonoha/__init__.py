@@ -1,3 +1,5 @@
 """Kotonoha Interpreter — a consecutive, four-language, offline speech interpreter."""
 
-__version__ = "0.1.0"
+from kotonoha._version import __version__
+
+__all__ = ("__version__",)

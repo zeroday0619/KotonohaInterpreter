@@ -102,13 +102,13 @@ These contracts require explicit approval and regression coverage before modific
 
 | Constraint | Implementation |
 |---|---|
-| VAD preroll remains 200-300 ms | `src/kotonoha/audio/vad.py` |
-| Primary ASR returns N-best 5 | `src/kotonoha/services/asr_server.py` |
-| One LLM pass performs correction and translation | `src/kotonoha/prompts/translate.py` |
-| Translation reaches TTS by clause | `src/kotonoha/core/clauses.py` |
-| Cross-verification remains conditional on the Jetson | `src/kotonoha/core/quality.py` |
-| Half-duplex gating remains centralized | `src/kotonoha/core/orchestrator.py` |
-| Audio remains binary or shared-memory based | `src/kotonoha/shmring.py`, `src/kotonoha/transport.py` |
+| VAD preroll remains 200-300 ms | `src/kotonoha/audio/_vad.py` |
+| Primary ASR returns N-best 5 | `src/kotonoha/services/_asr_server.py` |
+| One LLM pass performs correction and translation | `src/kotonoha/prompts/_translate.py` |
+| Translation reaches TTS by clause | `src/kotonoha/core/_clauses.py` |
+| Cross-verification remains conditional on the Jetson | `src/kotonoha/core/_quality.py` |
+| Half-duplex gating remains centralized | `src/kotonoha/core/_orchestrator.py` |
+| Audio remains binary or shared-memory based | `src/kotonoha/_shmring.py`, `src/kotonoha/_transport.py` |
 
 Traditional Chinese input and output pass through OpenCC `s2twp`. Translation prompts
 also enforce Taiwanese vocabulary, including `軟體`, `影片`, `資訊`, and `滑鼠`.

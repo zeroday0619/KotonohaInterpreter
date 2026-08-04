@@ -34,7 +34,11 @@ VLLM_ID = "Qwen/Qwen3-ASR-1.7B"
 N_BEST = 5
 
 
-def load_wav(path: Path, rate: int = 16000) -> np.ndarray:
+def load_wav(
+    path: Path,
+    /,
+    rate: int = 16000,
+) -> np.ndarray:
     with wave.open(str(path), "rb") as w:
         sr, ch, width = w.getframerate(), w.getnchannels(), w.getsampwidth()
         raw = w.readframes(w.getnframes())
@@ -50,7 +54,10 @@ def load_wav(path: Path, rate: int = 16000) -> np.ndarray:
     return x
 
 
-def synthetic_6s(rate: int = 16000) -> np.ndarray:
+def synthetic_6s(
+    rate: int = 16000,
+    /,
+) -> np.ndarray:
     """Dummy audio for timing only, when no real recording is at hand.
 
     The transcription content is meaningless.
@@ -78,7 +85,11 @@ def env_info() -> dict:
 
 
 # -- the transformers path ------------------------------------------------
-def run_transformers(audio: np.ndarray, runs: int) -> dict:
+def run_transformers(
+    audio: np.ndarray,
+    /,
+    runs: int,
+) -> dict:
     out: dict = {"backend": "transformers", "model": TRANSFORMERS_ID}
     try:
         import torch
@@ -98,7 +109,10 @@ def run_transformers(audio: np.ndarray, runs: int) -> dict:
     except Exception as e:  # noqa: BLE001
         return {**out, "loaded": False, "error": f"load: {e!r}"}
 
-    def once(n_best: int) -> tuple[float, list[str], list[float]]:
+    def once(
+        n_best: int,
+        /,
+    ) -> tuple[float, list[str], list[float]]:
         try:
             inputs = proc.apply_transcription_request(audio=audio, sampling_rate=16000)
         except TypeError:
@@ -151,7 +165,11 @@ def run_transformers(audio: np.ndarray, runs: int) -> dict:
 
 
 # -- the vLLM path ---------------------------------------------------------
-def run_vllm(audio: np.ndarray, runs: int) -> dict:
+def run_vllm(
+    audio: np.ndarray,
+    /,
+    runs: int,
+) -> dict:
     """First: does vLLM recognise this architecture at all?
 
     Even if it does, check that N-best (n > 1) and log-probabilities come out.
@@ -184,9 +202,9 @@ def run_vllm(audio: np.ndarray, runs: int) -> dict:
         durs = []
         for _ in range(runs):
             t = time.perf_counter()
-            res = llm.generate([prompt], sp)
+            result = llm.generate([prompt], sp)
             durs.append(time.perf_counter() - t)
-        outs = res[0].outputs
+        outs = result[0].outputs
         out.update(
             nbest_ms=round(statistics.median(durs) * 1000, 1),
             nbest_count=len(outs),
@@ -199,7 +217,11 @@ def run_vllm(audio: np.ndarray, runs: int) -> dict:
     return out
 
 
-def verdict(vllm: dict, tf: dict) -> dict:
+def verdict(
+    vllm: dict,
+    /,
+    tf: dict,
+) -> dict:
     v_ok = vllm.get("loaded") and vllm.get("nbest_ok")
     t_ok = tf.get("loaded") and tf.get("nbest_ok")
     if v_ok and t_ok:
@@ -244,23 +266,23 @@ def main() -> int:
         src = "synthetic (타이밍 전용, 전사 내용 무의미)"
         print("!! 실 녹음 없이 실행 중. 시간만 신뢰할 것.", file=sys.stderr)
 
-    res = {
+    result = {
         "spike": 1,
         "question": "Jetson vLLM 이 Qwen3-ASR 을 로드하는가",
         "audio": {"source": src, "seconds": round(len(audio) / 16000, 2)},
         "env": env_info(),
     }
-    res["vllm"] = (
+    result["vllm"] = (
         run_vllm(audio, a.runs) if a.only in (None, "vllm") else {"skipped": True}
     )
-    res["transformers"] = (
+    result["transformers"] = (
         run_transformers(audio, a.runs) if a.only in (None, "transformers") else {"skipped": True}
     )
-    res["verdict"] = verdict(res["vllm"], res["transformers"])
+    result["verdict"] = verdict(result["vllm"], result["transformers"])
 
     a.out.parent.mkdir(parents=True, exist_ok=True)
-    a.out.write_text(json.dumps(res, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(json.dumps(res, ensure_ascii=False, indent=2))
+    a.out.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
 

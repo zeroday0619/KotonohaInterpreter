@@ -77,7 +77,12 @@ USER = """## Conversation so far
 Now output the English translation."""
 
 
-def run_llama_bench(bin_dir: Path, model: Path, ngl: int) -> dict:
+def run_llama_bench(
+    bin_dir: Path,
+    /,
+    model: Path,
+    ngl: int,
+) -> dict:
     exe = bin_dir / "llama-bench"
     if not exe.exists():
         return {"skipped": f"not found: {exe}"}
@@ -103,7 +108,11 @@ def run_llama_bench(bin_dir: Path, model: Path, ngl: int) -> dict:
     return out
 
 
-def wait_health(url: str, timeout: float) -> bool:
+def wait_health(
+    url: str,
+    /,
+    timeout: float,
+) -> bool:
     end = time.time() + timeout
     while time.time() < end:
         try:
@@ -116,7 +125,10 @@ def wait_health(url: str, timeout: float) -> bool:
     return False
 
 
-def stream_translate(url: str) -> dict:
+def stream_translate(
+    url: str,
+    /,
+) -> dict:
     """Stream a real translation prompt over SSE, timing both TTFT and rate."""
     body = json.dumps(
         {
@@ -171,19 +183,26 @@ def stream_translate(url: str) -> dict:
     }
 
 
-def bench_profile(name: str, bin_dir: Path, models_dir: Path, ngl: int, port: int) -> dict:
+def bench_profile(
+    name: str,
+    /,
+    bin_dir: Path,
+    models_dir: Path,
+    ngl: int,
+    port: int,
+) -> dict:
     spec = PROFILES[name]
     model = models_dir / spec["file"]
-    res: dict = {"profile": name, "model": str(model), **spec}
+    result: dict = {"profile": name, "model": str(model), **spec}
     if not model.exists():
-        return {**res, "error": f"GGUF missing: {model}. See scripts/fetch_models.sh"}
+        return {**result, "error": f"GGUF missing: {model}. See scripts/fetch_models.sh"}
 
-    res["llama_bench"] = run_llama_bench(bin_dir, model, ngl)
+    result["llama_bench"] = run_llama_bench(bin_dir, model, ngl)
 
     exe = bin_dir / "llama-server"
     if not exe.exists():
-        res["server"] = {"skipped": f"not found: {exe}"}
-        return res
+        result["server"] = {"skipped": f"not found: {exe}"}
+        return result
 
     url = f"http://127.0.0.1:{port}"
     proc = subprocess.Popen(
@@ -197,24 +216,30 @@ def bench_profile(name: str, bin_dir: Path, models_dir: Path, ngl: int, port: in
     try:
         t0 = time.perf_counter()
         if not wait_health(url, timeout=600):
-            res["server"] = {"error": "health timeout"}
-            return res
-        res["server_load_s"] = round(time.perf_counter() - t0, 1)
+            result["server"] = {"error": "health timeout"}
+            return result
+        result["server_load_s"] = round(time.perf_counter() - t0, 1)
         stream_translate(url)  # warm-up
         runs = [stream_translate(url) for _ in range(3)]
         best = max(runs, key=lambda r: r["tok_per_s"] or 0)
-        res["server"] = {"runs": runs, "best": best}
+        result["server"] = {"runs": runs, "best": best}
     finally:
         proc.terminate()
         try:
             proc.wait(timeout=30)
         except subprocess.TimeoutExpired:
             proc.kill()
-    return res
+    return result
 
 
-def verdict(results: dict) -> dict:
-    def rate(r: dict) -> float | None:
+def verdict(
+    results: dict,
+    /,
+) -> dict:
+    def rate(
+        r: dict,
+        /,
+    ) -> float | None:
         s = (r.get("server") or {}).get("best") or {}
         return s.get("tok_per_s") or (r.get("llama_bench") or {}).get("tg_tok_per_s")
 
@@ -255,7 +280,7 @@ def main() -> int:
     ap.add_argument("--out", type=Path, default=Path("spikes/out/spike3.json"))
     a = ap.parse_args()
 
-    res: dict = {
+    result: dict = {
         "spike": 3,
         "question": "MoE(활성 3B) vs 밀집 14B 실측 tok/s",
         "conditions": {"n_ctx": N_CTX, "batch": 1, "n_predict": N_PREDICT},
@@ -264,12 +289,12 @@ def main() -> int:
         if a.only and name != a.only:
             continue
         print(f"── {name} 측정 중 …", file=sys.stderr)
-        res[name] = bench_profile(name, a.bin, a.models_dir, a.ngl, a.port)
-    res["verdict"] = verdict(res)
+        result[name] = bench_profile(name, a.bin, a.models_dir, a.ngl, a.port)
+    result["verdict"] = verdict(result)
 
     a.out.parent.mkdir(parents=True, exist_ok=True)
-    a.out.write_text(json.dumps(res, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(json.dumps(res, ensure_ascii=False, indent=2))
+    a.out.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
 

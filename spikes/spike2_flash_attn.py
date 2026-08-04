@@ -78,7 +78,11 @@ def probe_flash_attn() -> dict:
     return out
 
 
-def probe_qwen3_tts(attn: str, runs: int) -> dict:
+def probe_qwen3_tts(
+    attn: str,
+    /,
+    runs: int,
+) -> dict:
     out: dict = {"attn_implementation": attn}
     try:
         import torch
@@ -118,7 +122,10 @@ def probe_qwen3_tts(attn: str, runs: int) -> dict:
     return out
 
 
-def probe_melo(runs: int) -> dict:
+def probe_melo(
+    runs: int,
+    /,
+) -> dict:
     out: dict = {"backend": "melo"}
     try:
         from melo.api import TTS
@@ -146,7 +153,12 @@ def probe_melo(runs: int) -> dict:
     return out
 
 
-def verdict(fa: dict, qwen: list[dict], melo: dict) -> dict:
+def verdict(
+    fa: dict,
+    /,
+    qwen: list[dict],
+    melo: dict,
+) -> dict:
     working = [q for q in qwen if q.get("loaded") and "infer_error" not in q]
     budget = 300
     if working:
@@ -197,19 +209,22 @@ def main() -> int:
     ap.add_argument("--skip-melo", action="store_true")
     a = ap.parse_args()
 
-    res: dict = {
+    result: dict = {
         "spike": 2,
         "question": "flash-attn 이 sm_87 에서 빌드/동작하는가, Qwen3-TTS 를 띄울 수 있는가",
         "env": env_info(),
     }
-    res["flash_attn"] = probe_flash_attn()
-    res["qwen3_tts"] = [probe_qwen3_tts(x, a.runs) for x in ("flash_attention_2", "sdpa", "eager")]
-    res["melo"] = {} if a.skip_melo else probe_melo(a.runs)
-    res["verdict"] = verdict(res["flash_attn"], res["qwen3_tts"], res["melo"])
+    result["flash_attn"] = probe_flash_attn()
+    result["qwen3_tts"] = [
+        probe_qwen3_tts(attention, a.runs)
+        for attention in ("flash_attention_2", "sdpa", "eager")
+    ]
+    result["melo"] = {} if a.skip_melo else probe_melo(a.runs)
+    result["verdict"] = verdict(result["flash_attn"], result["qwen3_tts"], result["melo"])
 
     a.out.parent.mkdir(parents=True, exist_ok=True)
-    a.out.write_text(json.dumps(res, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(json.dumps(res, ensure_ascii=False, indent=2))
+    a.out.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
 
