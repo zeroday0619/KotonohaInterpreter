@@ -46,9 +46,11 @@ COPY pyproject.toml uv.lock README.md LICENSE hatch_build.py ./
 RUN uv export --frozen --no-dev --no-emit-project --no-hashes -o /tmp/req.txt \
  && uv pip install --system --no-cache -r /tmp/req.txt
 COPY src ./src
+# BuildKit has no GPU runtime. Verify module presence without importing vLLM;
+# deployment performs the CUDA-aware import after Compose attaches the GPU.
 RUN uv pip install --system --no-cache --no-deps -e . \
  && python3 -c \
- "import vllm; from vllm.model_executor.models.qwen3_asr import Qwen3ASRForConditionalGeneration; print('vllm', vllm.__version__, '| Qwen3-ASR available')"
+ "from importlib.util import find_spec; from pathlib import Path; spec = find_spec('vllm'); assert spec and spec.submodule_search_locations, 'vLLM package missing'; root = Path(next(iter(spec.submodule_search_locations))); matches = list(root.rglob('qwen3_asr.py')); assert matches, 'Qwen3-ASR module missing'; print('Qwen3-ASR module', matches[0])"
 CMD ["uvicorn", "kotonoha.services._asr_server:app", "--host", "0.0.0.0", "--port", "8001", "--loop", "uvloop"]
 
 FROM common AS asr-verify

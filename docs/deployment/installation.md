@@ -581,7 +581,10 @@ Use the same artifact layout documented in Model Artifact Preparation.
 
 ```bash
 test -d models/Qwen3-ASR-1.7B
+test -s models/Qwen3-ASR-1.7B/config.json
 test -d models/faster-whisper-large-v3
+test -s models/faster-whisper-large-v3/config.json
+test -s models/Qwen3-TTS-0.6B/config.json
 test -s models/gguf/Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf
 ```
 
@@ -624,6 +627,7 @@ LLM_IMAGE=ghcr.io/ggml-org/llama.cpp:server-cuda
 LLM_PROFILE=moe
 LLM_CTX=4096
 TRANSFORMERS_OFFLINE=1
+HF_HUB_OFFLINE=1
 ```
 
 ```bash
@@ -669,6 +673,12 @@ The build must produce three role-specific images:
 The targets share a cached application layer but install and verify role-specific runtime
 dependencies. The common layer imports `pydantic_settings` during the build. A missing
 core dependency therefore fails the image build instead of entering a restart loop.
+
+The ASR image build checks that the vLLM package contains the Qwen3-ASR module without
+importing vLLM. Docker BuildKit does not attach the NVIDIA runtime, so CUDA-aware imports
+belong to deployment. `scripts/deploy.sh` starts a temporary ASR container with the
+Compose GPU reservation and verifies PyTorch CUDA, the GPU identity, and vLLM before
+starting resident services.
 
 The llama.cpp image stores `llama-server` under `/app`. Its Compose service mounts only
 the launcher, configuration directory, and models. Do not restore the repository-wide

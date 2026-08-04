@@ -64,6 +64,20 @@ def test_remote_override_template_validates() -> None:
     assert validate_candidate(remote_base, template) is None
 
 
+def test_remote_services_default_to_mounted_offline_models() -> None:
+    remote_config = read_yaml(PROJECT_ROOT / "config" / "remote-server.yaml")
+    compose = (PROJECT_ROOT / "docker" / "compose.remote.yaml").read_text(encoding="utf-8")
+    deploy_script = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+
+    assert remote_config["asr"]["vllm_model_id"] == "/models/Qwen3-ASR-1.7B"
+    assert remote_config["asr_verify"]["model_id"] == "/models/faster-whisper-large-v3"
+    assert remote_config["tts"]["model_id"] == "/models/Qwen3-TTS-0.6B"
+    assert "HF_HUB_OFFLINE=${TRANSFORMERS_OFFLINE:-0}" in compose
+    assert 'Qwen3-ASR-1.7B/config.json"' in deploy_script
+    assert 'faster-whisper-large-v3/config.json"' in deploy_script
+    assert 'Qwen3-TTS-0.6B/config.json"' in deploy_script
+
+
 def test_remote_compose_uses_distinct_role_images_and_preserves_llama_binary() -> None:
     compose = yaml.safe_load(
         (PROJECT_ROOT / "docker" / "compose.remote.yaml").read_text(encoding="utf-8")
@@ -97,8 +111,11 @@ def test_asr_images_use_vllm_runtimes_with_qwen3_support_checks() -> None:
     remote_base = remote_compose["services"]["asr"]["build"]["args"]["ASR_BASE_IMAGE"]
     assert "nvidia-ai-iot/vllm" in jetson_base
     assert "vllm/vllm-openai:v0.19.1" in remote_base
-    assert "vllm.model_executor.models.qwen3_asr" in jetson_dockerfile
-    assert "vllm.model_executor.models.qwen3_asr" in remote_dockerfile
+    assert "rglob('qwen3_asr.py')" in jetson_dockerfile
+    assert "rglob('qwen3_asr.py')" in remote_dockerfile
+    assert "import vllm" not in jetson_dockerfile
+    assert "import vllm" not in remote_dockerfile
+    assert "import torch, vllm" in DEPLOY_SCRIPT.read_text(encoding="utf-8")
     assert "ENTRYPOINT []" in remote_dockerfile
 
 

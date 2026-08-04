@@ -196,7 +196,9 @@ ensure_remote_environment() {
 check_speech_models() {
   local models_path=$1
   require_directory "$models_path/Qwen3-ASR-1.7B"
+  require_file "$models_path/Qwen3-ASR-1.7B/config.json"
   require_directory "$models_path/faster-whisper-large-v3"
+  require_file "$models_path/faster-whisper-large-v3/config.json"
 }
 
 remote_models_path() {
@@ -255,6 +257,7 @@ check_a6000_host() {
   nvidia-smi >/dev/null 2>&1 || fail "nvidia-smi cannot access the A6000"
   check_nvidia_container_runtime
   require_file "$models_path/gguf/Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf"
+  require_file "$models_path/Qwen3-TTS-0.6B/config.json"
 }
 
 python_service_ready() {
@@ -312,6 +315,21 @@ show_failed_health() {
   exit 1
 }
 
+verify_asr_cuda_runtime() {
+  local compose_file=$1
+  local compose_environment_file=$2
+  local compose_arguments=(compose)
+  if [ -n "$compose_environment_file" ]; then
+    compose_arguments+=(--env-file "$compose_environment_file")
+  fi
+  compose_arguments+=(-f "$compose_file")
+
+  "${docker_command[@]}" "${compose_arguments[@]}" run --rm --no-deps \
+    --entrypoint python3 asr -c \
+    'import torch, vllm; assert torch.cuda.is_available(), "CUDA is unavailable in the ASR container"; print("CUDA", torch.version.cuda, "| GPU", torch.cuda.get_device_name(0), "| vLLM", vllm.__version__)' \
+    || fail "ASR container cannot initialize the CUDA runtime and vLLM"
+}
+
 deploy_jetson() {
   local compose_file="$repository_root/docker/compose.yaml"
   printf 'Deploying Jetson model services from %s\n' "$repository_root"
@@ -325,6 +343,7 @@ deploy_jetson() {
   if [ "$build_images" = true ]; then
     "${docker_command[@]}" compose -f "$compose_file" build asr asr-verify tts orchestrator
   fi
+  verify_asr_cuda_runtime "$compose_file" ""
   if [ "$build_images" = false ]; then
     "${docker_command[@]}" compose -f "$compose_file" \
       up -d --no-build asr asr-verify llm tts
@@ -361,6 +380,7 @@ deploy_a6000() {
   if [ "$build_images" = true ]; then
     "${compose_command[@]}" build asr asr-verify tts
   fi
+  verify_asr_cuda_runtime "$compose_file" "$environment_file"
   if [ "$build_images" = false ]; then
     "${compose_command[@]}" up -d --no-build asr asr-verify llm tts
   else

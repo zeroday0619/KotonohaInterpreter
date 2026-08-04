@@ -8,8 +8,8 @@
 
 asr:
   backend: vllm
-  model_id: Qwen/Qwen3-ASR-1.7B-hf
-  vllm_model_id: Qwen/Qwen3-ASR-1.7B
+  model_id: /models/Qwen3-ASR-1.7B-hf
+  vllm_model_id: /models/Qwen3-ASR-1.7B
   dtype: float16
   vllm_gpu_memory_utilization: 0.80
   vllm_max_model_len: 4096
@@ -21,7 +21,7 @@ asr:
 asr_verify:
   enabled: true
   backend: faster_whisper
-  model_id: large-v3
+  model_id: /models/faster-whisper-large-v3
   # int8_float16 was a bandwidth concession on the Orin. Not needed here.
   compute_type: float16
   device: cuda
@@ -30,7 +30,7 @@ asr_verify:
 
 tts:
   backend: qwen3
-  model_id: Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice
+  model_id: /models/Qwen3-TTS-0.6B
   sample_rate: 24000
   chunk_ms: 200
   timeout_s: 8.0

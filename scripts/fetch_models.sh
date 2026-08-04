@@ -36,6 +36,9 @@ else echo "needs uv, or the huggingface_hub CLI"; exit 1; fi
 echo "== Qwen3-ASR 1.7B =="
 $HFCLI Qwen/Qwen3-ASR-1.7B --local-dir "$MODELS/Qwen3-ASR-1.7B"
 
+echo "== Qwen3-ASR 1.7B Transformers fallback =="
+$HFCLI Qwen/Qwen3-ASR-1.7B-hf --local-dir "$MODELS/Qwen3-ASR-1.7B-hf"
+
 echo "== Qwen3-TTS 0.6B (used depending on the Spike 2 result) =="
 $HFCLI Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice --local-dir "$MODELS/Qwen3-TTS-0.6B" || \
   echo "  skipped — not needed if we start on MeloTTS"
