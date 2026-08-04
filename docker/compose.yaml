@@ -35,7 +35,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.asr
       args:
-        BASE_IMAGE: ${ASR_BASE:-dustynv/transformers:r36.4.0}
+        BASE_IMAGE: ${ASR_BASE:-ghcr.io/nvidia-ai-iot/vllm:r36.4-tegra-aarch64-cu126-22.04}
     command: uvicorn kotonoha.services._asr_server:app --host 0.0.0.0 --port 8001 --loop uvloop
 
   asr-verify:

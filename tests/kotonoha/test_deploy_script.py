@@ -79,6 +79,29 @@ def test_remote_compose_uses_distinct_role_images_and_preserves_llama_binary() -
     assert services["llm"]["entrypoint"] == ["bash", "/opt/kotonoha/run_llm.sh"]
 
 
+def test_asr_images_use_vllm_runtimes_with_qwen3_support_checks() -> None:
+    jetson_compose = yaml.safe_load(
+        (PROJECT_ROOT / "docker" / "compose.yaml").read_text(encoding="utf-8")
+    )
+    remote_compose = yaml.safe_load(
+        (PROJECT_ROOT / "docker" / "compose.remote.yaml").read_text(encoding="utf-8")
+    )
+    jetson_dockerfile = (PROJECT_ROOT / "docker" / "Dockerfile.asr").read_text(
+        encoding="utf-8"
+    )
+    remote_dockerfile = (PROJECT_ROOT / "docker" / "Dockerfile.remote").read_text(
+        encoding="utf-8"
+    )
+
+    jetson_base = jetson_compose["services"]["asr"]["build"]["args"]["BASE_IMAGE"]
+    remote_base = remote_compose["services"]["asr"]["build"]["args"]["ASR_BASE_IMAGE"]
+    assert "nvidia-ai-iot/vllm" in jetson_base
+    assert "vllm/vllm-openai:v0.19.1" in remote_base
+    assert "vllm.model_executor.models.qwen3_asr" in jetson_dockerfile
+    assert "vllm.model_executor.models.qwen3_asr" in remote_dockerfile
+    assert "ENTRYPOINT []" in remote_dockerfile
+
+
 def test_remote_lock_and_dockerfile_install_into_x86_conda_python() -> None:
     lock_text = (PROJECT_ROOT / "uv.lock").read_text(encoding="utf-8")
     dockerfile = (PROJECT_ROOT / "docker" / "Dockerfile.remote").read_text(encoding="utf-8")

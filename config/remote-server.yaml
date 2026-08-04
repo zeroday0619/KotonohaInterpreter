@@ -7,10 +7,13 @@
 # Deployment acceptance requires measurements on this host.
 
 asr:
-  # Set to vllm only after running spikes/spike1_asr_load.py on this host.
-  backend: transformers
+  backend: vllm
   model_id: Qwen/Qwen3-ASR-1.7B-hf
+  vllm_model_id: Qwen/Qwen3-ASR-1.7B
   dtype: float16
+  vllm_gpu_memory_utilization: 0.80
+  vllm_max_model_len: 4096
+  vllm_enforce_eager: true
   n_best: 5
   num_beams: 5
   timeout_s: 6.0 # includes the upload; the client also has its own timeout

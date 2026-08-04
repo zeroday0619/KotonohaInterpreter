@@ -51,6 +51,8 @@ services:
     build:
       <<: *a6000-python-build
       target: asr
+      args:
+        ASR_BASE_IMAGE: ${REMOTE_ASR_BASE:-vllm/vllm-openai:v0.19.1}
     ports: ["8001:8001"]
     command: uvicorn kotonoha.services._asr_server:app --host 0.0.0.0 --port 8001 --loop uvloop
 

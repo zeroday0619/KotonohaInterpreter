@@ -18,9 +18,11 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import time
 from collections import Counter
 from contextlib import asynccontextmanager
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any, ClassVar, Final
 
 import numpy as np
@@ -40,6 +42,10 @@ log = setup_logging(service="asr", console=True)
 
 # Map application language codes to the names expected by Qwen3-ASR.
 QWEN_LANG = {"ko": "Korean", "en": "English", "ja": "Japanese", "zh-TW": "Chinese"}
+QWEN_AUDIO_PLACEHOLDER: Final = "<|audio_start|><|audio_pad|><|audio_end|>"
+QWEN_ASR_TEXT_TAG: Final = "<asr_text>"
+MINIMUM_VLLM_VERSION: Final = (0, 19, 0)
+_CHATML_TOKEN = re.compile(r"<\|[^<>|]*\|>")
 
 
 class TranscribeRequest(BaseModel):
@@ -190,30 +196,175 @@ class TransformersBackend:
 
 
 class VllmBackend:
-    """[Blocked on Spike 1] the vLLM path.
-
-    Whether the Jetson vLLM container loads Qwen3-ASR at all, and whether it can
-    produce N-best, has to be established on the device
-    (spikes/spike1_asr_load.py). Guessing at an implementation before that would
-    invalidate the entire latency budget, so this fails loudly instead.
-    """
-    __slots__: ClassVar[tuple[str, ...]] = ()
+    """Qwen3-ASR inference through vLLM multimodal beam search."""
+    __slots__: ClassVar[tuple[str, ...]] = (
+        "beam_search_parameters_type",
+        "llm",
+        "load_seconds",
+    )
 
     name: Final = "vllm"
+    beam_search_parameters_type: Any
+    llm: Any
+    load_seconds: float
 
     @override
     def __init__(
         self,
         /,
-        *_args: Any,
-        **_kwargs: Any,
+        model_id: str,
+        dtype: str = "float16",
+        gpu_memory_utilization: float = 0.80,
+        max_model_len: int = 4096,
+        enforce_eager: bool = True,
     ) -> None:
-        raise NotImplementedError(
-            "The vLLM ASR backend is implemented once Spike 1 settles it. "
-            "Run spikes/spike1_asr_load.py on the Jetson, confirm how N-best and "
-            "log-probabilities are obtained, then fill in this class. "
-            "Until then use asr.backend: transformers in the config."
+        try:
+            runtime_version = version("vllm")
+        except PackageNotFoundError as error:
+            raise RuntimeError("vLLM is not installed in the ASR service image") from error
+        if _numeric_version(runtime_version) < MINIMUM_VLLM_VERSION:
+            raise RuntimeError(
+                f"Qwen3-ASR requires vLLM >= 0.19.0; found {runtime_version}"
+            )
+
+        from vllm import LLM
+        from vllm.sampling_params import BeamSearchParams
+
+        start_time = time.perf_counter()
+        self.beam_search_parameters_type = BeamSearchParams
+        self.llm = LLM(
+            model=model_id,
+            dtype=dtype,
+            max_model_len=max_model_len,
+            gpu_memory_utilization=gpu_memory_utilization,
+            limit_mm_per_prompt={"audio": 1},
+            enforce_eager=enforce_eager,
         )
+        self.load_seconds = round(time.perf_counter() - start_time, 2)
+        log.info(
+            "asr.loaded",
+            model=model_id,
+            dtype=dtype,
+            load_s=self.load_seconds,
+            vllm_version=runtime_version,
+        )
+
+    def transcribe(
+        self,
+        /,
+        audio: np.ndarray,
+        request: TranscribeRequest,
+    ) -> dict[str, Any]:
+        candidate_count = max(1, request.n_best)
+        beam_width = max(candidate_count, request.num_beams)
+        language_hint = QWEN_LANG.get(request.language_hint or "")
+        prompt = _vllm_prompt(audio, request.context, language_hint)
+        parameters = self.beam_search_parameters_type(
+            beam_width=beam_width,
+            max_tokens=request.max_new_tokens,
+            temperature=0.0,
+            length_penalty=1.0,
+        )
+
+        start_time = time.perf_counter()
+        outputs = self.llm.beam_search(
+            [prompt],
+            parameters,
+            use_tqdm=False,
+        )
+        inference_ms = (time.perf_counter() - start_time) * 1000
+        if not outputs:
+            raise RuntimeError("vLLM returned no ASR output")
+
+        hypotheses: list[dict[str, Any]] = []
+        languages: list[str | None] = []
+        for sequence in outputs[0].sequences[:candidate_count]:
+            text, language = _parse_vllm_output(sequence.text or "", language_hint)
+            generated_tokens = max(1, len(sequence.logprobs))
+            hypotheses.append(
+                {
+                    "text": text,
+                    "avg_logprob": float(sequence.cum_logprob) / generated_tokens,
+                }
+            )
+            languages.append(language)
+
+        if len(hypotheses) != candidate_count:
+            raise RuntimeError(
+                f"vLLM returned {len(hypotheses)} hypotheses; expected {candidate_count}"
+            )
+
+        language, confidence = _vote_language(languages)
+        return {
+            "hypotheses": hypotheses,
+            "language": language,
+            "language_confidence": confidence,
+            "duration_s": round(len(audio) / 16000.0, 3),
+            "infer_ms": round(inference_ms, 1),
+        }
+
+
+def _numeric_version(
+    raw_version: str,
+    /,
+) -> tuple[int, ...]:
+    components = re.match(r"^(\d+)\.(\d+)\.(\d+)", raw_version)
+    if components is None:
+        return (0, 0, 0)
+    return tuple(int(component) for component in components.groups())
+
+
+def _sanitize_transcription_context(
+    context: str,
+    /,
+) -> str:
+    previous = None
+    while previous != context:
+        previous = context
+        context = _CHATML_TOKEN.sub("", context).replace(QWEN_ASR_TEXT_TAG, "")
+    return context.strip()
+
+
+def _vllm_prompt(
+    audio: np.ndarray,
+    /,
+    context: str,
+    language: str | None,
+) -> dict[str, Any]:
+    sanitized_context = _sanitize_transcription_context(context)
+    system_turn = (
+        f"<|im_start|>system\n{sanitized_context}<|im_end|>\n"
+        if sanitized_context
+        else ""
+    )
+    prompt = (
+        f"{system_turn}<|im_start|>user\n{QWEN_AUDIO_PLACEHOLDER}<|im_end|>\n"
+        "<|im_start|>assistant\n"
+    )
+    if language:
+        prompt += f"language {language}{QWEN_ASR_TEXT_TAG}"
+    return {
+        "prompt": prompt,
+        "multi_modal_data": {
+            "audio": (np.asarray(audio, dtype=np.float32), 16000),
+        },
+    }
+
+
+def _parse_vllm_output(
+    raw_text: str,
+    /,
+    language_hint: str | None,
+) -> tuple[str, str | None]:
+    language = language_hint
+    text = raw_text
+    if QWEN_ASR_TEXT_TAG in raw_text:
+        prefix, text = raw_text.rsplit(QWEN_ASR_TEXT_TAG, 1)
+        language_match = re.search(r"language\s+([^<\n]+)$", prefix, re.IGNORECASE)
+        if language_match is not None:
+            language = language_match.group(1).strip()
+    text = text.split("<|im_end|>", 1)[0].strip()
+    return text, language
 
 
 def _vote_language(
@@ -245,6 +396,10 @@ async def lifespan(
             STATE["backend"] = await asyncio.to_thread(
                 VllmBackend,
                 settings.asr.vllm_model_id,
+                settings.asr.dtype,
+                settings.asr.vllm_gpu_memory_utilization,
+                settings.asr.vllm_max_model_len,
+                settings.asr.vllm_enforce_eager,
             )
         else:
             STATE["backend"] = await asyncio.to_thread(

@@ -164,10 +164,13 @@ class LanguageIdentificationConfig(BaseModel):
 
 class AsrConfig(BaseModel):
     __slots__: ClassVar[tuple[str, ...]] = ()
-    backend: Literal["transformers", "vllm"] = "transformers"
+    backend: Literal["vllm", "transformers"] = "vllm"
     model_id: str = "Qwen/Qwen3-ASR-1.7B-hf"
     vllm_model_id: str = "Qwen/Qwen3-ASR-1.7B"
     dtype: str = "float16"
+    vllm_gpu_memory_utilization: float = Field(0.80, gt=0.0, le=1.0)
+    vllm_max_model_len: int = Field(4096, ge=512)
+    vllm_enforce_eager: bool = True
     n_best: int = 5
     num_beams: int = 5
     max_new_tokens: int = 256

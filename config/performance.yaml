@@ -33,8 +33,9 @@ llm:
   max_tokens: 768
 
 asr:
-  # Run Spike 1 on the A6000 before switching this away from transformers.
-  backend: transformers
+  backend: vllm
+  vllm_gpu_memory_utilization: 0.80
+  vllm_max_model_len: 4096
   n_best: 5
 
 asr_verify:

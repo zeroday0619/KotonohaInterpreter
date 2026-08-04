@@ -63,7 +63,7 @@ uv run ruff check .
 uv run pytest -q
 ```
 
-Current baseline: 202 tests and zero lint findings.
+Current baseline: 207 tests and zero lint findings.
 
 ## Non-negotiable constraints
 
@@ -98,16 +98,18 @@ Identifiers confirmed as of 2026-08:
 
 | Component | Identifier |
 |---|---|
-| Primary ASR | `Qwen/Qwen3-ASR-1.7B-hf` |
-| ASR request API | `AutoProcessor.apply_transcription_request` |
+| Primary ASR | `Qwen/Qwen3-ASR-1.7B` |
+| ASR runtime | vLLM 0.19 or newer, multimodal beam search |
+| Transformers fallback | `Qwen/Qwen3-ASR-1.7B-hf` |
 | TTS | `Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice` |
 | TTS API | `qwen_tts.Qwen3TTSModel.generate_custom_voice` |
 | MoE GGUF | `unsloth/Qwen3-30B-A3B-Instruct-2507-GGUF` |
 | Dense GGUF | `unsloth/Qwen3-14B-GGUF` |
 | Jetson vLLM image | `ghcr.io/nvidia-ai-iot/vllm:r36.4-tegra-aarch64-cu126-22.04` |
 
-`VllmBackend` in `src/kotonoha/services/_asr_server.py` must continue raising
-`NotImplementedError` until Spike 1 verifies model loading and N-best output on sm_87.
+`VllmBackend` in `src/kotonoha/services/_asr_server.py` is the default. Spike 1 still
+verifies model loading, five-hypothesis output, and measured latency on sm_87. Do not
+report target compatibility from workstation tests.
 
 ## Python and source standards
 
@@ -355,6 +357,7 @@ tokens from `config/local.yaml` never enter tests.
 
 | Test module | Contract |
 |---|---|
+| `test_asr_vllm.py` | vLLM prompt sanitization, N-best mapping, ASR defaults |
 | `test_vad_segmenter.py` | Preroll, EOU timing, noise rejection, PTT |
 | `test_clauses.py` | Clause boundaries and streamed marker handling |
 | `test_shmring.py` | Publish, read, overwrite detection, truncation |

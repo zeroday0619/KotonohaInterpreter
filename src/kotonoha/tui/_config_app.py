@@ -193,7 +193,7 @@ VALUE_KIND_DESCRIPTIONS: dict[str, str] = {
 # Per-setting notes, keyed by dotted configuration path. A path absent here
 # falls back to VALUE_KIND_DESCRIPTIONS.
 FIELD_DESCRIPTIONS: dict[str, str] = {
-    "asr.backend": N_("transformers is confirmed; vllm awaits Spike 1."),
+    "asr.backend": N_("vLLM is the default; Transformers is the fallback."),
     "asr.n_best": N_("Hypotheses returned per utterance. The correction pass consumes all."),
     "asr_verify.mode": N_("conditional gates on confidence; always runs every turn."),
     "audio.input_device": N_("Microphone index or name. Empty selects the system default."),

@@ -455,7 +455,9 @@ def doctor(
         ("numpy", True), ("httpx", True), ("structlog", True), ("textual", True),
         ("uvloop", True),
         ("soxr", True), ("sounddevice", False), ("opencc", False),
-        ("onnxruntime", False), ("torch", False), ("transformers", False),
+        ("onnxruntime", False), ("torch", False),
+        ("vllm", settings.asr.backend == "vllm"),
+        ("transformers", settings.asr.backend == "transformers"),
         ("faster_whisper", False), ("df", False), ("qwen_tts", False), ("melo", False),
     ]
     for name, required in modules:

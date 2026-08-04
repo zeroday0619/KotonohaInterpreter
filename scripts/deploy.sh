@@ -195,7 +195,7 @@ ensure_remote_environment() {
 
 check_speech_models() {
   local models_path=$1
-  require_directory "$models_path/Qwen3-ASR-1.7B-hf"
+  require_directory "$models_path/Qwen3-ASR-1.7B"
   require_directory "$models_path/faster-whisper-large-v3"
 }
 

@@ -27,13 +27,13 @@ provisional until measured on the Jetson:
 
 | Decision | Setting | Current default | Validation |
 |---|---|---|---|
-| Primary ASR runtime | `asr.backend` | `transformers` | Spike 1 |
+| Primary ASR runtime | `asr.backend` | `vllm` | Spike 1 acceptance measurement |
 | TTS backend | `tts.backend` | `melo` | Spike 2 |
 | Translation model class | `llm.profile` | `dense` | Spike 3 |
 
-`VllmBackend` intentionally raises `NotImplementedError`. Spike 1 must establish whether
-the Jetson vLLM image loads Qwen3-ASR and exposes N-best hypotheses before that backend is
-implemented.
+The primary ASR service uses vLLM multimodal beam search and returns five scored
+hypotheses. Transformers remains available as an explicit fallback. Spike 1 must still
+measure model loading, N-best latency, and sm_87 behavior on the Jetson.
 
 No Jetson compatibility, model latency, token generation rate, or thermal result is
 claimed without target-device measurements. See [Phase 0 validation](spikes/README.md).
@@ -287,7 +287,8 @@ The repository currently configures these identifiers:
 
 | Component | Identifier |
 |---|---|
-| Primary ASR | `Qwen/Qwen3-ASR-1.7B-hf` |
+| Primary ASR, vLLM | `Qwen/Qwen3-ASR-1.7B` |
+| Primary ASR, Transformers fallback | `Qwen/Qwen3-ASR-1.7B-hf` |
 | TTS | `Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice` |
 | MoE GGUF | `unsloth/Qwen3-30B-A3B-Instruct-2507-GGUF` |
 | Dense GGUF | `unsloth/Qwen3-14B-GGUF` |
@@ -296,7 +297,7 @@ The repository currently configures these identifiers:
 ## Limitations
 
 - Phase 0 target measurements remain pending.
-- The vLLM ASR backend remains blocked on Spike 1.
+- Jetson vLLM model loading and latency remain unverified until Spike 1 runs on sm_87.
 - Complete model inference cannot be validated on the macOS development workstation.
 - Push-to-talk is a terminal toggle because terminals do not expose key-release events.
 - Remote configuration changes do not reload resident models.

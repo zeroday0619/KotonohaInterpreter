@@ -60,7 +60,7 @@ The following conditions are current repository facts:
 |---|---|
 | macOS unit tests | Implemented |
 | Jetson Phase 0 measurements | Not executed |
-| Jetson vLLM ASR backend | Intentionally not implemented before Spike 1 |
+| Jetson vLLM ASR backend | Implemented; target execution remains pending |
 | aarch64 `onnxruntime`, DeepFilterNet, and CTranslate2 validation | Pending target execution |
 | Concurrent model residency on the A6000 | Pending target execution |
 | Production service supervisor outside Docker Compose | Not provided |
@@ -253,7 +253,7 @@ The script creates the following layout:
 
 ```text
 models/
-├── Qwen3-ASR-1.7B-hf/
+├── Qwen3-ASR-1.7B/
 ├── Qwen3-TTS-0.6B/
 ├── faster-whisper-large-v3/
 ├── gguf/
@@ -270,7 +270,7 @@ TTS installation.
 
 ```bash
 test -s models/silero_vad.onnx
-test -d models/Qwen3-ASR-1.7B-hf
+test -d models/Qwen3-ASR-1.7B
 test -d models/faster-whisper-large-v3
 test -s models/gguf/Qwen3-14B-Q4_K_M.gguf
 test -s models/gguf/Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf
@@ -374,7 +374,7 @@ frontend:
     model_path: /app/models/silero_vad.onnx
 
 asr:
-  model_id: /models/Qwen3-ASR-1.7B-hf
+  vllm_model_id: /models/Qwen3-ASR-1.7B
 
 asr_verify:
   model_id: /models/faster-whisper-large-v3
@@ -409,7 +409,7 @@ therefore use the `kotonohainterpreter-<service>:latest` naming pattern regardle
 
 Confirm that these image families remain unchanged in the rendered configuration:
 
-- `dustynv/transformers:r36.4.0`
+- `ghcr.io/nvidia-ai-iot/vllm:r36.4-tegra-aarch64-cu126-22.04`
 - `dustynv/faster-whisper:r36.4.0`
 - `dustynv/llama_cpp:r36.4.0`
 - `dustynv/pytorch:r36.4.0`
@@ -580,7 +580,7 @@ The default remote Compose file mounts the repository `models` directory at `/mo
 Use the same artifact layout documented in Model Artifact Preparation.
 
 ```bash
-test -d models/Qwen3-ASR-1.7B-hf
+test -d models/Qwen3-ASR-1.7B
 test -d models/faster-whisper-large-v3
 test -s models/gguf/Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf
 ```
@@ -593,7 +593,7 @@ override does not exist. For manual deployment, create `config/remote-server.loc
 ```yaml
 # A6000-specific paths for an offline deployment.
 asr:
-  model_id: /models/Qwen3-ASR-1.7B-hf
+  vllm_model_id: /models/Qwen3-ASR-1.7B
 
 asr_verify:
   model_id: /models/faster-whisper-large-v3
@@ -618,6 +618,7 @@ Create a repository-root `.env` file. Replace the token placeholder with the out
 KOTONOHA_SERVICE_TOKEN=<64-hex-character-random-token>
 MODELS_DIR=../models
 REMOTE_BASE=pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime
+REMOTE_ASR_BASE=vllm/vllm-openai:v0.19.1
 REMOTE_TTS_BUILD_BASE=pytorch/pytorch:2.6.0-cuda12.6-cudnn9-devel
 LLM_IMAGE=ghcr.io/ggml-org/llama.cpp:server-cuda
 LLM_PROFILE=moe
@@ -917,7 +918,7 @@ requests. Treat this as a deployment failure on the A6000.
 | Python services restart with missing `pydantic_settings` | Inspect x86_64 markers in `uv.lock` and the common image build check | Regenerate the lock with Linux x86_64 support and rebuild all three Python images |
 | LLM restarts with exit code 127 | Inspect LLM mounts and `/app/llama-server` | Remove any bind mount targeting `/app`, then recreate the LLM container |
 | LLM cannot load `libllama-server-impl.so` | Inspect `LD_LIBRARY_PATH` and run `ldd /app/llama-server` in the image | Set `/app` as the first library path and recreate the LLM container |
-| ASR cannot find the model offline | Inspect `asr.model_id` | Set `/models/Qwen3-ASR-1.7B-hf` in the host override |
+| ASR cannot find the model offline | Inspect `asr.vllm_model_id` | Set `/models/Qwen3-ASR-1.7B` in the host override |
 | Verification downloads `large-v3` | Inspect `asr_verify.model_id` | Set `/models/faster-whisper-large-v3` |
 | LLM reports `GGUF missing` | Inspect `/models/gguf` and `remote-llm.env` | Correct `MODELS_DIR`, profile, or profile file name; restart `llm` |
 | TTS image cannot build FlashAttention | Inspect the devel image tag, CUDA version, memory, and build log | Restore matching build and runtime images; use the SDPA fallback only when the target service loads and Spike 2 records the result |

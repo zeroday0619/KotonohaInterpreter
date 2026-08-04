@@ -3,7 +3,7 @@
 # local before it is used in anger.
 #
 # Repository IDs were confirmed by lookup in 2026-08:
-#   Qwen/Qwen3-ASR-1.7B-hf                     transformers format
+#   Qwen/Qwen3-ASR-1.7B                        vLLM format
 #   Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice       nine preset timbres
 #   unsloth/Qwen3-30B-A3B-Instruct-2507-GGUF   Q4_K_M ~ 18.6 GB
 #   unsloth/Qwen3-14B-GGUF                     Q4_K_M ~ 9 GB
@@ -34,7 +34,7 @@ elif command -v huggingface-cli >/dev/null; then HFCLI="huggingface-cli download
 else echo "needs uv, or the huggingface_hub CLI"; exit 1; fi
 
 echo "== Qwen3-ASR 1.7B =="
-$HFCLI Qwen/Qwen3-ASR-1.7B-hf --local-dir "$MODELS/Qwen3-ASR-1.7B-hf"
+$HFCLI Qwen/Qwen3-ASR-1.7B --local-dir "$MODELS/Qwen3-ASR-1.7B"
 
 echo "== Qwen3-TTS 0.6B (used depending on the Spike 2 result) =="
 $HFCLI Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice --local-dir "$MODELS/Qwen3-TTS-0.6B" || \

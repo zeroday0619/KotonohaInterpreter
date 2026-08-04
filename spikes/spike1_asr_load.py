@@ -178,39 +178,54 @@ def run_vllm(
     """
     out: dict = {"backend": "vllm", "model": VLLM_ID}
     try:
-        from vllm import LLM, SamplingParams
+        from vllm import LLM
+        from vllm.sampling_params import BeamSearchParams
     except Exception as e:  # noqa: BLE001
         return {**out, "loaded": False, "error": f"import: {e!r}"}
 
     try:
         t0 = time.perf_counter()
-        llm = LLM(model=VLLM_ID, trust_remote_code=True, max_model_len=4096, dtype="float16")
+        llm = LLM(
+            model=VLLM_ID,
+            max_model_len=4096,
+            dtype="float16",
+            limit_mm_per_prompt={"audio": 1},
+            enforce_eager=True,
+        )
         out["load_s"] = round(time.perf_counter() - t0, 2)
         out["loaded"] = True
     except Exception as e:  # noqa: BLE001
         return {**out, "loaded": False, "error": f"load: {e!r}"}
 
     try:
-        sp = SamplingParams(
-            temperature=0.0, max_tokens=256, n=N_BEST, logprobs=1, use_beam_search=True
+        parameters = BeamSearchParams(
+            beam_width=N_BEST,
+            max_tokens=256,
+            temperature=0.0,
+            length_penalty=1.0,
         )
         prompt = {
-            "prompt": "<|audio_bos|><|AUDIO|><|audio_eos|>",
+            "prompt": (
+                "<|im_start|>user\n"
+                "<|audio_start|><|audio_pad|><|audio_end|><|im_end|>\n"
+                "<|im_start|>assistant\n"
+            ),
             "multi_modal_data": {"audio": (audio, 16000)},
         }
-        llm.generate([prompt], sp)  # warm-up
-        durs = []
+        llm.beam_search([prompt], parameters, use_tqdm=False)  # warm-up
+        durations = []
         for _ in range(runs):
-            t = time.perf_counter()
-            result = llm.generate([prompt], sp)
-            durs.append(time.perf_counter() - t)
-        outs = result[0].outputs
+            start_time = time.perf_counter()
+            result = llm.beam_search([prompt], parameters, use_tqdm=False)
+            durations.append(time.perf_counter() - start_time)
+        outputs = result[0].sequences
         out.update(
-            nbest_ms=round(statistics.median(durs) * 1000, 1),
-            nbest_count=len(outs),
-            nbest_ok=len(outs) == N_BEST,
-            has_logprobs=any(o.cumulative_logprob is not None for o in outs),
-            sample=[o.text for o in outs],
+            nbest_ms=round(statistics.median(durations) * 1000, 1),
+            nbest_count=len(outputs),
+            nbest_ok=len(outputs) == N_BEST,
+            has_logprobs=all(bool(output.logprobs) for output in outputs),
+            sample=[output.text for output in outputs],
+            scores=[round(float(output.cum_logprob), 4) for output in outputs],
         )
     except Exception as e:  # noqa: BLE001
         out["infer_error"] = repr(e)

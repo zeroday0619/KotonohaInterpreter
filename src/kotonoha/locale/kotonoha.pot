@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Kotonoha Interpreter 0.1.0\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-04 16:28+0900\n"
+"POT-Creation-Date: 2026-08-04 16:43+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -136,125 +136,125 @@ msgstr ""
 msgid "! In this mode utterance audio leaves the device"
 msgstr ""
 
-#: kotonoha/_cli.py:484
+#: kotonoha/_cli.py:486
 #, python-brace-format
 msgid "Translation catalogs not compiled: {locales}"
 msgstr ""
 
-#: kotonoha/_cli.py:485
+#: kotonoha/_cli.py:487
 msgid "Run: uv run python scripts/i18n.py compile"
 msgstr ""
 
-#: kotonoha/_cli.py:487
+#: kotonoha/_cli.py:489
 #, python-brace-format
 msgid "Translation catalogs compiled: {locales}"
 msgstr ""
 
-#: kotonoha/_cli.py:495
+#: kotonoha/_cli.py:497
 msgid "Services:"
 msgstr ""
 
-#: kotonoha/_cli.py:508
+#: kotonoha/_cli.py:510
 msgid "Measure latency and throughput to the external server"
 msgstr ""
 
-#: kotonoha/_cli.py:513 kotonoha/tui/_tools_app.py:145 kotonoha/tui/_tools_app.py:201
+#: kotonoha/_cli.py:515 kotonoha/tui/_tools_app.py:145 kotonoha/tui/_tools_app.py:201
 msgid "Measurements per role"
 msgstr ""
 
-#: kotonoha/_cli.py:514
+#: kotonoha/_cli.py:516
 msgid "Probe utterance length in seconds"
 msgstr ""
 
-#: kotonoha/_cli.py:528
+#: kotonoha/_cli.py:530
 msgid "remote.enabled is false. Use config/performance.yaml, or enable it and retry."
 msgstr ""
 
-#: kotonoha/_cli.py:534
+#: kotonoha/_cli.py:536
 #, python-brace-format
 msgid "No role is routed remotely under perf_mode={mode}."
 msgstr ""
 
-#: kotonoha/_cli.py:548
+#: kotonoha/_cli.py:550
 #, python-brace-format
 msgid "probe       {seconds}s utterance, {encoding}, {size} bytes"
 msgstr ""
 
-#: kotonoha/_cli.py:630
+#: kotonoha/_cli.py:632
 #, python-brace-format
 msgid "Connection failed: {roles}. These roles fall back on-board."
 msgstr ""
 
-#: kotonoha/_cli.py:645
+#: kotonoha/_cli.py:647
 #, python-brace-format
 msgid "Estimated link overhead per turn  {ms} ms"
 msgstr ""
 
-#: kotonoha/_cli.py:646
+#: kotonoha/_cli.py:648
 #, python-brace-format
 msgid "Budget, end-of-utterance to first audio  {ms} ms"
 msgstr ""
 
-#: kotonoha/_cli.py:648
+#: kotonoha/_cli.py:650
 #, python-format
 msgid "  ! The link consumes more than 25% of the budget. Consider hybrid mode."
 msgstr ""
 
-#: kotonoha/_cli.py:650
+#: kotonoha/_cli.py:652
 msgid "  The link fits within the budget. The remainder is model inference time."
 msgstr ""
 
-#: kotonoha/_cli.py:658
+#: kotonoha/_cli.py:660
 msgid "Edit the configuration in a terminal interface"
 msgstr ""
 
-#: kotonoha/_cli.py:671
+#: kotonoha/_cli.py:673
 msgid "Match text in the source or the translation"
 msgstr ""
 
-#: kotonoha/_cli.py:674
+#: kotonoha/_cli.py:676
 msgid "Filter by detected source language"
 msgstr ""
 
-#: kotonoha/_cli.py:678
+#: kotonoha/_cli.py:680
 msgid "Filter by turn outcome, for example ok or llm_timeout"
 msgstr ""
 
-#: kotonoha/_cli.py:691
+#: kotonoha/_cli.py:693
 msgid "Open the history browser"
 msgstr ""
 
-#: kotonoha/_cli.py:702
+#: kotonoha/_cli.py:704
 msgid "Print past turns to standard output"
 msgstr ""
 
-#: kotonoha/_cli.py:710 kotonoha/_cli.py:756
+#: kotonoha/_cli.py:712 kotonoha/_cli.py:758
 msgid "Maximum turns to return"
 msgstr ""
 
-#: kotonoha/_cli.py:712
+#: kotonoha/_cli.py:714
 msgid "Print complete text instead of an excerpt"
 msgstr ""
 
-#: kotonoha/_cli.py:730 kotonoha/_cli.py:770 kotonoha/tui/_history_app.py:244
+#: kotonoha/_cli.py:732 kotonoha/_cli.py:772 kotonoha/tui/_history_app.py:244
 #: kotonoha/tui/_history_app.py:361
 msgid "No turns match"
 msgstr ""
 
-#: kotonoha/_cli.py:744
+#: kotonoha/_cli.py:746
 #, python-brace-format
 msgid "{shown} of {total} turns"
 msgstr ""
 
-#: kotonoha/_cli.py:747
+#: kotonoha/_cli.py:749
 msgid "Export past turns as JSONL"
 msgstr ""
 
-#: kotonoha/_cli.py:752
+#: kotonoha/_cli.py:754
 msgid "Destination JSONL file"
 msgstr ""
 
-#: kotonoha/_cli.py:773 kotonoha/tui/_history_app.py:370
+#: kotonoha/_cli.py:775 kotonoha/tui/_history_app.py:370
 #, python-brace-format
 msgid "Exported {count} turns to {path}"
 msgstr ""
@@ -466,7 +466,7 @@ msgid "Text value for {path}."
 msgstr ""
 
 #: kotonoha/tui/_config_app.py:196
-msgid "transformers is confirmed; vllm awaits Spike 1."
+msgid "vLLM is the default; Transformers is the fallback."
 msgstr ""
 
 #: kotonoha/tui/_config_app.py:197

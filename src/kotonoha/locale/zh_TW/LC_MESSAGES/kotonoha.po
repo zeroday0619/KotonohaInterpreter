@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Kotonoha Interpreter 0.1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-04 16:28+0900\n"
+"POT-Creation-Date: 2026-08-04 16:43+0900\n"
 "PO-Revision-Date: 2026-08-04 13:07+0900\n"
 "Last-Translator: Kotonoha Interpreter\n"
 "Language: zh_TW\n"
@@ -137,125 +137,125 @@ msgstr "檢查環境、角色配置與服務狀態"
 msgid "! In this mode utterance audio leaves the device"
 msgstr "！此模式下語音會離開本機"
 
-#: kotonoha/_cli.py:484
+#: kotonoha/_cli.py:486
 #, python-brace-format
 msgid "Translation catalogs not compiled: {locales}"
 msgstr "翻譯目錄尚未編譯：{locales}"
 
-#: kotonoha/_cli.py:485
+#: kotonoha/_cli.py:487
 msgid "Run: uv run python scripts/i18n.py compile"
 msgstr "執行：uv run python scripts/i18n.py compile"
 
-#: kotonoha/_cli.py:487
+#: kotonoha/_cli.py:489
 #, python-brace-format
 msgid "Translation catalogs compiled: {locales}"
 msgstr "翻譯目錄已編譯：{locales}"
 
-#: kotonoha/_cli.py:495
+#: kotonoha/_cli.py:497
 msgid "Services:"
 msgstr "服務："
 
-#: kotonoha/_cli.py:508
+#: kotonoha/_cli.py:510
 msgid "Measure latency and throughput to the external server"
 msgstr "量測到外部伺服器的延遲與頻寬"
 
-#: kotonoha/_cli.py:513 kotonoha/tui/_tools_app.py:145 kotonoha/tui/_tools_app.py:201
+#: kotonoha/_cli.py:515 kotonoha/tui/_tools_app.py:145 kotonoha/tui/_tools_app.py:201
 msgid "Measurements per role"
 msgstr "每個角色的量測次數"
 
-#: kotonoha/_cli.py:514
+#: kotonoha/_cli.py:516
 msgid "Probe utterance length in seconds"
 msgstr "探測語句長度（秒）"
 
-#: kotonoha/_cli.py:528
+#: kotonoha/_cli.py:530
 msgid "remote.enabled is false. Use config/performance.yaml, or enable it and retry."
 msgstr "remote.enabled 為 false。請改用 config/performance.yaml，或啟用後重試。"
 
-#: kotonoha/_cli.py:534
+#: kotonoha/_cli.py:536
 #, python-brace-format
 msgid "No role is routed remotely under perf_mode={mode}."
 msgstr "perf_mode={mode} 下沒有任何角色送往遠端。"
 
-#: kotonoha/_cli.py:548
+#: kotonoha/_cli.py:550
 #, python-brace-format
 msgid "probe       {seconds}s utterance, {encoding}, {size} bytes"
 msgstr "probe       {seconds} 秒語句、{encoding}、{size} 位元組"
 
-#: kotonoha/_cli.py:630
+#: kotonoha/_cli.py:632
 #, python-brace-format
 msgid "Connection failed: {roles}. These roles fall back on-board."
 msgstr "連線失敗：{roles}。這些角色會退回本機執行。"
 
-#: kotonoha/_cli.py:645
+#: kotonoha/_cli.py:647
 #, python-brace-format
 msgid "Estimated link overhead per turn  {ms} ms"
 msgstr "每輪連線額外耗時估計  {ms} ms"
 
-#: kotonoha/_cli.py:646
+#: kotonoha/_cli.py:648
 #, python-brace-format
 msgid "Budget, end-of-utterance to first audio  {ms} ms"
 msgstr "語句結束到首次發聲的預算  {ms} ms"
 
-#: kotonoha/_cli.py:648
+#: kotonoha/_cli.py:650
 #, python-format
 msgid "  ! The link consumes more than 25% of the budget. Consider hybrid mode."
 msgstr "  ！連線佔用超過預算的 25%，建議評估 hybrid 模式。"
 
-#: kotonoha/_cli.py:650
+#: kotonoha/_cli.py:652
 msgid "  The link fits within the budget. The remainder is model inference time."
 msgstr "  連線本身在預算內，其餘為模型推論時間。"
 
-#: kotonoha/_cli.py:658
+#: kotonoha/_cli.py:660
 msgid "Edit the configuration in a terminal interface"
 msgstr "在終端機介面中編輯設定"
 
-#: kotonoha/_cli.py:671
+#: kotonoha/_cli.py:673
 msgid "Match text in the source or the translation"
 msgstr "在原文或譯文中搜尋字串"
 
-#: kotonoha/_cli.py:674
+#: kotonoha/_cli.py:676
 msgid "Filter by detected source language"
 msgstr "依判定的來源語言篩選"
 
-#: kotonoha/_cli.py:678
+#: kotonoha/_cli.py:680
 msgid "Filter by turn outcome, for example ok or llm_timeout"
 msgstr "依輪次結果篩選，例如 ok 或 llm_timeout"
 
-#: kotonoha/_cli.py:691
+#: kotonoha/_cli.py:693
 msgid "Open the history browser"
 msgstr "開啟紀錄瀏覽器"
 
-#: kotonoha/_cli.py:702
+#: kotonoha/_cli.py:704
 msgid "Print past turns to standard output"
 msgstr "將過往紀錄輸出到標準輸出"
 
-#: kotonoha/_cli.py:710 kotonoha/_cli.py:756
+#: kotonoha/_cli.py:712 kotonoha/_cli.py:758
 msgid "Maximum turns to return"
 msgstr "回傳輪次的上限"
 
-#: kotonoha/_cli.py:712
+#: kotonoha/_cli.py:714
 msgid "Print complete text instead of an excerpt"
 msgstr "顯示全文而非摘要"
 
-#: kotonoha/_cli.py:730 kotonoha/_cli.py:770 kotonoha/tui/_history_app.py:244
+#: kotonoha/_cli.py:732 kotonoha/_cli.py:772 kotonoha/tui/_history_app.py:244
 #: kotonoha/tui/_history_app.py:361
 msgid "No turns match"
 msgstr "沒有符合條件的輪次"
 
-#: kotonoha/_cli.py:744
+#: kotonoha/_cli.py:746
 #, python-brace-format
 msgid "{shown} of {total} turns"
 msgstr "共 {total} 筆，顯示 {shown} 筆"
 
-#: kotonoha/_cli.py:747
+#: kotonoha/_cli.py:749
 msgid "Export past turns as JSONL"
 msgstr "將過往紀錄匯出為 JSONL"
 
-#: kotonoha/_cli.py:752
+#: kotonoha/_cli.py:754
 msgid "Destination JSONL file"
 msgstr "輸出的 JSONL 檔案"
 
-#: kotonoha/_cli.py:773 kotonoha/tui/_history_app.py:370
+#: kotonoha/_cli.py:775 kotonoha/tui/_history_app.py:370
 #, python-brace-format
 msgid "Exported {count} turns to {path}"
 msgstr "已將 {count} 筆匯出至 {path}"
@@ -467,8 +467,8 @@ msgid "Text value for {path}."
 msgstr "{path} 的文字值。"
 
 #: kotonoha/tui/_config_app.py:196
-msgid "transformers is confirmed; vllm awaits Spike 1."
-msgstr "transformers 已確認，vllm 待 Spike 1 結果。"
+msgid "vLLM is the default; Transformers is the fallback."
+msgstr "vLLM 是預設值，Transformers 是備援方案。"
 
 #: kotonoha/tui/_config_app.py:197
 msgid "Hypotheses returned per utterance. The correction pass consumes all."
@@ -1029,3 +1029,8 @@ msgstr "執行中"
 msgid "Stopping the process"
 msgstr "正在停止程序"
 
+#~ msgid "transformers is confirmed; vllm awaits Spike 1."
+#~ msgstr "transformers 已確認，vllm 待 Spike 1 結果。"
+
+#~ msgid "vllm is the default; transformers is the fallback."
+#~ msgstr ""

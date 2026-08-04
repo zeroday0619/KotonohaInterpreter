@@ -3,6 +3,7 @@
 
 asr:
   model_id: /models/Qwen3-ASR-1.7B-hf
+  vllm_model_id: /models/Qwen3-ASR-1.7B
 
 asr_verify:
   model_id: /models/faster-whisper-large-v3

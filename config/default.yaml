@@ -1,7 +1,7 @@
 # Kotonoha Interpreter — default configuration
 #
-# Settings that Phase 0 has to decide are marked [SPIKE-n]. Until the spikes
-# report back, the defaults stay on the conservative side (transformers, dense, melo).
+# Settings that Phase 0 has to decide are marked [SPIKE-n]. ASR now uses the
+# vLLM runtime by default; target measurements still decide deployment acceptance.
 
 session:
   mode: push_to_talk # push_to_talk | auto | text   (§4: start with PTT)
@@ -85,11 +85,15 @@ remote:
   audio_encoding: s16le # s16le halves the bytes on the wire; f32le for debugging
 
 asr:
-  # [SPIKE-1] Switch to backend: vllm if vLLM loads Qwen3-ASR.
-  backend: transformers # transformers | vllm
+  # [SPIKE-1] vLLM is the primary runtime. Transformers remains an explicit fallback.
+  backend: vllm # vllm | transformers
   model_id: Qwen/Qwen3-ASR-1.7B-hf
   vllm_model_id: Qwen/Qwen3-ASR-1.7B
   dtype: float16
+  vllm_gpu_memory_utilization: 0.80
+  vllm_max_model_len: 4096
+  # Eager mode avoids target-specific CUDA graph failures during initial deployment.
+  vllm_enforce_eager: true
   # [non-negotiable, §5.2] Consecutive interpreting: no reason to decode greedily.
   n_best: 5
   num_beams: 5
