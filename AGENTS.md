@@ -116,11 +116,7 @@ Identifiers confirmed as of 2026-08:
 | Compatibility | Python 3.10 syntax and APIs |
 | Line length | 100 |
 | Ruff rules | `E`, `F`, `I`, `UP`, `B`, `TID252` |
-| Module preamble | `from __future__ import annotations` |
 | I/O | Async-first; use `async` and `await` for I/O |
-| Imports | Use absolute imports; do not add parent-relative imports |
-| Re-exports | Import implementation modules directly; avoid new `__init__.py` re-exports |
-| Class state | Declare instance fields with types at class scope, then assign them in `__init__` |
 | Logging | structlog with event first, for example `log.info("turn.finished", turn_id=...)` |
 
 - Use full English words for identifiers. Do not introduce abbreviations such as `cfg`,
@@ -132,6 +128,125 @@ Identifiers confirmed as of 2026-08:
 - Do not add `BUILD` files under `src/`.
 - Add a `BUILD` file when creating a new test directory. Use `python_tests()` for test
   modules and `python_testutils()` for test utilities.
+
+### Python code style
+
+These rules apply to Python source files in the project and test trees.
+
+#### Project structure
+
+1. Place project packages under `./src/<module-name>`, which becomes the package root.
+2. Place test packages under `./tests/<test-module-name>`, which becomes the test package
+   root.
+3. Use `snake_case` for Python file names.
+4. Implementation files are private modules. Prefix every project source file with `_`,
+   except special files such as `__init__.py` and `__main__.py`.
+
+#### Public modules
+
+1. A public module must be a package directory.
+2. A package `__init__.py` may import only symbols defined by source modules in the same
+   directory.
+3. Include every symbol imported by `__init__.py` in `__all__`.
+4. Define `__all__` as a tuple.
+5. Limit `__init__.py` to imports, `__all__`, the module docstring, and comments.
+
+#### Type hints and future imports
+
+1. Use type hints in every project and test source file except `__init__.py`.
+2. Add `from __future__ import annotations` to every project and test source file except
+   `__init__.py`.
+
+#### Imports
+
+1. Use absolute imports except when importing another source module from the same
+   directory. Do not use parent-relative imports such as `from ..utils import value`.
+2. Import a symbol directly when its name does not conflict with another imported symbol.
+
+   ```python
+   from mymodule import function
+
+   function()
+   ```
+
+3. Use a module namespace only for symbols whose imported names conflict. Continue to
+   import non-conflicting symbols directly.
+
+   ```python
+   from package import thatmodule, thismodule
+   from package.thatmodule import that_function
+   from package.thismodule import this_function
+
+   thismodule.function()
+   thatmodule.function()
+   this_function()
+   that_function()
+   ```
+
+4. Do not use wildcard imports.
+
+#### Functions and methods
+
+1. Use `snake_case` for function and method names.
+2. Treat `self` and `cls` as parameters when formatting a declaration.
+3. Keep a declaration with no parameters on one line, with the closing parenthesis next
+   to the opening parenthesis.
+4. When a declaration has one or more parameters:
+
+   - Put the opening parenthesis, every parameter, and the closing parenthesis on separate
+     lines.
+   - Put one parameter on each line and terminate each parameter with a comma.
+   - Omit the type hint from a leading `self` or `cls` parameter.
+   - Include a standalone `/` after the positional-only parameters. The `/` line can
+     contain only `/` and `,`.
+   - When keyword-only parameters are required without `*args`, include a standalone `*`
+     after `/`. The `*` line can contain only `*` and `,`.
+
+5. Every declaration with at least one parameter must contain a standalone `/`.
+6. Do not use mutable objects as parameter defaults.
+7. Declare a return type for every function and method, including `-> None`.
+
+Correct:
+
+```python
+def move_to_point(
+    self,
+    point: tuple[int, int],
+    /,
+    *,
+    stops: Sequence[tuple[int, int]] | None = None,
+) -> None: ...
+```
+
+Incorrect:
+
+```python
+def move_to_point(
+    self,
+    point: tuple[int, int],
+    *,
+    stops: Sequence[tuple[int, int]] = [],
+) -> None: ...
+```
+
+#### Classes
+
+1. Use `PascalCase` for class names.
+2. Define `__slots__` for every class, including abstract classes. Assign an empty tuple
+   when the class has no instance fields.
+3. Annotate class variables with `ClassVar` and assign an initial value.
+4. Annotate class constants with `Final`.
+5. Apply `@override` when overriding an inherited method or property.
+
+#### Docstrings
+
+Docstrings are optional. When present, use reStructuredText and describe the purpose and
+intent of the documented module, symbol, class, function, or method.
+
+#### String formatting
+
+Use f-strings by default. Use another formatting mechanism only when an API or deferred
+template requires it.
 
 ## Configuration
 
