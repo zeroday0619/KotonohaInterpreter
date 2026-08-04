@@ -8,8 +8,10 @@ import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PERFORMANCE_DOCUMENT = PROJECT_ROOT / "docs" / "performance" / "measurement.md"
 REPORT_SCRIPT = PROJECT_ROOT / "spikes" / "report.py"
 RUNNER_SCRIPT = PROJECT_ROOT / "spikes" / "run_all.sh"
+SPIKE_README = PROJECT_ROOT / "spikes" / "README.md"
 
 
 def test_a6000_report_generates_remote_configuration_patch(
@@ -84,3 +86,14 @@ def test_spike_runner_keeps_target_outputs_separate() -> None:
     assert "spikes/out/a6000" in source
     assert "PERFORMANCE.md" in source
     assert "remote-server.local.yaml" in source
+
+
+def test_performance_document_owns_measurement_procedure() -> None:
+    performance_document = PERFORMANCE_DOCUMENT.read_text(encoding="utf-8")
+    spike_readme = SPIKE_README.read_text(encoding="utf-8")
+
+    assert "## ASR Measurement" in performance_document
+    assert "## Link Measurement" in performance_document
+    assert "900 ms or less" in performance_document
+    assert "../docs/performance/measurement.md" in spike_readme
+    assert "## ASR Measurement" not in spike_readme

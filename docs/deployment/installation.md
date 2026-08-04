@@ -66,8 +66,8 @@ The following conditions are current repository facts:
 | Production service supervisor outside Docker Compose | Not provided |
 | TLS termination | Not provided |
 
-Deployment acceptance requires the verification checklist in this document and the
-Phase 0 procedure in `spikes/README.md`.
+Deployment acceptance requires the verification checklist in this document and
+[Performance Measurement](../performance/measurement.md).
 
 ## Version and Hardware Requirements
 
@@ -769,193 +769,25 @@ The TUI status bar must show the expected placement. In `remote` mode it must al
 that utterance audio leaves the Jetson. Review `placement` and `failovers` in
 `data/logs/turns.jsonl` after the first test turn.
 
-## Phase 0 Execution
+## Hardware Performance Acceptance
 
-Do not approve the Jetson deployment for interpreting sessions before running Phase 0.
-The commands, acceptance thresholds, and report generation procedure are defined in
-`spikes/README.md`.
+Complete [Performance Measurement](../performance/measurement.md) before approving either
+deployment target. That procedure owns benchmark conditions, acceptance thresholds,
+evidence requirements, and report generation.
 
-Minimum preparation:
-
-```bash
-sudo nvpmodel -m 0
-sudo jetson_clocks
-mkdir -p spikes/out
-```
-
-After running the three spikes:
-
-```bash
-python3 spikes/report.py --dir spikes/out \
-  --md spikes/out/PHASE0.md --patch spikes/out/local.yaml
-```
-
-Review the generated report before copying any decision patch into `config/local.yaml`.
-Phase 1 starts only after explicit approval of all three verdicts.
-
-## A6000 Performance Acceptance
-
-Run the same model-stage spikes on the A6000 after the remote images build successfully.
-Keep these results separate from Jetson Phase 0:
-
-```bash
-bash spikes/run_all.sh a6000
-python3 spikes/report.py \
-  --target a6000 \
-  --dir spikes/out/a6000 \
-  --md spikes/out/a6000/PERFORMANCE.md \
-  --patch spikes/out/a6000/remote-server.local.yaml
-```
-
-The A6000 run uses a 4096-token LLM context and records the vLLM GPU-memory allocation,
-model-length limit, and eager-mode selection. Copy the accepted patch only after all four
-remote services remain healthy concurrently.
-
-Run `kotonoha netcheck --samples 20 --seconds 6` from the Jetson after server-side
-measurements complete. Attach its output and `nvidia-smi` residency evidence to
-`PERFORMANCE.md`. The server report does not include network overhead.
-
-## Operational Procedures
-
-### Status
-
-Jetson services:
-
-```bash
-docker compose -f docker/compose.yaml ps
-docker compose -f docker/compose.yaml logs --tail=200
-```
-
-A6000 services:
-
-```bash
-docker compose -f docker/compose.remote.yaml ps
-docker compose -f docker/compose.remote.yaml logs --tail=200
-nvidia-smi
-```
-
-### Stop services
-
-Stop containers without deleting local configuration, model files, or logs:
-
-```bash
-docker compose -f docker/compose.yaml stop
-docker compose -f docker/compose.remote.yaml stop
-```
-
-### Uninstall service containers
-
-Use `scripts/deploy.sh uninstall` when the deployment must be removed from a host. The
-command performs `docker compose down --remove-orphans` and remains usable when GPU or
-model preflight checks fail. Add `--remove-images` only when locally built project images
-must also be deleted.
-
-### Start existing services
-
-```bash
-docker compose -f docker/compose.yaml start asr asr-verify llm tts
-docker compose -f docker/compose.remote.yaml start asr asr-verify llm tts
-```
-
-### Restart after configuration changes
-
-Local `config/local.yaml` changes apply when the orchestrator or affected model service
-starts again. Restart only the affected resident model service where possible. Frontend,
-audio, routing, storage, and UI changes apply on the next orchestrator invocation.
-
-### Back up mutable state
-
-Back up these files before source updates or configuration migrations:
-
-| Host | Path | Content |
-|---|---|---|
-| Jetson | `config/local.yaml` | Device, audio, and placement overrides |
-| Jetson | `data/kotonoha.db` | Glossary and turn history |
-| Jetson | `data/logs/` | Application and turn metrics |
-| A6000 | `config/remote-server.local.yaml` | Remote model-service overrides |
-| A6000 | `config/remote-llm.env` | Generated llama.cpp startup values |
-| Both | `.env` | Deployment variables and secret token, when present |
-
-Use an access-controlled backup location. Do not commit these files.
-
-### Update source
-
-1. Stop the interactive orchestrator.
-2. Record the current commit with `git rev-parse HEAD`.
-3. Back up mutable state.
-4. Fetch and check out the approved commit on both hosts.
-5. Confirm both hosts report the same commit.
-6. Rebuild changed images.
-7. Start model services and run all health checks.
-8. Run `doctor`, `netcheck` when applicable, and one WAV replay.
-9. Start an operator session only after the checks pass.
-
-Do not run `uv lock` or upgrade dependency versions on a deployment host.
-
-### Roll back
-
-1. Stop affected containers.
-2. Restore the previously recorded source commit on both hosts.
-3. Restore host-specific configuration and SQLite data from backup when their formats
-   changed.
-4. Rebuild the affected images from the previous commit.
-5. Start services and repeat health checks.
-6. Record the failed commit, service logs, health responses, and rollback time.
-
-The repository does not provide an automated database migration or rollback command.
-SQLite backup is therefore mandatory before changes that affect storage models.
-
-## Security Controls
-
-### Required controls
-
-- Restrict A6000 ports 8001-8004 to the Jetson and administrative network.
-- Restrict Jetson ports 8001-8004 to local or explicitly approved traffic.
-- Generate `KOTONOHA_SERVICE_TOKEN` from a cryptographically secure random source.
-- Store `.env`, `config/local.yaml`, and `config/remote-server.local.yaml` with mode 600.
-- Keep secrets out of Git, logs, screenshots, and support bundles.
-- Block outbound network access after container images and model artifacts are staged if
-  full offline operation is required.
-- Use `hybrid` mode when utterance audio must remain on the Jetson.
-- Add operator-managed TLS before routing service traffic across an untrusted network.
-
-### Authentication boundaries
-
-| Endpoint | Authentication behavior |
+| Target | Required evidence |
 |---|---|
-| Jetson Python services | Authentication disabled by the default Compose environment |
-| Python service `/health` | Open for health monitoring |
-| Python service inference endpoints | Bearer token when `KOTONOHA_SERVICE_TOKEN` is set |
-| ASR `/admin/config` | Bearer token when `KOTONOHA_SERVICE_TOKEN` is set |
-| llama.cpp port 8003 | Not protected by the project FastAPI middleware |
+| Jetson AGX Orin | `PHASE0.md`, accepted local configuration patch, thermal evidence |
+| RTX A6000 | `PERFORMANCE.md`, accepted remote configuration patch, link and residency evidence |
 
-An `auth.disabled` startup warning means a Python service is accepting unauthenticated
-requests. Treat this as a deployment failure on the A6000.
+Do not copy a generated configuration patch until the corresponding report passes all
+target-specific acceptance criteria.
 
-## Troubleshooting
+## Operations
 
-| Symptom | Inspection | Corrective action |
-|---|---|---|
-| Service returns `ok: false` | Service log and `error` field | Correct model path, dependency, CUDA, or memory failure; restart the service |
-| Python services restart with missing `pydantic_settings` | Inspect x86_64 markers in `uv.lock` and the common image build check | Regenerate the lock with Linux x86_64 support and rebuild all three Python images |
-| LLM restarts with exit code 127 | Inspect LLM mounts and `/app/llama-server` | Remove any bind mount targeting `/app`, then recreate the LLM container |
-| LLM cannot load `libllama-server-impl.so` | Inspect `LD_LIBRARY_PATH` and run `ldd /app/llama-server` in the image | Set `/app` as the first library path and recreate the LLM container |
-| ASR cannot find the model offline | Inspect `asr.vllm_model_id` | Set `/models/Qwen3-ASR-1.7B` in the host override |
-| Verification downloads `large-v3` | Inspect `asr_verify.model_id` | Set `/models/faster-whisper-large-v3` |
-| LLM reports `GGUF missing` | Inspect `/models/gguf` and `remote-llm.env` | Correct `MODELS_DIR`, profile, or profile file name; restart `llm` |
-| TTS image cannot build FlashAttention | Inspect the devel image tag, CUDA version, memory, and build log | Restore matching build and runtime images; use the SDPA fallback only when the target service loads and Spike 2 records the result |
-| TTS reports `sox: not found` | Run `sox --version` in the TTS container | Rebuild the TTS image; the current image installs `sox` and `libsox-fmt-all` |
-| Remote TTS reports Qwen failure | Inspect TTS health and the orchestrator `failovers` metric | Correct the remote Qwen service; the current turn retries against the Jetson MeloTTS service before the first audio chunk |
-| CUDA is absent in a container | Inspect image build output and `torch.version.cuda` | Restore the pinned CUDA base image; do not install a CPU PyTorch wheel |
-| Docker cannot select the `nvidia` device driver | Inspect `docker info --format '{{json .Runtimes}}'` | Install NVIDIA Container Toolkit, configure the Docker runtime with `nvidia-ctk`, and restart Docker |
-| Shared-memory errors | Inspect `ipc: host` and `/dev/shm` | Restore host IPC for Jetson services; do not use this path across hosts |
-| No capture device | Run `devices`, inspect `/dev/snd`, check group membership | Set the correct device and restart the orchestrator login session |
-| Remote request returns 401 | Compare A6000 and Jetson token values | Correct the token without logging it; restart affected clients or services |
-| Remote config returns 422 | Read the response detail | Edit only server-owned paths exposed by the remote TUI |
-| Remote role repeatedly fails over | Inspect `netcheck`, service logs, and turn `failovers` | Correct service health or network path; use `hybrid` or `onboard` until stable |
-| A6000 OOM during startup | Inspect `nvidia-smi` and all service logs | Record the failure and revise measured placement; do not assume isolated load success |
-| Latency exceeds 2.9 s | Inspect five-point turn timestamps | Identify the stage overrun; do not attribute it to a model without measurement |
-| Thermal throttling | Inspect `jtop` during the same interval | Correct cooling and rerun the complete measurement |
+Use the [Service Runbook](../operations/service-runbook.md) for service status, lifecycle,
+backup, rollback, security controls, and troubleshooting. Use
+[Observability](../operations/observability.md) for turn metrics and latency analysis.
 
 ## Deployment Acceptance Checklist
 

@@ -7,7 +7,9 @@ directory take precedence for that directory.
 
 Kotonoha Interpreter is a consecutive four-language offline speech interpreter for an
 NVIDIA Jetson AGX Orin 64GB. An external RTX A6000 provides an optional high-performance
-mode. `README.md` defines the architecture and operator interface. `spikes/README.md`
+mode. `README.md` is the project entry point. `docs/README.md` indexes architecture,
+operator, deployment, operations, performance, and development documentation.
+`spikes/README.md` defines the hardware spike harness. `docs/performance/measurement.md`
 defines Jetson Phase 0 validation and A6000 performance acceptance.
 
 | Environment | Constraint |
@@ -63,7 +65,7 @@ uv run ruff check .
 uv run pytest -q
 ```
 
-Current baseline: 209 tests and zero lint findings.
+Current baseline: 212 tests and zero lint findings.
 
 ## Non-negotiable constraints
 
@@ -358,7 +360,8 @@ tokens from `config/local.yaml` never enter tests.
 | Test module | Contract |
 |---|---|
 | `test_asr_vllm.py` | vLLM prompt sanitization, N-best mapping, ASR defaults |
-| `test_spikes.py` | Jetson and A6000 spike targets, reports, configuration patches |
+| `test_spikes.py` | Spike targets, reports, configuration patches, documentation ownership |
+| `test_documentation.py` | Category indexes and local Markdown link integrity |
 | `test_vad_segmenter.py` | Preroll, EOU timing, noise rejection, PTT |
 | `test_clauses.py` | Clause boundaries and streamed marker handling |
 | `test_shmring.py` | Publish, read, overwrite detection, truncation |
