@@ -1,23 +1,33 @@
-# Phase 0 — Validation Spikes
+# Hardware Validation and Performance Spikes
 
 ## Objective
 
-Resolve three architectural decisions by measurement on the target hardware. Each decision
-gates work that cannot proceed correctly without it.
+The spike suite supports two independent hardware tracks.
 
-| Spike | Question | Decision | Setting |
+| Track | Host | Purpose | Output directory |
 |---|---|---|---|
-| 1 | Does the Jetson vLLM container load Qwen3-ASR, and can it produce N-best output? | ASR runtime | `asr.backend` |
-| 2 | Does flash-attn build and execute on sm_87, and does Qwen3-TTS load? | TTS backend | `tts.backend` |
-| 3 | What is the measured token generation rate for the 30B MoE and the dense 14B? | Translation model class | `llm.profile` |
+| Phase 0 | Jetson AGX Orin | Validate hardware compatibility and select on-device fallbacks | `spikes/out` |
+| High-performance mode | RTX A6000 | Tune remote model settings and approve remote placement | `spikes/out/a6000` |
 
-Execution stops after Phase 0. Results are reported before Phase 1 begins.
+Phase 0 remains a gate for Jetson deployment. A6000 acceptance does not replace Phase 0;
+the Jetson keeps resident fallback services and still owns audio capture, VAD, routing,
+and half-duplex gating.
+
+Each track measures the same model stages under its production configuration.
+
+| Spike | Measurement | Configuration decision |
+|---|---|---|
+| 1 | Qwen3-ASR load, N-best 5, log-probabilities, six-second transcription latency | `asr.*` |
+| 2 | FlashAttention kernel execution and Qwen3-TTS synthesis latency | `tts.*` |
+| 3 | MoE and dense LLM generation rate and time to first token | `llm.profile` |
+
+Do not compare measurements from different hosts as though they came from one runtime.
+Every result records `target`, GPU identity, compute capability, runtime versions, and
+benchmark conditions.
 
 ## Preconditions
 
-The spikes require Jetson AGX Orin hardware. They produce no meaningful data on a
-development workstation: the measurements depend on aarch64, CUDA, sm_87, and the
-204.8 GB/s memory bandwidth of the target.
+### Jetson AGX Orin
 
 ```bash
 sudo nvpmodel -m 0
@@ -25,129 +35,221 @@ sudo jetson_clocks
 jtop
 ```
 
-Discard any measurement taken during thermal throttling. Confirm the state in `jtop` in a
-separate terminal for the duration of each run.
+Discard measurements collected during thermal throttling. Keep `jtop` visible throughout
+the run.
 
-Spike 3 requires both GGUF artifacts, 27.6 GB combined. Download them with
-`scripts/fetch_models.sh` before starting.
+### RTX A6000
 
-A real recording of approximately six seconds improves Spike 1. Without one the harness
-generates synthetic audio; timing remains valid, transcription content does not.
+```bash
+nvidia-smi
+docker info --format '{{json .Runtimes}}'
+docker compose -f docker/compose.remote.yaml ps
+```
 
-## Spike 1 — vLLM and Qwen3-ASR
+All four remote services must remain resident during final acceptance. An isolated model
+benchmark does not prove that ASR, verification ASR, LLM, and TTS fit concurrently.
 
-Run the vLLM path inside the vLLM container:
+### Artifacts
+
+Run `scripts/fetch_models.sh` before either track. Spike 3 requires both GGUF files. Use a
+real recording of approximately six seconds for Spike 1. Synthetic audio provides timing
+data only and cannot validate transcription quality.
+
+## Spike 1: vLLM ASR
+
+### Jetson
+
+Run the vLLM path in the configured Jetson vLLM image:
 
 ```bash
 jetson-containers run ghcr.io/nvidia-ai-iot/vllm:r36.4-tegra-aarch64-cu126-22.04
-python3 spikes/spike1_asr_load.py --wav samples/ko_6s.wav --only vllm \
-    --out spikes/out/spike1_vllm.json
+python3 spikes/spike1_asr_load.py \
+  --target jetson \
+  --wav samples/ko_6s.wav \
+  --only vllm \
+  --out spikes/out/spike1.json
 ```
 
-Run the transformers path in an r36.4.0 image:
+Run the Transformers fallback in its compatible r36.4.0 image when fallback comparison is
+required. Preserve the vLLM result before writing the second output, then merge both
+backend objects into `spike1.json`.
+
+### RTX A6000
+
+Run inside the remote ASR image. The command records the settings required to reproduce
+the selected result.
 
 ```bash
-python3 spikes/spike1_asr_load.py --wav samples/ko_6s.wav --only transformers \
-    --out spikes/out/spike1.json
+python3 spikes/spike1_asr_load.py \
+  --target a6000 \
+  --wav samples/ko_6s.wav \
+  --only vllm \
+  --gpu-memory-utilization 0.80 \
+  --max-model-len 4096 \
+  --enforce-eager \
+  --out spikes/out/a6000/spike1.json
 ```
 
-Merge the two results by copying the `vllm` key into `spike1.json`.
+Tune one variable per run. Store candidate results under distinct names, then copy the
+accepted result to `spike1.json` before report generation.
 
-Acceptance criteria:
+| Variable | Values to measure | Constraint |
+|---|---|---|
+| `--gpu-memory-utilization` | `0.70`, `0.80`, `0.90` | All remote services must remain resident |
+| `--enforce-eager` | enabled, disabled | Both model load and N-best inference must succeed |
+| `--max-model-len` | production value | Must cover the configured ASR request |
+
+Acceptance criteria for both hosts:
 
 | Criterion | Requirement |
 |---|---|
 | Model load | Succeeds |
-| N-best output | Exactly 5 sequences |
+| N-best output | Exactly five sequences |
 | Log-probabilities | Available per sequence |
-| N-best transcription time | 900 ms or less for a 6 s utterance |
+| Six-second transcription | 900 ms or less |
 
-A path that transcribes but cannot produce N-best fails the requirement in the design
-constraints and is not eligible, regardless of its latency.
+A path without five hypotheses fails the accuracy contract regardless of latency.
 
-## Spike 2 — flash-attn on sm_87
+## Spike 2: FlashAttention and TTS
+
+### Jetson
 
 ```bash
 jetson-containers run $(autotag flash-attention)
-python3 spikes/spike2_flash_attn.py --out spikes/out/spike2.json
+python3 spikes/spike2_flash_attn.py \
+  --target jetson \
+  --out spikes/out/spike2.json
 ```
 
-The harness does not accept a successful import as evidence. An aarch64 wheel can import
-and then fail inside the kernel, so a `flash_attn_func` call is executed and its output
-checked for finiteness.
+### RTX A6000
 
-Qwen3-TTS is loaded three times, with `flash_attention_2`, `sdpa`, and `eager`. The
-harness records which implementations load and the synthesis time for each. When no
-implementation loads, MeloTTS is measured as the fallback.
+Run inside `kotonohainterpreter-tts`. The remote image does not contain MeloTTS, so skip
+that fallback probe.
 
-Acceptance criteria:
+```bash
+python3 spikes/spike2_flash_attn.py \
+  --target a6000 \
+  --skip-melo \
+  --out spikes/out/a6000/spike2.json
+```
+
+The probe executes a FlashAttention kernel rather than accepting an import as evidence.
+It then measures Qwen3-TTS with `flash_attention_2`, `sdpa`, and `eager`.
 
 | Criterion | Requirement |
 |---|---|
-| TTS backend | At least one of Qwen3-TTS or MeloTTS loads |
-| Single-clause synthesis time | 300 ms or less |
+| TTS backend | Qwen3-TTS on A6000; Qwen3-TTS or MeloTTS on Jetson |
+| Single-clause synthesis | 300 ms or less |
+| Kernel result | Finite output with the expected shape |
 
-If Qwen3-TTS loads without flash-attn, no further effort is spent on building flash-attn.
-If no Qwen3-TTS configuration loads, Phases 1 through 3 proceed on MeloTTS and Qwen3-TTS
-becomes a separate work item.
+## Spike 3: Translation LLM
 
-## Spike 3 — MoE against dense 14B
+Jetson Phase 0 retains the specification conditions: context 2048, batch 1, and 60 output
+tokens.
 
 ```bash
 python3 spikes/spike3_llm_tokrate.py \
-    --bin /opt/llama.cpp/build/bin \
-    --models-dir ./models/gguf \
-    --out spikes/out/spike3.json
+  --target jetson \
+  --bin /opt/llama.cpp/build/bin \
+  --models-dir ./models/gguf \
+  --context 2048 \
+  --output-tokens 60 \
+  --out spikes/out/spike3.json
 ```
 
-Measurement conditions: context 2048, batch 1, 60 output tokens.
+The A6000 benchmark uses the 4096-token context configured by
+`config/performance.yaml`.
 
-Two figures are recorded for each profile:
+```bash
+python3 spikes/spike3_llm_tokrate.py \
+  --target a6000 \
+  --bin /app \
+  --models-dir /models/gguf \
+  --context 4096 \
+  --output-tokens 60 \
+  --runs 3 \
+  --out spikes/out/a6000/spike3.json
+```
 
-| Source | Measures |
-|---|---|
-| `llama-bench` | Raw generation rate |
-| `llama-server` with a representative translation prompt | Time to first token and generation rate under production prompt shape |
+`llama-bench` records raw generation rate. `llama-server` records time to first token and
+generation rate with the production prompt shape. The server result governs selection.
 
-The second figure governs the decision. Prompt processing time falls inside the 700 ms
-allocated to correction and translation up to the first clause.
+The minimum rate is 5 tok/s. Select MoE only when it meets the threshold and is not slower
+than dense 14B. Translation quality remains a separate evaluation-set decision.
 
-Acceptance criterion: 5 tok/s. Below that, clause-level streaming does not sustain
-playback and the profile reverts to the dense 14B. The MoE is selected only when it meets
-the threshold and is not slower than the dense model.
+## Remote Link Acceptance
 
-The MoE reads only active parameters, which favors it on a bandwidth-limited device.
-Routing changes the set of experts touched per token, which reduces locality. The net
-effect at Orin bandwidth is not predictable from these two properties, which is why it is
-measured.
+Run link measurements from the Jetson after all A6000 services are healthy:
+
+```bash
+KOTONOHA__REMOTE__TOKEN=<token> \
+uv run kotonoha -c config/performance.yaml netcheck --samples 20 --seconds 6
+```
+
+`netcheck` measures service RTT and binary PCM upload time. Use `remote` placement only
+when every remote role is reachable and estimated link overhead consumes no more than 25%
+of the end-of-utterance latency budget. Use `hybrid` when audio must remain on the Jetson
+or the measured link exceeds that limit.
+
+## Concurrent Residency
+
+After selecting candidate settings, start the complete A6000 stack and retain the
+evidence with the performance report.
+
+```bash
+docker compose -f docker/compose.remote.yaml up -d
+docker compose -f docker/compose.remote.yaml ps
+nvidia-smi
+curl -fsS http://127.0.0.1:8001/health
+curl -fsS http://127.0.0.1:8002/health
+curl -fsS http://127.0.0.1:8003/health
+curl -fsS http://127.0.0.1:8004/health
+```
+
+Reject a configuration that passes isolated spikes but causes an out-of-memory restart
+when all services are resident.
 
 ## Reporting
 
+### Jetson Phase 0
+
 ```bash
-python3 spikes/report.py --dir spikes/out \
-    --md spikes/out/PHASE0.md --patch spikes/out/local.yaml
-cp spikes/out/local.yaml config/local.yaml
+python3 spikes/report.py \
+  --target jetson \
+  --dir spikes/out \
+  --md spikes/out/PHASE0.md \
+  --patch spikes/out/local.yaml
 ```
 
-`report.py` uses only the standard library and may also be run on the development
-workstation with `uv run`.
+### RTX A6000
 
-Outputs:
+```bash
+python3 spikes/report.py \
+  --target a6000 \
+  --dir spikes/out/a6000 \
+  --md spikes/out/a6000/PERFORMANCE.md \
+  --patch spikes/out/a6000/remote-server.local.yaml
+```
 
-| File | Content |
+| Output | Content |
 |---|---|
-| `spikes/out/PHASE0.md` | Result tables, verdicts, and a latency budget reconciliation |
-| `spikes/out/local.yaml` | Configuration patch applying the three decisions |
+| `PHASE0.md` | Jetson compatibility verdicts and latency reconciliation |
+| `local.yaml` | Jetson configuration overlay |
+| `PERFORMANCE.md` | A6000 server-stage measurements and selected settings |
+| `remote-server.local.yaml` | Remote model-service configuration overlay |
 
-`config/local.yaml` is the third configuration layer and overrides `config/default.yaml`.
-Applying Phase 0 results requires no code change.
+The A6000 report excludes network overhead. Attach the `netcheck` output and concurrent
+residency evidence before approving high-performance mode.
 
-## Batch execution
+## Batch Execution
 
-`spikes/run_all.sh` executes whichever spikes the current container supports and then
-generates the report. Because the three spikes require different images, running it once
-per image and collecting results in `spikes/out` is the expected workflow.
+`run_all.sh` executes the probes supported by the current container. The three model
+stages can require different images, so repeated runs may be necessary.
 
 ```bash
-LLAMA_BIN=/opt/llama.cpp/build/bin bash spikes/run_all.sh
+bash spikes/run_all.sh jetson
+bash spikes/run_all.sh a6000
 ```
+
+The A6000 run writes only under `spikes/out/a6000`; it cannot overwrite Jetson Phase 0
+results.

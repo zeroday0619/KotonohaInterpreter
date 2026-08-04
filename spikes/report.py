@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Merge the three spike results into one report and derive the settings.
+"""Merge hardware spike results into a host-specific report and settings patch.
 
     python3 spikes/report.py --dir spikes/out \\
         --md spikes/out/PHASE0.md --patch spikes/out/local.yaml
 
-Copy the YAML produced by --patch to config/local.yaml and the Phase 0
-conclusions land directly in the configuration. This is exactly why the branch
-points live in configuration rather than in code.
+Jetson results produce a local device overlay. A6000 results produce a remote service
+overlay. Host-specific measurements remain separate.
 
 The generated report itself is written in Korean, since that is what gets read.
 """
@@ -35,8 +34,14 @@ def md_report(
     /,
     s2: dict | None,
     s3: dict | None,
+    target: str = "jetson",
 ) -> str:
-    L: list[str] = ["# Phase 0 — 검증 스파이크 결과", ""]
+    report_title = (
+        "# Phase 0 — Jetson 검증 스파이크 결과"
+        if target == "jetson"
+        else "# 고성능 모드 — A6000 검증 결과"
+    )
+    L: list[str] = [report_title, ""]
 
     def section(
         title: str,
@@ -58,11 +63,15 @@ def md_report(
         /,
     ) -> list[str]:
         v = d.get("verdict", {})
+        conditions = d.get("conditions", {})
         out = [
             "",
             f"- 오디오: {d['audio']['seconds']}초 ({d['audio']['source']})",
             f"- 장치: {d['env'].get('device')} / {d['env'].get('capability')}"
             f" / torch {d['env'].get('torch')}",
+            f"- vLLM 조건: GPU 메모리 {conditions.get('gpu_memory_utilization')}"
+            f", 컨텍스트 {conditions.get('max_model_len')}"
+            f", eager {conditions.get('enforce_eager')}",
             "",
             "| 경로 | 로드 | N-best 5 | 로그확률 | N-best 전사(ms) |",
             "|---|---|---|---|---|",
@@ -146,7 +155,7 @@ def md_report(
         return out
 
     section("Spike 1 — vLLM 이 Qwen3-ASR 을 로드하는가", s1, b1)
-    section("Spike 2 — flash-attn 이 sm_87 에서 되는가", s2, b2)
+    section("Spike 2 — flash-attn 과 Qwen3-TTS 가 동작하는가", s2, b2)
     section("Spike 3 — MoE vs 밀집 14B 실측 tok/s", s3, b3)
 
     L += ["## 종합", ""]
@@ -169,6 +178,12 @@ def md_report(
             "",
             ("✅ 예산 내." if total <= 2900 else "❌ 예산 초과. 위 표에서 초과 단계를 특정할 것."),
         ]
+        if target == "a6000":
+            L += [
+                "",
+                "> 위 합계는 A6000 서버 내부 단계만 포함한다. Jetson에서 `kotonoha netcheck`를 "
+                "실행해 RTT와 오디오 업로드 시간을 별도로 더해야 한다.",
+            ]
     else:
         L.append("스파이크 1·3 이 모두 끝나야 지연 예산을 대조할 수 있다.")
     return "\n".join(L) + "\n"
@@ -179,12 +194,24 @@ def patch_yaml(
     /,
     s2: dict | None,
     s3: dict | None,
+    target: str = "jetson",
 ) -> str:
-    lines = ["# Phase 0 결과로 확정된 값. config/local.yaml 로 복사하면 자동 적용된다.", ""]
+    destination = "config/local.yaml" if target == "jetson" else "config/remote-server.local.yaml"
+    lines = [f"# 실측 결과로 확정된 값. {destination} 로 복사하면 적용된다.", ""]
     if s1:
         b = (s1.get("verdict") or {}).get("recommended_backend")
         if b in ("vllm", "transformers"):
-            lines += ["asr:", f"  backend: {b}", ""]
+            lines += ["asr:", f"  backend: {b}"]
+            if b == "vllm":
+                conditions = s1.get("conditions") or {}
+                lines += [
+                    "  vllm_gpu_memory_utilization: "
+                    f"{conditions.get('gpu_memory_utilization', 0.80)}",
+                    f"  vllm_max_model_len: {conditions.get('max_model_len', 4096)}",
+                    "  vllm_enforce_eager: "
+                    f"{str(conditions.get('enforce_eager', True)).lower()}",
+                ]
+            lines.append("")
     if s2:
         t = (s2.get("verdict") or {}).get("tts_backend")
         if t in ("qwen3", "melo"):
@@ -198,15 +225,21 @@ def patch_yaml(
 
 def main() -> int:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--target", choices=["jetson", "a6000"], default="jetson")
     ap.add_argument("--dir", type=Path, default=Path("spikes/out"))
     ap.add_argument("--md", type=Path, default=Path("spikes/out/PHASE0.md"))
     ap.add_argument("--patch", type=Path, default=Path("spikes/out/local.yaml"))
     a = ap.parse_args()
 
     s1, s2, s3 = load(a.dir, 1), load(a.dir, 2), load(a.dir, 3)
+    for result in (s1, s2, s3):
+        if result and result.get("target", a.target) != a.target:
+            raise SystemExit(
+                f"result target {result.get('target')} does not match --target {a.target}"
+            )
     a.md.parent.mkdir(parents=True, exist_ok=True)
-    a.md.write_text(md_report(s1, s2, s3), encoding="utf-8")
-    a.patch.write_text(patch_yaml(s1, s2, s3), encoding="utf-8")
+    a.md.write_text(md_report(s1, s2, s3, a.target), encoding="utf-8")
+    a.patch.write_text(patch_yaml(s1, s2, s3, a.target), encoding="utf-8")
     print(a.md.read_text(encoding="utf-8"))
     print(f"\n→ 설정 패치: {a.patch}")
     return 0

@@ -169,6 +169,9 @@ def run_vllm(
     audio: np.ndarray,
     /,
     runs: int,
+    gpu_memory_utilization: float,
+    max_model_len: int,
+    enforce_eager: bool,
 ) -> dict:
     """First: does vLLM recognise this architecture at all?
 
@@ -187,10 +190,11 @@ def run_vllm(
         t0 = time.perf_counter()
         llm = LLM(
             model=VLLM_ID,
-            max_model_len=4096,
+            max_model_len=max_model_len,
             dtype="float16",
+            gpu_memory_utilization=gpu_memory_utilization,
             limit_mm_per_prompt={"audio": 1},
-            enforce_eager=True,
+            enforce_eager=enforce_eager,
         )
         out["load_s"] = round(time.perf_counter() - t0, 2)
         out["loaded"] = True
@@ -267,9 +271,17 @@ def verdict(
 
 def main() -> int:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--target", choices=["jetson", "a6000"], default="jetson")
     ap.add_argument("--wav", type=Path, default=None, help="a real ~6 s recording, 16-bit PCM")
     ap.add_argument("--runs", type=int, default=3)
     ap.add_argument("--only", choices=["vllm", "transformers"], default=None)
+    ap.add_argument("--gpu-memory-utilization", type=float, default=0.80)
+    ap.add_argument("--max-model-len", type=int, default=4096)
+    ap.add_argument(
+        "--enforce-eager",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
     ap.add_argument("--out", type=Path, default=Path("spikes/out/spike1.json"))
     a = ap.parse_args()
 
@@ -283,12 +295,26 @@ def main() -> int:
 
     result = {
         "spike": 1,
-        "question": "Jetson vLLM 이 Qwen3-ASR 을 로드하는가",
+        "target": a.target,
+        "question": f"{a.target} vLLM 이 Qwen3-ASR 을 로드하는가",
         "audio": {"source": src, "seconds": round(len(audio) / 16000, 2)},
         "env": env_info(),
+        "conditions": {
+            "gpu_memory_utilization": a.gpu_memory_utilization,
+            "max_model_len": a.max_model_len,
+            "enforce_eager": a.enforce_eager,
+        },
     }
     result["vllm"] = (
-        run_vllm(audio, a.runs) if a.only in (None, "vllm") else {"skipped": True}
+        run_vllm(
+            audio,
+            a.runs,
+            a.gpu_memory_utilization,
+            a.max_model_len,
+            a.enforce_eager,
+        )
+        if a.only in (None, "vllm")
+        else {"skipped": True}
     )
     result["transformers"] = (
         run_transformers(audio, a.runs) if a.only in (None, "transformers") else {"skipped": True}

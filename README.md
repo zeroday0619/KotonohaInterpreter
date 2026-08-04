@@ -22,14 +22,18 @@ interpretation. ASR, translation, and TTS operate without cloud APIs.
 
 ## Project Status
 
-Phase 0 target-device validation has not been completed. The following settings remain
-provisional until measured on the Jetson:
+Jetson Phase 0 and A6000 performance acceptance have not been completed. The following
+settings remain provisional until measured on their deployment hosts:
 
 | Decision | Setting | Current default | Validation |
 |---|---|---|---|
 | Primary ASR runtime | `asr.backend` | `vllm` | Spike 1 acceptance measurement |
 | TTS backend | `tts.backend` | `melo` | Spike 2 |
 | Translation model class | `llm.profile` | `dense` | Spike 3 |
+
+High-performance mode repeats all three model-stage spikes on the A6000 with its
+production 4096-token LLM context. Link acceptance runs separately from the Jetson because
+server inference and network overhead are independent measurements.
 
 The primary ASR service uses vLLM multimodal beam search and returns five scored
 hypotheses. Transformers remains available as an explicit fallback. Spike 1 must still
@@ -296,7 +300,7 @@ The repository currently configures these identifiers:
 
 ## Limitations
 
-- Phase 0 target measurements remain pending.
+- Jetson Phase 0 and A6000 performance measurements remain pending.
 - Jetson vLLM model loading and latency remain unverified until Spike 1 runs on sm_87.
 - Complete model inference cannot be validated on the macOS development workstation.
 - Push-to-talk is a terminal toggle because terminals do not expose key-release events.

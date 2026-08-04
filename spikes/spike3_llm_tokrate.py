@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Spike 3 — measured token generation rate, MoE versus dense 14B.
 
-Conditions: context 2048, batch 1, 60 output tokens. A result below 5 tok/s
-selects the dense 14B profile. The MoE profile requires a generation rate at
-least equal to the dense profile and acceptable translation quality.
+Default conditions are context 2048, batch 1, and 60 output tokens. The A6000 track uses
+the production context from `config/performance.yaml`. A result below 5 tok/s selects the
+dense 14B profile. The MoE profile requires a generation rate at least equal to the dense
+profile and acceptable translation quality.
 
 The Orin provides 204.8 GB/s of memory bandwidth. MoE inference reads active
 parameters, while expert routing changes memory locality between tokens. The
@@ -48,8 +49,8 @@ PROFILES = {
     },
 }
 
-N_CTX = 2048
-N_PREDICT = 60
+DEFAULT_CONTEXT_LENGTH = 2048
+DEFAULT_OUTPUT_TOKENS = 60
 MIN_TOK_S = 5.0
 
 # A prompt shaped like the real thing (§5.3 single pass: N-best + history + glossary)
@@ -82,12 +83,13 @@ def run_llama_bench(
     /,
     model: Path,
     ngl: int,
+    output_tokens: int,
 ) -> dict:
     exe = bin_dir / "llama-bench"
     if not exe.exists():
         return {"skipped": f"not found: {exe}"}
     cmd = [
-        str(exe), "-m", str(model), "-p", "512", "-n", str(N_PREDICT),
+        str(exe), "-m", str(model), "-p", "512", "-n", str(output_tokens),
         "-b", "512", "-ngl", str(ngl), "-r", "3", "-o", "md",
     ]
     try:
@@ -128,6 +130,7 @@ def wait_health(
 def stream_translate(
     url: str,
     /,
+    output_tokens: int,
 ) -> dict:
     """Stream a real translation prompt over SSE, timing both TTFT and rate."""
     body = json.dumps(
@@ -138,7 +141,7 @@ def stream_translate(
             ],
             "temperature": 0.2,
             "top_p": 0.9,
-            "max_tokens": N_PREDICT,
+            "max_tokens": output_tokens,
             "stream": True,
             "cache_prompt": False,
         }
@@ -190,6 +193,9 @@ def bench_profile(
     models_dir: Path,
     ngl: int,
     port: int,
+    context_length: int,
+    output_tokens: int,
+    runs: int,
 ) -> dict:
     spec = PROFILES[name]
     model = models_dir / spec["file"]
@@ -197,7 +203,7 @@ def bench_profile(
     if not model.exists():
         return {**result, "error": f"GGUF missing: {model}. See scripts/fetch_models.sh"}
 
-    result["llama_bench"] = run_llama_bench(bin_dir, model, ngl)
+    result["llama_bench"] = run_llama_bench(bin_dir, model, ngl, output_tokens)
 
     exe = bin_dir / "llama-server"
     if not exe.exists():
@@ -207,7 +213,7 @@ def bench_profile(
     url = f"http://127.0.0.1:{port}"
     proc = subprocess.Popen(
         [
-            str(exe), "-m", str(model), "-c", str(N_CTX), "-ngl", str(ngl),
+            str(exe), "-m", str(model), "-c", str(context_length), "-ngl", str(ngl),
             "--port", str(port), "--host", "127.0.0.1", "-np", "1", "--no-webui",
         ],
         stdout=subprocess.DEVNULL,
@@ -219,10 +225,10 @@ def bench_profile(
             result["server"] = {"error": "health timeout"}
             return result
         result["server_load_s"] = round(time.perf_counter() - t0, 1)
-        stream_translate(url)  # warm-up
-        runs = [stream_translate(url) for _ in range(3)]
-        best = max(runs, key=lambda r: r["tok_per_s"] or 0)
-        result["server"] = {"runs": runs, "best": best}
+        stream_translate(url, output_tokens)  # warm-up
+        measurements = [stream_translate(url, output_tokens) for _ in range(runs)]
+        best = max(measurements, key=lambda r: r["tok_per_s"] or 0)
+        result["server"] = {"runs": measurements, "best": best}
     finally:
         proc.terminate()
         try:
@@ -272,24 +278,43 @@ def verdict(
 
 def main() -> int:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--target", choices=["jetson", "a6000"], default="jetson")
     ap.add_argument("--bin", type=Path, required=True, help="llama.cpp build bin directory")
     ap.add_argument("--models-dir", type=Path, default=Path("./models/gguf"))
     ap.add_argument("--ngl", type=int, default=999, help="number of layers offloaded to GPU")
     ap.add_argument("--port", type=int, default=18003)
+    ap.add_argument("--context", type=int, default=DEFAULT_CONTEXT_LENGTH)
+    ap.add_argument("--output-tokens", type=int, default=DEFAULT_OUTPUT_TOKENS)
+    ap.add_argument("--runs", type=int, default=3)
     ap.add_argument("--only", choices=list(PROFILES), default=None)
     ap.add_argument("--out", type=Path, default=Path("spikes/out/spike3.json"))
     a = ap.parse_args()
 
     result: dict = {
         "spike": 3,
+        "target": a.target,
         "question": "MoE(활성 3B) vs 밀집 14B 실측 tok/s",
-        "conditions": {"n_ctx": N_CTX, "batch": 1, "n_predict": N_PREDICT},
+        "conditions": {
+            "n_ctx": a.context,
+            "batch": 1,
+            "n_predict": a.output_tokens,
+            "runs": a.runs,
+        },
     }
     for name in PROFILES:
         if a.only and name != a.only:
             continue
         print(f"── {name} 측정 중 …", file=sys.stderr)
-        result[name] = bench_profile(name, a.bin, a.models_dir, a.ngl, a.port)
+        result[name] = bench_profile(
+            name,
+            a.bin,
+            a.models_dir,
+            a.ngl,
+            a.port,
+            a.context,
+            a.output_tokens,
+            a.runs,
+        )
     result["verdict"] = verdict(result)
 
     a.out.parent.mkdir(parents=True, exist_ok=True)

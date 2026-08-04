@@ -793,6 +793,28 @@ python3 spikes/report.py --dir spikes/out \
 Review the generated report before copying any decision patch into `config/local.yaml`.
 Phase 1 starts only after explicit approval of all three verdicts.
 
+## A6000 Performance Acceptance
+
+Run the same model-stage spikes on the A6000 after the remote images build successfully.
+Keep these results separate from Jetson Phase 0:
+
+```bash
+bash spikes/run_all.sh a6000
+python3 spikes/report.py \
+  --target a6000 \
+  --dir spikes/out/a6000 \
+  --md spikes/out/a6000/PERFORMANCE.md \
+  --patch spikes/out/a6000/remote-server.local.yaml
+```
+
+The A6000 run uses a 4096-token LLM context and records the vLLM GPU-memory allocation,
+model-length limit, and eager-mode selection. Copy the accepted patch only after all four
+remote services remain healthy concurrently.
+
+Run `kotonoha netcheck --samples 20 --seconds 6` from the Jetson after server-side
+measurements complete. Attach its output and `nvidia-smi` residency evidence to
+`PERFORMANCE.md`. The server report does not include network overhead.
+
 ## Operational Procedures
 
 ### Status

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Spike 2 — does flash-attn build and run on sm_87 (Orin)?
+"""Spike 2 — does FlashAttention and Qwen3-TTS run on the selected GPU?
 
 What this decides:
   · whether flash_attn imports AND its kernel actually runs. Import alone is
@@ -204,6 +204,7 @@ def verdict(
 
 def main() -> int:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--target", choices=["jetson", "a6000"], default="jetson")
     ap.add_argument("--runs", type=int, default=3)
     ap.add_argument("--out", type=Path, default=Path("spikes/out/spike2.json"))
     ap.add_argument("--skip-melo", action="store_true")
@@ -211,7 +212,8 @@ def main() -> int:
 
     result: dict = {
         "spike": 2,
-        "question": "flash-attn 이 sm_87 에서 빌드/동작하는가, Qwen3-TTS 를 띄울 수 있는가",
+        "target": a.target,
+        "question": f"{a.target} 에서 flash-attn 과 Qwen3-TTS 가 동작하는가",
         "env": env_info(),
     }
     result["flash_attn"] = probe_flash_attn()
