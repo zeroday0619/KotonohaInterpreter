@@ -216,6 +216,40 @@ class MicCapture:
             self.overflows += 1
 
 
+class NullCapture:
+    """Opens no device and never yields a frame.
+
+    Used by text-only runs, where the keyboard is the input source and touching
+    PortAudio would fail on hosts without a microphone.
+    """
+
+    def __init__(self, **_ignored):
+        self.frames: asyncio.Queue[Frame] = asyncio.Queue()
+        self.loop: asyncio.AbstractEventLoop | None = None
+        self._gate_open = False
+        self.dropped_blocks = 0
+        self.overflows = 0
+
+    @property
+    def gate_open(self) -> bool:
+        return self._gate_open
+
+    def close_gate(self) -> None:
+        self._gate_open = False
+
+    def open_gate(self) -> None:
+        self._gate_open = False  # there is nothing to open
+
+    def start(self) -> None:
+        return None
+
+    def stop(self) -> None:
+        return None
+
+    def tail48(self, samples16: int) -> np.ndarray:
+        return np.zeros(0, dtype=np.float32)
+
+
 class FileCapture:
     """Streams a WAV file as if it were the microphone.
 

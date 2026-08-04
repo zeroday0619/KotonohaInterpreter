@@ -1,0 +1,1028 @@
+# Korean translations for Kotonoha Interpreter.
+# Copyright (C) 2026 Kotonoha Interpreter
+# This file is distributed under the same license as the Kotonoha Interpreter project.
+# Seeded from the project's original message tables.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: Kotonoha Interpreter 0.1.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-08-04 14:17+0900\n"
+"PO-Revision-Date: 2026-08-04 13:07+0900\n"
+"Last-Translator: Kotonoha Interpreter\n"
+"Language: ko\n"
+"Language-Team: Korean\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: kotonoha/cli.py:140
+msgid "Consecutive four-language offline speech interpreter"
+msgstr "순차식 4언어 오프라인 음성 통역기"
+
+#: kotonoha/cli.py:145
+msgid "Manage the glossary"
+msgstr "용어집 관리"
+
+#: kotonoha/cli.py:148
+msgid "Browse past interpretation turns"
+msgstr "지난 통역 기록 열람"
+
+#: kotonoha/cli.py:160
+msgid "Path to a YAML configuration file"
+msgstr "YAML 설정 파일 경로"
+
+#: kotonoha/cli.py:165
+msgid "Interface language: auto, en, ko, ja, zh-TW"
+msgstr "인터페이스 언어: auto, en, ko, ja, zh-TW"
+
+#: kotonoha/cli.py:183
+msgid "Start the terminal interface"
+msgstr "터미널 인터페이스 실행"
+
+#: kotonoha/cli.py:198
+msgid "Start the integrated terminal interface"
+msgstr "통합 터미널 인터페이스 실행"
+
+#: kotonoha/cli.py:205
+msgid "Run the pipeline from a WAV file, without a microphone"
+msgstr "마이크 없이 WAV 파일로 파이프라인 실행"
+
+#: kotonoha/cli.py:209
+msgid "16-bit PCM WAV file"
+msgstr "16비트 PCM WAV 파일"
+
+#: kotonoha/cli.py:211
+msgid "Run duration in seconds"
+msgstr "실행 시간(초)"
+
+#: kotonoha/cli.py:228
+#, python-brace-format
+msgid "Turn log: {path}"
+msgstr "턴 로그: {path}"
+
+#: kotonoha/cli.py:231
+msgid "Interpret typed text without a microphone"
+msgstr "마이크 없이 입력한 텍스트를 통역"
+
+#: kotonoha/cli.py:234
+msgid "Text to interpret"
+msgstr "통역할 텍스트"
+
+#: kotonoha/cli.py:237
+msgid "Source language; omit to read it from the script"
+msgstr "소스 언어. 생략하면 문자 체계로 판정"
+
+#: kotonoha/cli.py:240
+msgid "Play the synthesized translation"
+msgstr "합성된 번역을 재생"
+
+#: kotonoha/cli.py:269
+msgid "The turn was refused: empty input, or another turn is running"
+msgstr "턴이 거부됐다. 입력이 비었거나 다른 턴이 진행 중이다"
+
+#: kotonoha/cli.py:271 kotonoha/cli.py:273
+#, python-brace-format
+msgid "[{lang}] {text}"
+msgstr "[{lang}] {text}"
+
+#: kotonoha/cli.py:277 kotonoha/tui/tools_app.py:158
+msgid "List audio devices"
+msgstr "오디오 장치 목록"
+
+#: kotonoha/cli.py:282
+msgid "Default input/output:"
+msgstr "기본 입력/출력:"
+
+#: kotonoha/cli.py:285 kotonoha/tui/tools_app.py:164
+msgid "Start a model service"
+msgstr "모델 서비스 기동"
+
+#: kotonoha/cli.py:287
+msgid "Service to start"
+msgstr "기동할 서비스"
+
+#: kotonoha/cli.py:288 kotonoha/tui/tools_app.py:113 kotonoha/tui/tools_app.py:181
+msgid "Bind address"
+msgstr "바인드 주소"
+
+#: kotonoha/cli.py:290
+msgid "Port; defaults to the port assigned to the service"
+msgstr "포트. 미지정 시 서비스별 기본 포트"
+
+#: kotonoha/cli.py:306
+msgid "Load glossary and Traditional Chinese rules from YAML"
+msgstr "YAML에서 용어집과 번체 규칙을 반영"
+
+#: kotonoha/cli.py:310 kotonoha/tui/tools_app.py:140 kotonoha/tui/tools_app.py:180
+msgid "Glossary YAML file"
+msgstr "용어집 YAML 파일"
+
+#: kotonoha/cli.py:330
+#, python-brace-format
+msgid "{terms} terms and {rules} rules applied to {path}"
+msgstr "용어 {terms}건, 규칙 {rules}건을 {path}에 반영"
+
+#: kotonoha/cli.py:338
+msgid "List registered terms"
+msgstr "등록된 용어 출력"
+
+#: kotonoha/cli.py:348
+msgid "Report environment, role placement and service health"
+msgstr "환경, 역할 배치, 서비스 상태 점검"
+
+#: kotonoha/cli.py:363
+msgid "! In this mode utterance audio leaves the device"
+msgstr "! 이 모드에서는 발화 오디오가 기기 밖으로 나간다"
+
+#: kotonoha/cli.py:396
+#, python-brace-format
+msgid "Translation catalogs not compiled: {locales}"
+msgstr "번역 카탈로그가 컴파일되지 않았다: {locales}"
+
+#: kotonoha/cli.py:397
+msgid "Run: uv run python scripts/i18n.py compile"
+msgstr "실행: uv run python scripts/i18n.py compile"
+
+#: kotonoha/cli.py:399
+#, python-brace-format
+msgid "Translation catalogs compiled: {locales}"
+msgstr "번역 카탈로그 컴파일됨: {locales}"
+
+#: kotonoha/cli.py:407
+msgid "Services:"
+msgstr "서비스:"
+
+#: kotonoha/cli.py:419
+msgid "Measure latency and throughput to the external server"
+msgstr "외부 서버까지의 지연과 대역폭 측정"
+
+#: kotonoha/cli.py:422 kotonoha/tui/tools_app.py:127 kotonoha/tui/tools_app.py:183
+msgid "Measurements per role"
+msgstr "역할당 측정 횟수"
+
+#: kotonoha/cli.py:423
+msgid "Probe utterance length in seconds"
+msgstr "프로브 발화 길이(초)"
+
+#: kotonoha/cli.py:437
+msgid "remote.enabled is false. Use config/performance.yaml, or enable it and retry."
+msgstr "remote.enabled가 false다. config/performance.yaml을 쓰거나 켜고 다시 실행할 것."
+
+#: kotonoha/cli.py:443
+#, python-brace-format
+msgid "No role is routed remotely under perf_mode={mode}."
+msgstr "perf_mode={mode}에서 원격으로 가는 역할이 없다."
+
+#: kotonoha/cli.py:454
+#, python-brace-format
+msgid "probe       {seconds}s utterance, {encoding}, {size} bytes"
+msgstr "probe       {seconds}초 발화, {encoding}, {size} 바이트"
+
+#: kotonoha/cli.py:522
+#, python-brace-format
+msgid "Connection failed: {roles}. These roles fall back on-board."
+msgstr "연결 실패: {roles}. 이 역할은 온보드로 폴백된다."
+
+#: kotonoha/cli.py:535
+#, python-brace-format
+msgid "Estimated link overhead per turn  {ms} ms"
+msgstr "턴당 링크 오버헤드 추정  {ms} ms"
+
+#: kotonoha/cli.py:536
+#, python-brace-format
+msgid "Budget, end-of-utterance to first audio  {ms} ms"
+msgstr "발화 종료에서 첫 음성까지 예산  {ms} ms"
+
+#: kotonoha/cli.py:538
+#, python-format
+msgid "  ! The link consumes more than 25% of the budget. Consider hybrid mode."
+msgstr "  ! 링크가 예산의 25%를 넘게 소모한다. hybrid 모드를 검토할 것."
+
+#: kotonoha/cli.py:540
+msgid "  The link fits within the budget. The remainder is model inference time."
+msgstr "  링크는 예산 안에 든다. 남은 것은 모델 추론 시간이다."
+
+#: kotonoha/cli.py:548
+msgid "Edit the configuration in a terminal interface"
+msgstr "터미널 인터페이스에서 설정 편집"
+
+#: kotonoha/cli.py:557
+msgid "Match text in the source or the translation"
+msgstr "원문 또는 번역문에서 문자열 검색"
+
+#: kotonoha/cli.py:560
+msgid "Filter by detected source language"
+msgstr "판정된 소스 언어로 필터"
+
+#: kotonoha/cli.py:564
+msgid "Filter by turn outcome, for example ok or llm_timeout"
+msgstr "턴 결과로 필터. 예: ok, llm_timeout"
+
+#: kotonoha/cli.py:574
+msgid "Open the history browser"
+msgstr "기록 브라우저 실행"
+
+#: kotonoha/cli.py:581
+msgid "Print past turns to standard output"
+msgstr "지난 기록을 표준 출력으로 인쇄"
+
+#: kotonoha/cli.py:587 kotonoha/cli.py:627
+msgid "Maximum turns to return"
+msgstr "반환할 최대 턴 수"
+
+#: kotonoha/cli.py:589
+msgid "Print complete text instead of an excerpt"
+msgstr "발췌 대신 전문 출력"
+
+#: kotonoha/cli.py:603 kotonoha/cli.py:641 kotonoha/tui/history_app.py:172
+#: kotonoha/tui/history_app.py:254
+msgid "No turns match"
+msgstr "조건에 맞는 턴이 없다"
+
+#: kotonoha/cli.py:617
+#, python-brace-format
+msgid "{shown} of {total} turns"
+msgstr "전체 {total}건 중 {shown}건"
+
+#: kotonoha/cli.py:620
+msgid "Export past turns as JSONL"
+msgstr "지난 기록을 JSONL로 내보내기"
+
+#: kotonoha/cli.py:623
+msgid "Destination JSONL file"
+msgstr "출력 JSONL 파일"
+
+#: kotonoha/cli.py:644 kotonoha/tui/history_app.py:259
+#, python-brace-format
+msgid "Exported {count} turns to {path}"
+msgstr "{count}건을 {path}에 내보냈다"
+
+#: kotonoha/tui/app.py:88
+msgid "OPEN"
+msgstr "열림"
+
+#: kotonoha/tui/app.py:88
+msgid "SHUT"
+msgstr "차단"
+
+#: kotonoha/tui/app.py:103
+msgid " audio off-box"
+msgstr " 오디오 외부 전송"
+
+#: kotonoha/tui/app.py:178
+msgid "No past turns"
+msgstr "지난 기록 없음"
+
+#: kotonoha/tui/app.py:219
+msgid "ASR (+verify)"
+msgstr "ASR (+검증)"
+
+#: kotonoha/tui/app.py:220
+msgid "LLM first clause"
+msgstr "LLM 첫 절"
+
+#: kotonoha/tui/app.py:221
+msgid "TTS first packet"
+msgstr "TTS 첫 패킷"
+
+#: kotonoha/tui/app.py:222
+msgid "EOU to audio"
+msgstr "EOU→첫 음성"
+
+#: kotonoha/tui/app.py:225
+msgid "Latency (ms)        measured / budget"
+msgstr "지연 (ms)            실측 / 예산"
+
+#: kotonoha/tui/app.py:236
+msgid "Over: "
+msgstr "초과: "
+
+#: kotonoha/tui/app.py:264
+msgid "Services"
+msgstr "서비스"
+
+#: kotonoha/tui/app.py:284
+msgid "Recent errors"
+msgstr "최근 오류"
+
+#: kotonoha/tui/app.py:331
+msgid "Talk (toggle)"
+msgstr "말하기(토글)"
+
+#: kotonoha/tui/app.py:332
+msgid "PTT/auto"
+msgstr "PTT/자동"
+
+#: kotonoha/tui/app.py:333
+msgid "Routing"
+msgstr "라우팅"
+
+#: kotonoha/tui/app.py:334
+msgid "Clear"
+msgstr "지우기"
+
+#: kotonoha/tui/app.py:335 kotonoha/tui/app.py:358
+msgid "History"
+msgstr "기록"
+
+#: kotonoha/tui/app.py:336
+msgid "Text input"
+msgstr "텍스트 입력"
+
+#: kotonoha/tui/app.py:343
+msgid "Leave text input"
+msgstr "텍스트 입력 종료"
+
+#: kotonoha/tui/app.py:346 kotonoha/tui/config_app.py:431 kotonoha/tui/history_app.py:98
+msgid "Quit"
+msgstr "종료"
+
+#: kotonoha/tui/app.py:355
+msgid "Source (ASR)"
+msgstr "원문 (ASR)"
+
+#: kotonoha/tui/app.py:356 kotonoha/tui/history_app.py:137 kotonoha/tui/history_app.py:193
+msgid "Translation"
+msgstr "번역"
+
+#: kotonoha/tui/app.py:369
+msgid "Type an utterance and press Enter. Press t to return to voice."
+msgstr "발화를 입력하고 Enter. t 를 누르면 음성으로 돌아간다."
+
+#: kotonoha/tui/app.py:374
+msgid "Application logs"
+msgstr "애플리케이션 로그"
+
+#: kotonoha/tui/app.py:385 kotonoha/tui/menu_app.py:101
+msgid "Kotonoha Interpreter"
+msgstr "Kotonoha 통역기"
+
+#: kotonoha/tui/app.py:386
+#, python-brace-format
+msgid "session {session}"
+msgstr "세션 {session}"
+
+#: kotonoha/tui/app.py:394
+msgid "TUI logging is disabled by logging.console=false"
+msgstr "logging.console=false로 TUI 로깅이 비활성화되어 있습니다"
+
+#: kotonoha/tui/app.py:452
+#, python-brace-format
+msgid "[{seconds}s, preroll {preroll}ms, {reason}]"
+msgstr "[{seconds}초, 프리롤 {preroll}ms, {reason}]"
+
+#: kotonoha/tui/app.py:462
+msgid "(silence, returning without playback)"
+msgstr "(무음, 재생 없이 복귀)"
+
+#: kotonoha/tui/app.py:470
+#, python-brace-format
+msgid "verifying ({reason})"
+msgstr "교차검증 중 ({reason})"
+
+#: kotonoha/tui/app.py:478
+msgid "(LLM timeout, transcript only, TTS skipped)"
+msgstr "(LLM 타임아웃, 원문만 표시, TTS 생략)"
+
+#: kotonoha/tui/app.py:505
+#, python-brace-format
+msgid "{role} to {side} ({reason})"
+msgstr "{role} → {side} ({reason})"
+
+#: kotonoha/tui/config_app.py:156
+msgid "Primary ASR"
+msgstr "1차 ASR"
+
+#: kotonoha/tui/config_app.py:157 kotonoha/tui/tools_app.py:261
+msgid "Verification ASR"
+msgstr "검증 ASR"
+
+#: kotonoha/tui/config_app.py:158
+msgid "Audio devices"
+msgstr "오디오 장치"
+
+#: kotonoha/tui/config_app.py:159
+msgid "Context and storage"
+msgstr "컨텍스트와 저장소"
+
+#: kotonoha/tui/config_app.py:160
+msgid "Audio frontend"
+msgstr "오디오 프런트엔드"
+
+#: kotonoha/tui/config_app.py:161
+msgid "Interface"
+msgstr "인터페이스"
+
+#: kotonoha/tui/config_app.py:162
+msgid "Language processing"
+msgstr "언어 처리"
+
+#: kotonoha/tui/config_app.py:163
+msgid "Translation LLM"
+msgstr "번역 LLM"
+
+#: kotonoha/tui/config_app.py:164
+msgid "Logging and latency budgets"
+msgstr "로깅과 지연 예산"
+
+#: kotonoha/tui/config_app.py:165
+msgid "External server"
+msgstr "외부 서버"
+
+#: kotonoha/tui/config_app.py:166
+msgid "Runtime services"
+msgstr "런타임 서비스"
+
+#: kotonoha/tui/config_app.py:167
+msgid "Session"
+msgstr "세션"
+
+#: kotonoha/tui/config_app.py:168
+msgid "Speech synthesis"
+msgstr "음성 합성"
+
+#: kotonoha/tui/config_app.py:173
+#, python-brace-format
+msgid "YAML list or mapping for {path}."
+msgstr "{path}의 YAML 목록 또는 매핑."
+
+#: kotonoha/tui/config_app.py:174
+#, python-brace-format
+msgid "Numeric value for {path}."
+msgstr "{path}의 숫자 값."
+
+#: kotonoha/tui/config_app.py:175
+#, python-brace-format
+msgid "Filesystem path for {path}."
+msgstr "{path}의 파일 시스템 경로."
+
+#: kotonoha/tui/config_app.py:176
+#, python-brace-format
+msgid "Text value for {path}."
+msgstr "{path}의 텍스트 값."
+
+#: kotonoha/tui/config_app.py:182
+msgid "transformers is confirmed; vllm awaits Spike 1."
+msgstr "transformers는 확인됨. vllm은 Spike 1 대기."
+
+#: kotonoha/tui/config_app.py:183
+msgid "Hypotheses returned per utterance. The correction pass consumes all."
+msgstr "발화당 반환 가설 수. 정정 패스가 전부 사용한다."
+
+#: kotonoha/tui/config_app.py:184
+msgid "conditional gates on confidence; always runs every turn."
+msgstr "conditional은 신뢰도로 걸고, always는 매 턴 실행한다."
+
+#: kotonoha/tui/config_app.py:185
+msgid "Microphone index or name. Empty selects the system default."
+msgstr "마이크 인덱스 또는 이름. 비우면 시스템 기본값."
+
+#: kotonoha/tui/config_app.py:186
+msgid "Speaker index or name. Empty selects the system default."
+msgstr "스피커 인덱스 또는 이름. 비우면 시스템 기본값."
+
+#: kotonoha/tui/config_app.py:187
+msgid "DeepFilterNet3 noise suppression."
+msgstr "DeepFilterNet3 잡음 제거."
+
+#: kotonoha/tui/config_app.py:188
+msgid "silero_onnx on the device; energy is a workstation fallback."
+msgstr "기기에서는 silero_onnx. energy는 개발 PC 폴백이다."
+
+#: kotonoha/tui/config_app.py:190
+msgid "Audio retained before speech onset. Below 200 ms the first syllable is clipped."
+msgstr "발화 시작 이전에 남겨두는 오디오. 200ms 아래로 내려가면 첫 음절이 잘린다."
+
+#: kotonoha/tui/config_app.py:192
+msgid "Silence required before end-of-utterance."
+msgstr "발화 종료로 판정하기까지 필요한 침묵 길이."
+
+#: kotonoha/tui/config_app.py:193
+msgid "Speech onset probability, 0 to 1."
+msgstr "발화 시작 판정 확률, 0에서 1."
+
+#: kotonoha/tui/config_app.py:194
+msgid "moe is the 30B mixture; dense is the 14B."
+msgstr "moe는 30B 혼합 전문가, dense는 14B."
+
+#: kotonoha/tui/config_app.py:196
+msgid ""
+"Show structured application logs in the TUI. Model services emit JSON to their "
+"console."
+msgstr "TUI에 구조화된 애플리케이션 로그를 표시한다. 모델 서비스는 콘솔에 JSON을 출력한다."
+
+#: kotonoha/tui/config_app.py:200
+msgid ""
+"onboard runs everything locally. hybrid moves only the LLM and keeps audio on the "
+"device. remote moves every model."
+msgstr "onboard는 전부 로컬. hybrid는 LLM만 옮기고 오디오는 기기에 둔다. remote는 모든 모델을 옮긴다."
+
+#: kotonoha/tui/config_app.py:203
+msgid "s16le halves the bytes on the wire against f32le."
+msgstr "s16le는 f32le 대비 전송 바이트를 절반으로 줄인다."
+
+#: kotonoha/tui/config_app.py:204
+msgid "When false every role runs locally, whatever perf_mode says."
+msgstr "false면 perf_mode와 무관하게 모든 역할이 로컬에서 돈다."
+
+#: kotonoha/tui/config_app.py:205
+msgid "Consecutive transport failures before a role falls back."
+msgstr "역할이 폴백하기까지 허용하는 연속 전송 실패 횟수."
+
+#: kotonoha/tui/config_app.py:206
+msgid "ASR service URL on the external server."
+msgstr "외부 서버의 ASR 서비스 URL."
+
+#: kotonoha/tui/config_app.py:207
+msgid "Verification service URL on the external server."
+msgstr "외부 서버의 교차검증 서비스 URL."
+
+#: kotonoha/tui/config_app.py:208
+msgid "Translation service URL on the external server."
+msgstr "외부 서버의 번역 서비스 URL."
+
+#: kotonoha/tui/config_app.py:209
+msgid "Speech synthesis service URL on the external server."
+msgstr "외부 서버의 음성 합성 서비스 URL."
+
+#: kotonoha/tui/config_app.py:211
+msgid ""
+"push_to_talk requires a key press, auto segments on the VAD, and text closes the "
+"microphone and takes utterances from the keyboard."
+msgstr "push_to_talk은 키 입력이 필요하고, auto는 VAD가 발화를 자르며, text는 마이크를 닫고 키보드에서 발화를 받는다."
+
+#: kotonoha/tui/config_app.py:214
+msgid "pair swaps between two languages; fixed always targets one."
+msgstr "pair는 두 언어를 오가고, fixed는 항상 한 언어로 보낸다."
+
+#: kotonoha/tui/config_app.py:216
+msgid "Source language for typed input. auto reads it from the script."
+msgstr "텍스트 입력의 소스 언어. auto는 문자 체계로 판정한다."
+
+#: kotonoha/tui/config_app.py:218
+msgid "qwen3 depends on the Spike 2 result; melo is the fallback."
+msgstr "qwen3은 Spike 2 결과에 달렸고, melo는 폴백이다."
+
+#: kotonoha/tui/config_app.py:219
+msgid "Interface language. auto follows the system locale."
+msgstr "인터페이스 언어. auto는 시스템 로케일을 따른다."
+
+#: kotonoha/tui/config_app.py:221
+msgid "Maximum TUI frame scheduler rate. Idle frames do not repaint the terminal."
+msgstr "TUI 프레임 스케줄러의 최대 주사율. 유휴 프레임은 터미널을 다시 그리지 않는다."
+
+#: kotonoha/tui/config_app.py:294
+msgid "modified"
+msgstr "변경됨"
+
+#: kotonoha/tui/config_app.py:340
+#, python-brace-format
+msgid "{path}: value required"
+msgstr "{path}: 값을 입력해야 한다"
+
+#: kotonoha/tui/config_app.py:428
+msgid "Save"
+msgstr "저장"
+
+#: kotonoha/tui/config_app.py:429 kotonoha/tui/history_app.py:93
+msgid "Reload"
+msgstr "다시 읽기"
+
+#: kotonoha/tui/config_app.py:430 kotonoha/tui/config_app.py:459
+msgid "Categories"
+msgstr "카테고리"
+
+#: kotonoha/tui/config_app.py:454
+msgid "Local device"
+msgstr "로컬 장치"
+
+#: kotonoha/tui/config_app.py:454
+msgid "Remote A6000"
+msgstr "원격 A6000"
+
+#: kotonoha/tui/config_app.py:482
+msgid "Kotonoha configuration"
+msgstr "Kotonoha 설정"
+
+#: kotonoha/tui/config_app.py:515
+msgid "Loading configuration from the remote server"
+msgstr "원격 서버에서 설정을 불러오는 중"
+
+#: kotonoha/tui/config_app.py:522 kotonoha/tui/config_app.py:651
+#, python-brace-format
+msgid "Remote configuration failed: {error}"
+msgstr "원격 설정 작업 실패: {error}"
+
+#: kotonoha/tui/config_app.py:526
+#, python-brace-format
+msgid "Loaded remote configuration from {path}"
+msgstr "원격 설정을 {path}에서 불러왔다"
+
+#: kotonoha/tui/config_app.py:535
+msgid "Reloaded from disk"
+msgstr "디스크에서 다시 읽음"
+
+#: kotonoha/tui/config_app.py:554
+#, python-brace-format
+msgid "Changes are written to {path}"
+msgstr "변경 사항은 {path}에 기록된다"
+
+#: kotonoha/tui/config_app.py:617 kotonoha/tui/config_app.py:631
+#, python-brace-format
+msgid "Rejected, configuration would be invalid: {error}"
+msgstr "거부됨, 설정이 유효하지 않다: {error}"
+
+#: kotonoha/tui/config_app.py:621
+msgid "No changes to save"
+msgstr "저장할 변경 사항 없음"
+
+#: kotonoha/tui/config_app.py:638
+#, python-brace-format
+msgid "Saved {count} settings to {path}"
+msgstr "{count}개 설정을 {path}에 저장"
+
+#: kotonoha/tui/config_app.py:640
+msgid "Restart the interpreter for these values to take effect"
+msgstr "이 값들을 반영하려면 통역기를 재시작할 것"
+
+#: kotonoha/tui/config_app.py:646
+msgid "The remote configuration service is not connected"
+msgstr "원격 설정 서비스가 연결되지 않았다"
+
+#: kotonoha/tui/config_app.py:656
+#, python-brace-format
+msgid "Saved {count} settings to the remote file {path}"
+msgstr "설정 {count}개를 원격 파일 {path}에 저장했다"
+
+#: kotonoha/tui/config_app.py:661
+msgid "Restart the remote services to apply these values"
+msgstr "값을 적용하려면 원격 서비스를 다시 시작해야 한다"
+
+#: kotonoha/tui/history_app.py:92
+msgid "Search"
+msgstr "검색"
+
+#: kotonoha/tui/history_app.py:94
+msgid "Export"
+msgstr "내보내기"
+
+#: kotonoha/tui/history_app.py:95
+msgid "Next page"
+msgstr "다음 쪽"
+
+#: kotonoha/tui/history_app.py:96
+msgid "Previous page"
+msgstr "이전 쪽"
+
+#: kotonoha/tui/history_app.py:97 kotonoha/tui/license_app.py:134
+#: kotonoha/tui/tools_app.py:235 kotonoha/tui/tools_app.py:285
+msgid "Back"
+msgstr "뒤로"
+
+#: kotonoha/tui/history_app.py:106
+msgid "Search source or translation, then press Enter"
+msgstr "원문 또는 번역문 검색 후 Enter"
+
+#: kotonoha/tui/history_app.py:109
+msgid "All languages"
+msgstr "모든 언어"
+
+#: kotonoha/tui/history_app.py:116
+msgid "All outcomes"
+msgstr "모든 결과"
+
+#: kotonoha/tui/history_app.py:131 kotonoha/tui/menu_app.py:47 kotonoha/tui/menu_app.py:85
+msgid "Interpretation history"
+msgstr "통역 기록"
+
+#: kotonoha/tui/history_app.py:134
+msgid "Time"
+msgstr "시각"
+
+#: kotonoha/tui/history_app.py:135
+msgid "Direction"
+msgstr "방향"
+
+#: kotonoha/tui/history_app.py:136 kotonoha/tui/history_app.py:191
+msgid "Source"
+msgstr "원문"
+
+#: kotonoha/tui/history_app.py:138
+msgid "Outcome"
+msgstr "결과"
+
+#: kotonoha/tui/history_app.py:178
+#, python-brace-format
+msgid "{first}-{last} of {total}"
+msgstr "{total}건 중 {first}-{last}"
+
+#: kotonoha/tui/license_app.py:77
+msgid "See package metadata"
+msgstr "패키지 메타데이터 확인"
+
+#: kotonoha/tui/license_app.py:132
+msgid "Project"
+msgstr "프로젝트"
+
+#: kotonoha/tui/license_app.py:133
+msgid "Dependencies"
+msgstr "의존성"
+
+#: kotonoha/tui/license_app.py:141
+msgid "Project license"
+msgstr "프로젝트 라이선스"
+
+#: kotonoha/tui/license_app.py:146
+msgid "The project license text is unavailable in this installation."
+msgstr "이 설치에서 프로젝트 라이선스 전문을 찾을 수 없습니다."
+
+#: kotonoha/tui/license_app.py:150
+msgid "Installed dependencies"
+msgstr "설치된 의존성"
+
+#: kotonoha/tui/license_app.py:153
+msgid ""
+"License identifiers are read from installed package metadata. Retain any license "
+"files required by each distributed package."
+msgstr "라이선스 식별자는 설치된 패키지 메타데이터에서 읽습니다. 배포하는 각 패키지가 요구하는 라이선스 파일을 보존해야 합니다."
+
+#: kotonoha/tui/license_app.py:161
+msgid ""
+"Downloaded model artifacts are not covered by the project MIT license. Review and "
+"retain the license files supplied with each model."
+msgstr "다운로드한 모델 아티팩트에는 프로젝트 MIT 라이선스가 적용되지 않습니다. 각 모델과 함께 제공되는 라이선스 파일을 확인하고 보존해야 합니다."
+
+#: kotonoha/tui/license_app.py:170
+msgid "Product:"
+msgstr "제품:"
+
+#: kotonoha/tui/license_app.py:172
+msgid "Version:"
+msgstr "버전:"
+
+#: kotonoha/tui/license_app.py:174
+msgid "License:"
+msgstr "라이선스:"
+
+#: kotonoha/tui/license_app.py:179
+msgid "License information"
+msgstr "라이선스 정보"
+
+#: kotonoha/tui/license_app.py:180
+msgid "Project and installed dependencies"
+msgstr "프로젝트와 설치된 의존성"
+
+#: kotonoha/tui/license_app.py:183
+msgid "Package"
+msgstr "패키지"
+
+#: kotonoha/tui/license_app.py:184
+msgid "Version"
+msgstr "버전"
+
+#: kotonoha/tui/license_app.py:185
+msgid "Declared license"
+msgstr "선언된 라이선스"
+
+#: kotonoha/tui/license_app.py:190
+msgid "No direct dependencies detected"
+msgstr "직접 의존성을 찾지 못했습니다"
+
+#: kotonoha/tui/menu_app.py:45 kotonoha/tui/menu_app.py:71
+msgid "Interpreter"
+msgstr "통역기"
+
+#: kotonoha/tui/menu_app.py:46 kotonoha/tui/menu_app.py:80
+msgid "Configuration"
+msgstr "설정"
+
+#: kotonoha/tui/menu_app.py:48 kotonoha/tui/menu_app.py:87
+msgid "Operations"
+msgstr "운영 도구"
+
+#: kotonoha/tui/menu_app.py:49 kotonoha/tui/menu_app.py:92
+msgid "License"
+msgstr "라이선스"
+
+#: kotonoha/tui/menu_app.py:50 kotonoha/tui/menu_app.py:97
+msgid "Exit"
+msgstr "종료"
+
+#: kotonoha/tui/menu_app.py:60 kotonoha/tui/menu_app.py:102
+msgid "Control center"
+msgstr "제어 센터"
+
+#: kotonoha/tui/menu_app.py:61
+msgid "Select an operation"
+msgstr "작업을 선택하세요"
+
+#: kotonoha/tui/menu_app.py:63
+#, python-brace-format
+msgid "Performance mode: {mode}"
+msgstr "성능 모드: {mode}"
+
+#: kotonoha/tui/menu_app.py:67
+#, python-brace-format
+msgid "Placement: {placement}"
+msgstr "배치: {placement}"
+
+#: kotonoha/tui/menu_app.py:77
+msgid "Start microphone capture and interpretation"
+msgstr "마이크 입력과 순차 통역을 시작합니다"
+
+#: kotonoha/tui/menu_app.py:84
+msgid "Edit local and remote settings"
+msgstr "로컬 및 원격 설정을 편집합니다"
+
+#: kotonoha/tui/menu_app.py:86
+msgid "Search past turns and export them"
+msgstr "지난 턴을 검색하고 내보낸다"
+
+#: kotonoha/tui/menu_app.py:89
+msgid "Run diagnostics, services, replay, and glossary commands"
+msgstr "진단, 서비스, 재생 및 용어집 명령을 실행합니다"
+
+#: kotonoha/tui/menu_app.py:94
+msgid "Review project and installed dependency licenses"
+msgstr "프로젝트와 설치된 의존성의 라이선스를 확인합니다"
+
+#: kotonoha/tui/tools_app.py:55 kotonoha/tui/tools_app.py:57
+#, python-brace-format
+msgid "{field} must be a positive integer."
+msgstr "{field}은 양의 정수여야 합니다."
+
+#: kotonoha/tui/tools_app.py:59
+#, python-brace-format
+msgid "{field} must not exceed {maximum}."
+msgstr "{field}은 {maximum} 이하여야 합니다."
+
+#: kotonoha/tui/tools_app.py:67 kotonoha/tui/tools_app.py:69
+#, python-brace-format
+msgid "{field} must be a positive number."
+msgstr "{field}은 양수여야 합니다."
+
+#: kotonoha/tui/tools_app.py:76
+#, python-brace-format
+msgid "{field} must reference an existing file."
+msgstr "{field}은 기존 파일을 가리켜야 합니다."
+
+#: kotonoha/tui/tools_app.py:87 kotonoha/tui/tools_app.py:368
+msgid "Select a valid operation."
+msgstr "유효한 작업을 선택해야 합니다."
+
+#: kotonoha/tui/tools_app.py:98 kotonoha/tui/tools_app.py:186
+msgid "WAV file"
+msgstr "WAV 파일"
+
+#: kotonoha/tui/tools_app.py:101 kotonoha/tui/tools_app.py:130
+#: kotonoha/tui/tools_app.py:184
+msgid "Duration in seconds"
+msgstr "실행 시간(초)"
+
+#: kotonoha/tui/tools_app.py:110
+msgid "Select a valid service."
+msgstr "유효한 서비스를 선택해야 합니다."
+
+#: kotonoha/tui/tools_app.py:113
+#, python-brace-format
+msgid "{field} is required."
+msgstr "{field} 값을 입력해야 합니다."
+
+#: kotonoha/tui/tools_app.py:118 kotonoha/tui/tools_app.py:182
+msgid "Port"
+msgstr "포트"
+
+#: kotonoha/tui/tools_app.py:156
+msgid "Install shell completion"
+msgstr "셸 자동 완성 설치"
+
+#: kotonoha/tui/tools_app.py:157
+msgid "Show shell completion"
+msgstr "셸 자동 완성 표시"
+
+#: kotonoha/tui/tools_app.py:159
+msgid "Run environment diagnostics"
+msgstr "환경 진단 실행"
+
+#: kotonoha/tui/tools_app.py:160
+msgid "Import a glossary"
+msgstr "용어집 가져오기"
+
+#: kotonoha/tui/tools_app.py:161
+msgid "List glossary entries"
+msgstr "용어집 항목 목록"
+
+#: kotonoha/tui/tools_app.py:162
+msgid "Measure the external link"
+msgstr "외부 링크 측정"
+
+#: kotonoha/tui/tools_app.py:163
+msgid "Replay a WAV file"
+msgstr "WAV 파일 재생"
+
+#: kotonoha/tui/tools_app.py:168
+msgid "Install completion for the active shell."
+msgstr "현재 셸에 자동 완성을 설치합니다."
+
+#: kotonoha/tui/tools_app.py:169
+msgid "Print the completion script for the active shell."
+msgstr "현재 셸의 자동 완성 스크립트를 출력합니다."
+
+#: kotonoha/tui/tools_app.py:170
+msgid "Print available audio devices and system defaults."
+msgstr "사용 가능한 오디오 장치와 시스템 기본값을 출력합니다."
+
+#: kotonoha/tui/tools_app.py:171
+msgid "Inspect dependencies, placement, models, and service health."
+msgstr "의존성, 역할 배치, 모델 및 서비스 상태를 점검합니다."
+
+#: kotonoha/tui/tools_app.py:172
+msgid "Load glossary terms and Chinese conversion rules."
+msgstr "용어집과 중국어 변환 규칙을 불러옵니다."
+
+#: kotonoha/tui/tools_app.py:173
+msgid "Print every term stored in the local glossary."
+msgstr "로컬 용어집에 저장된 모든 용어를 출력합니다."
+
+#: kotonoha/tui/tools_app.py:174
+msgid "Measure remote service latency and audio upload throughput."
+msgstr "원격 서비스 지연과 오디오 업로드 처리량을 측정합니다."
+
+#: kotonoha/tui/tools_app.py:175 kotonoha/tui/tools_app.py:251
+msgid "Run the full pipeline from a 16-bit PCM WAV file."
+msgstr "16비트 PCM WAV 파일로 전체 파이프라인을 실행합니다."
+
+#: kotonoha/tui/tools_app.py:176
+msgid "Start one ASR, verification ASR, or TTS service."
+msgstr "ASR, 검증 ASR 또는 TTS 서비스 하나를 시작합니다."
+
+#: kotonoha/tui/tools_app.py:185 kotonoha/tui/tools_app.py:259
+msgid "Service"
+msgstr "서비스"
+
+#: kotonoha/tui/tools_app.py:190
+msgid "/path/to/glossary.yaml"
+msgstr "/path/to/glossary.yaml"
+
+#: kotonoha/tui/tools_app.py:191
+msgid "Use the service default when empty"
+msgstr "비워 두면 서비스 기본값 사용"
+
+#: kotonoha/tui/tools_app.py:192
+msgid "/path/to/probe.wav"
+msgstr "/path/to/probe.wav"
+
+#: kotonoha/tui/tools_app.py:232 kotonoha/tui/tools_app.py:283
+msgid "Run"
+msgstr "실행"
+
+#: kotonoha/tui/tools_app.py:233 kotonoha/tui/tools_app.py:284
+msgid "Stop"
+msgstr "중지"
+
+#: kotonoha/tui/tools_app.py:234
+msgid "Clear output"
+msgstr "출력 지우기"
+
+#: kotonoha/tui/tools_app.py:243
+msgid "Operation"
+msgstr "작업"
+
+#: kotonoha/tui/tools_app.py:287
+msgid "Command output"
+msgstr "명령 출력"
+
+#: kotonoha/tui/tools_app.py:289 kotonoha/tui/tools_app.py:415
+msgid "Ready"
+msgstr "준비됨"
+
+#: kotonoha/tui/tools_app.py:311
+msgid "Kotonoha operations"
+msgstr "Kotonoha 운영 도구"
+
+#: kotonoha/tui/tools_app.py:313
+#, python-brace-format
+msgid "Configuration: {config}"
+msgstr "설정: {config}"
+
+#: kotonoha/tui/tools_app.py:389
+#, python-brace-format
+msgid "Failed to start the process: {error}"
+msgstr "프로세스를 시작하지 못했습니다: {error}"
+
+#: kotonoha/tui/tools_app.py:407
+#, python-brace-format
+msgid "Process finished with exit code {code}"
+msgstr "프로세스 종료 코드: {code}"
+
+#: kotonoha/tui/tools_app.py:415
+msgid "Running"
+msgstr "실행 중"
+
+#: kotonoha/tui/tools_app.py:424
+msgid "Stopping the process"
+msgstr "프로세스 중지 중"
+

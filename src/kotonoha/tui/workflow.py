@@ -10,6 +10,7 @@ from ..config import Settings, load_settings
 from ..logging_setup import setup_logging
 from .app import KotonohaApp
 from .config_app import ConfigApp
+from .history_app import HistoryApp
 from .license_app import LicenseApp
 from .menu_app import TuiMenuApp
 from .tools_app import ToolsApp
@@ -34,6 +35,8 @@ async def run_unified_tui(
             await KotonohaApp(build_orchestrator(settings)).run_async()
         elif selection == "configuration":
             await ConfigApp(config_path=config_path).run_async()
+        elif selection == "history":
+            await HistoryApp(config_path=config_path).run_async()
         elif selection == "tools":
             await ToolsApp(config_path=config_path).run_async()
         elif selection == "license":

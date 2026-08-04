@@ -44,6 +44,7 @@ class TurnMetrics:
     # High-performance mode: which side ran each role this turn, and whether the
     # link forced a failover. Without these, a turn that quietly ran on the
     # on-board fallback is indistinguishable from one that used the A6000.
+    input_mode: str = "voice"  # voice | text
     perf_mode: str | None = None
     placement: dict[str, str] | None = None
     failovers: int = 0
@@ -114,6 +115,7 @@ class TurnMetrics:
             "target_lang": self.target_lang,
             "llm_profile": self.llm_profile,
             "tok_per_s": self.tok_per_s,
+            "input_mode": self.input_mode,
             "perf_mode": self.perf_mode,
             "placement": self.placement,
             "failovers": self.failovers,

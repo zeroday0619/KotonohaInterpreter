@@ -41,7 +41,7 @@ output into `config/local.yaml`, which is layered over the defaults without code
 Whether vLLM loads Qwen3-ASR on sm_87 and whether it exposes N-best output is the question
 Spike 1 answers. Implementing it beforehand would invalidate the latency budget.
 
-Verified on a macOS development workstation: 97 unit tests pass, `ruff` reports no
+Verified on a macOS development workstation: 201 unit tests pass, `ruff` reports no
 findings, and end-to-end smoke runs against mock services exercise the on-board path, the
 remote upload path, and link failover. These runs validate control flow and
 instrumentation. They do not measure model inference time.
@@ -135,7 +135,7 @@ State machine:
 
 | State | Action | Transition |
 |---|---|---|
-| `IDLE` | VAD active, microphone open | Speech detected, to `LISTENING` |
+| `IDLE` | VAD active, microphone open | Speech detected, to `LISTENING`; typed input, to `PROCESSING` |
 | `LISTENING` | Accumulate audio including preroll | 800 ms silence, to `PROCESSING` |
 | `PROCESSING` | ASR, language identification, translation | First clause, to `SPEAKING` |
 | `SPEAKING` | Play TTS queue, microphone closed | Queue drained, to `IDLE` |
@@ -187,9 +187,10 @@ Language-specific handling:
 | `src/kotonoha/services/` | Resident model servers, bearer-token middleware, remote configuration API |
 | `src/kotonoha/prompts/` | ASR context biasing, single-pass translation prompt |
 | `src/kotonoha/store/` | SQLite glossary, turn history, Traditional Chinese rules |
-| `src/kotonoha/tui/` | Terminal interface and configuration editor |
+| `src/kotonoha/tui/` | Terminal interface, configuration editor, history browser |
 | `src/kotonoha/i18n.py` | Locale resolution and message lookup |
-| `src/kotonoha/locales/` | Message catalogs, `en.py` is the reference |
+| `src/kotonoha/locale/` | gettext catalogs, `.po` and compiled `.mo` |
+| `scripts/i18n.py` | Catalog extraction, update, compilation and checks |
 | `spikes/` | Phase 0 validation harness |
 | `eval/` | Evaluation set recording and scoring |
 
@@ -476,6 +477,10 @@ by lookup in 2026-08.
 | `kotonoha run` | Start the interpreter directly |
 | `kotonoha doctor` | Report environment, role placement, and service health |
 | `kotonoha config` | Edit the configuration in a terminal interface |
+| `kotonoha history browse` | Search past turns in a terminal interface |
+| `kotonoha history list` | Print past turns to standard output |
+| `kotonoha history export <path>` | Export past turns as JSONL |
+| `kotonoha text "<utterance>"` | Interpret typed text without a microphone |
 | `kotonoha netcheck` | Measure link latency and throughput to the A6000 |
 | `kotonoha devices` | List audio devices |
 | `kotonoha replay <wav>` | Run the pipeline from a WAV file without a microphone |
@@ -582,12 +587,17 @@ milliseconds. The terminal UI displays measured values against targets.
 
 ## Localization
 
-| Locale | Code | Status |
+Standard gettext, with the English source string as the message id.
+
+| Locale | Code | Catalog |
 |---|---|---|
-| English | `en` | Reference catalog and default |
-| Korean | `ko` | Complete |
-| Japanese | `ja` | Complete |
-| Traditional Chinese (Taiwan) | `zh-TW` | Complete |
+| English | `en` | None; message ids are the English text |
+| Korean | `ko` | `src/kotonoha/locale/ko/LC_MESSAGES/kotonoha.po` |
+| Japanese | `ja` | `src/kotonoha/locale/ja/LC_MESSAGES/kotonoha.po` |
+| Traditional Chinese (Taiwan) | `zh-TW` | `src/kotonoha/locale/zh_TW/LC_MESSAGES/kotonoha.po` |
+
+An untranslated string falls through to its message id, so a gap degrades to readable
+English rather than a symbolic key.
 
 Resolution order, highest first:
 
@@ -606,10 +616,141 @@ kotonoha --lang ja doctor            # command output only
 Typer renders command help at import time, before `--lang` is parsed. `KOTONOHA_LANG`
 and `ui.language` therefore affect help screens; `--lang` affects command output.
 
-Catalogs are Python dictionaries in `src/kotonoha/locales/`. `tests/test_i18n.py`
-enforces that every locale carries the same keys as English and the same format
-placeholders, so an untranslated string fails the test suite rather than appearing as an
-English fragment on a translated screen.
+### Maintaining the catalogs
+
+```bash
+uv run python scripts/i18n.py extract    # rebuild the .pot template from source
+uv run python scripts/i18n.py update     # merge new strings into each .po
+uv run python scripts/i18n.py compile    # regenerate the .mo files
+uv run python scripts/i18n.py check      # report untranslated, fuzzy and stale
+```
+
+`.po` is committed and is the source of truth. `.mo` is **compiled at install time** by
+the build hook in `hatch_build.py` and is not committed, so the repository holds no
+generated artifact that can fall out of step with its source. The hook runs for every
+hatchling target, editable installs included, which is how the Jetson containers get
+their catalogs — they install with `uv pip install --system --no-deps -e .` and build
+isolation supplies Babel.
+
+A source checkout that has not been installed has no `.mo` and falls back to English.
+`kotonoha doctor` reports that, and `scripts/i18n.py compile` fixes it without a
+reinstall.
+
+`tests/test_i18n.py` runs the extractor and fails when a string is missing or
+untranslated in any catalog, when a translation's `{placeholders}` differ from the message
+id, or when an entry is fuzzy. The suite compiles the catalogs itself, so it never asserts
+against a stale artifact.
+
+Editing with Poedit, Weblate or any gettext tool works, because the files are ordinary
+`.po`. Babel is a development dependency only; the runtime uses the standard library's
+`gettext`.
+
+## Text input mode
+
+Utterances can come from the keyboard instead of the microphone. The typed path skips
+capture, ASR and cross-verification, and rejoins the spoken path at routing, so
+translation, TTS, instrumentation and history are identical.
+
+Uses: interpreting for someone who prefers to type, working in an environment too loud
+for the VAD, and exercising translation and TTS on a host with no audio input.
+
+| Session mode | Input |
+|---|---|
+| `push_to_talk` | Microphone, space bar starts and stops |
+| `auto` | Microphone, VAD segments |
+| `text` | Keyboard, microphone gate closed |
+
+In the interpreter:
+
+| Key | Action |
+|---|---|
+| `t` | Enter text mode and focus the field |
+| `enter` | Submit the utterance |
+| `escape` | Leave text mode |
+| `a` | Cycle push_to_talk, auto, text |
+
+The microphone is closed while typing. In `auto` mode the VAD would otherwise segment
+room noise into a turn while the operator is still composing, and in `push_to_talk` the
+space bar belongs to the field.
+
+### Source language
+
+There is no acoustic language identification for typed text, so the script decides:
+
+| Evidence | Language |
+|---|---|
+| Hangul present | `ko` |
+| Kana present | `ja` |
+| Han without kana | `zh-TW` |
+| Latin | `en` |
+
+Han without kana is read as Chinese. Kanji-only Japanese occurs but not in conversational
+input, and `session.text_source_language` overrides the detection when it does. When the
+script is inconclusive — punctuation and digits only — the previous language is inherited,
+the same rule §5 applies to a short spoken utterance.
+
+### Command line
+
+```bash
+kotonoha text "다음 주 화요일까지 보내주세요"
+kotonoha text "Send it by Tuesday" --from en --no-speak
+```
+
+Turn records carry `input_mode` as `voice` or `text`. For a typed turn `audio_seconds` is
+null and the ASR stage measures zero, so latency figures from the two paths stay
+distinguishable.
+
+## Interpretation history
+
+Every turn is persisted to the `turns` table in `data/kotonoha.db`, including the
+diagnostics that explain it: language provenance, language-identification confidence,
+ASR average log-probability, whether cross-verification ran, and the outcome.
+
+### In the interpreter
+
+The live panes are cleared at the start of each utterance, so a third column holds
+completed turns. It is seeded from the database on start and appended to as turns finish,
+which means the preceding exchanges are still on screen after a restart.
+
+| Setting | Effect |
+|---|---|
+| `ui.history_turns` | Turns kept in the panel. `0` hides it. Default 20. |
+| `h` | Toggle the panel, to give the live panes the width |
+
+The panel appends from the event the orchestrator emits when it persists a turn, not from
+a query. A query per turn would run inside the latency budget.
+
+### Browser
+
+```bash
+kotonoha history browse
+```
+
+| Key | Action |
+|---|---|
+| `/` | Focus the search field |
+| `n`, `p` | Next and previous page |
+| `e` | Export the rows currently listed, filters included |
+| `r` | Reload |
+| `escape` | Back to the control center |
+
+Search matches the source text and the translation, because an operator recalls whichever
+side they were reading. Filters for source language and outcome compose with it. Results
+are paged at 200 rows with `LIMIT` applied in SQL, so table size does not grow with the
+archive.
+
+Selecting a row shows the full text and the diagnostic columns for that turn.
+
+### Command line
+
+```bash
+kotonoha history list --search software --lang ko --limit 20
+kotonoha history list --full
+kotonoha history export ./data/exports/session.jsonl --outcome ok
+```
+
+Exports are JSONL, one turn per line, with an ISO timestamp added alongside the stored
+epoch value.
 
 ## Configuration editor
 

@@ -11,6 +11,7 @@ import json
 import sqlite3
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 SCHEMA = Path(__file__).with_name("schema.sql")
@@ -35,6 +36,79 @@ class TurnRecord:
     tgt_lang: str | None
     source_text: str | None
     translation: str | None
+
+
+@dataclass(frozen=True)
+class HistoryEntry:
+    """A stored turn with the diagnostic columns the browser displays.
+
+    TurnRecord stays narrow because it is injected into the translation prompt,
+    where every extra field costs context. This carries everything persisted.
+    """
+
+    turn_id: str
+    ts: float
+    session_id: str | None
+    src_lang: str | None
+    tgt_lang: str | None
+    source_text: str | None
+    translation: str | None
+    lang_source: str | None
+    lid_confidence: float | None
+    asr_avg_logprob: float | None
+    cross_verified: bool
+    audio_seconds: float | None
+    outcome: str
+
+    @property
+    def when(self) -> datetime:
+        return datetime.fromtimestamp(self.ts)
+
+    def as_dict(self) -> dict:
+        return {
+            "turn_id": self.turn_id,
+            "ts": self.ts,
+            "time": self.when.isoformat(timespec="seconds"),
+            "session_id": self.session_id,
+            "src_lang": self.src_lang,
+            "tgt_lang": self.tgt_lang,
+            "source_text": self.source_text,
+            "translation": self.translation,
+            "lang_source": self.lang_source,
+            "lid_confidence": self.lid_confidence,
+            "asr_avg_logprob": self.asr_avg_logprob,
+            "cross_verified": self.cross_verified,
+            "audio_seconds": self.audio_seconds,
+            "outcome": self.outcome,
+        }
+
+
+@dataclass(frozen=True)
+class SessionSummary:
+    session_id: str
+    started_at: float
+    routing: str | None
+    turns: int
+    first_ts: float | None
+    last_ts: float | None
+
+
+HISTORY_COLUMNS = (
+    "turn_id, ts, session_id, src_lang, tgt_lang, source_text, translation, "
+    "lang_source, lid_confidence, asr_avg_logprob, cross_verified, audio_seconds, outcome"
+)
+
+
+def _entry(row: sqlite3.Row) -> HistoryEntry:
+    data = dict(row)
+    data["cross_verified"] = bool(data["cross_verified"])
+    return HistoryEntry(**data)
+
+
+def _like(term: str) -> str:
+    """Escape the LIKE wildcards so a search for "50%" does not match everything."""
+    escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
 
 
 class Store:
@@ -119,7 +193,13 @@ class Store:
         cross_verified: bool = False,
         audio_seconds: float | None = None,
         outcome: str = "ok",
-    ) -> None:
+    ) -> float:
+        """Persist one turn and return the timestamp written.
+
+        The caller emits the same value to the interface, so the panel and the
+        database agree instead of drifting by a round trip.
+        """
+        ts = time.time()
         with self.conn:
             self.conn.execute(
                 """
@@ -131,7 +211,7 @@ class Store:
                 """,
                 (
                     turn_id,
-                    time.time(),
+                    ts,
                     session_id,
                     src_lang,
                     tgt_lang,
@@ -145,6 +225,7 @@ class Store:
                     outcome,
                 ),
             )
+        return ts
 
     def recent_turns(self, session_id: str, n: int = 6) -> list[TurnRecord]:
         rows = self.conn.execute(
@@ -166,6 +247,115 @@ class Store:
             (session_id,),
         ).fetchone()
         return row["src_lang"] if row else None
+
+    # -- history browsing ---------------------------------------------------
+    def _history_where(
+        self,
+        query: str | None,
+        src_lang: str | None,
+        tgt_lang: str | None,
+        session_id: str | None,
+        outcome: str | None,
+        since: float | None,
+    ) -> tuple[str, list]:
+        clauses: list[str] = []
+        params: list = []
+        if query:
+            # Both directions are searched: an operator looking for a turn
+            # remembers whichever side they were reading.
+            clauses.append(
+                "(source_text LIKE ? ESCAPE '\\' OR translation LIKE ? ESCAPE '\\')"
+            )
+            params += [_like(query), _like(query)]
+        if src_lang:
+            clauses.append("src_lang = ?")
+            params.append(src_lang)
+        if tgt_lang:
+            # tgt_lang holds a comma-separated list under broadcast routing.
+            clauses.append("(tgt_lang = ? OR tgt_lang LIKE ? ESCAPE '\\')")
+            params += [tgt_lang, _like(tgt_lang)]
+        if session_id:
+            clauses.append("session_id = ?")
+            params.append(session_id)
+        if outcome:
+            clauses.append("outcome = ?")
+            params.append(outcome)
+        if since is not None:
+            clauses.append("ts >= ?")
+            params.append(since)
+        return (" WHERE " + " AND ".join(clauses) if clauses else ""), params
+
+    def search_turns(
+        self,
+        query: str | None = None,
+        src_lang: str | None = None,
+        tgt_lang: str | None = None,
+        session_id: str | None = None,
+        outcome: str | None = None,
+        since: float | None = None,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> list[HistoryEntry]:
+        """Newest first, for the history browser."""
+        where, params = self._history_where(query, src_lang, tgt_lang, session_id, outcome, since)
+        rows = self.conn.execute(
+            f"SELECT {HISTORY_COLUMNS} FROM turns{where} ORDER BY ts DESC LIMIT ? OFFSET ?",
+            [*params, limit, offset],
+        ).fetchall()
+        return [_entry(r) for r in rows]
+
+    def count_turns(
+        self,
+        query: str | None = None,
+        src_lang: str | None = None,
+        tgt_lang: str | None = None,
+        session_id: str | None = None,
+        outcome: str | None = None,
+        since: float | None = None,
+    ) -> int:
+        where, params = self._history_where(query, src_lang, tgt_lang, session_id, outcome, since)
+        row = self.conn.execute(f"SELECT COUNT(*) AS n FROM turns{where}", params).fetchone()
+        return int(row["n"])
+
+    def recent_history(self, n: int = 20, session_id: str | None = None) -> list[HistoryEntry]:
+        """Oldest first, for the panel inside the interpreter.
+
+        Sessions are not filtered by default: after a restart the operator still
+        wants the preceding exchanges on screen.
+        """
+        rows = self.conn.execute(
+            f"SELECT {HISTORY_COLUMNS} FROM turns "
+            "WHERE outcome = 'ok' AND translation IS NOT NULL"
+            + (" AND session_id = ?" if session_id else "")
+            + " ORDER BY ts DESC LIMIT ?",
+            ([session_id, n] if session_id else [n]),
+        ).fetchall()
+        return [_entry(r) for r in reversed(rows)]
+
+    def turn(self, turn_id: str) -> HistoryEntry | None:
+        row = self.conn.execute(
+            f"SELECT {HISTORY_COLUMNS} FROM turns WHERE turn_id = ?", (turn_id,)
+        ).fetchone()
+        return _entry(row) if row else None
+
+    def history_languages(self) -> list[str]:
+        rows = self.conn.execute(
+            "SELECT DISTINCT src_lang FROM turns WHERE src_lang IS NOT NULL ORDER BY src_lang"
+        ).fetchall()
+        return [r["src_lang"] for r in rows]
+
+    def session_summaries(self, limit: int = 50) -> list[SessionSummary]:
+        rows = self.conn.execute(
+            """
+            SELECT s.session_id, s.started_at, s.routing,
+                   COUNT(t.id) AS turns, MIN(t.ts) AS first_ts, MAX(t.ts) AS last_ts
+            FROM sessions s LEFT JOIN turns t ON t.session_id = s.session_id
+            GROUP BY s.session_id
+            ORDER BY s.started_at DESC LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        return [SessionSummary(**dict(r)) for r in rows]
 
     # -- Traditional Chinese rules ----------------------------------------
     def zh_rules(self) -> list[tuple[str, str, bool]]:

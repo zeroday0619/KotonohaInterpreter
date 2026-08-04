@@ -23,7 +23,8 @@ class State(str, Enum):
 
 
 ALLOWED: dict[State, set[State]] = {
-    State.IDLE: {State.LISTENING},
+    # Typed input skips LISTENING: there is no utterance to segment.
+    State.IDLE: {State.LISTENING, State.PROCESSING},
     State.LISTENING: {State.PROCESSING, State.IDLE},  # too-short utterance goes back to IDLE
     State.PROCESSING: {State.SPEAKING, State.IDLE},  # empty ASR or LLM timeout goes to IDLE
     State.SPEAKING: {State.IDLE},

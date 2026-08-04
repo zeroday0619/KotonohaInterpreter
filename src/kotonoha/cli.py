@@ -27,14 +27,13 @@ import typer
 
 from .async_runtime import run as run_async
 from .config import Settings, load_settings
-from .i18n import available_locales, set_locale
-from .i18n import t as _
+from .i18n import _, available_locales, set_locale
 from .logging_setup import setup_logging
 
 
 # -- shared wiring --------------------------------------------------------
-def _build(settings: Settings, wav: Path | None = None):
-    from .audio.capture import FileCapture, MicCapture
+def _build(settings: Settings, wav: Path | None = None, text_only: bool = False):
+    from .audio.capture import FileCapture, MicCapture, NullCapture
     from .audio.denoise import build_denoiser
     from .audio.playback import NullPlayback, Playback
     from .audio.vad import UtteranceSegmenter, build_vad
@@ -53,7 +52,11 @@ def _build(settings: Settings, wav: Path | None = None):
         max_utterance_ms=v.max_utterance_ms,
     )
 
-    if wav is not None:
+    if text_only:
+        # The keyboard is the input source, so no audio device is opened.
+        capture = NullCapture()
+        playback = _output_or_null(settings)
+    elif wav is not None:
         pcm = load_wav(wav, settings.audio.work_sample_rate)
         capture = FileCapture(pcm)
         playback = NullPlayback(settings.audio, settings.tts)
@@ -72,9 +75,26 @@ def _build(settings: Settings, wav: Path | None = None):
             playback = NullPlayback(settings.audio, settings.tts)
 
     d = settings.frontend.denoise
-    denoiser = build_denoiser(d.enabled and wav is None, d.backend, d.post_filter_beta)
+    denoise_enabled = d.enabled and wav is None and not text_only
+    denoiser = build_denoiser(denoise_enabled, d.backend, d.post_filter_beta)
 
     return Orchestrator(settings, capture, seg, playback, denoiser)
+
+
+def _output_or_null(settings: Settings):
+    from .audio.playback import NullPlayback, Playback
+
+    try:
+        import sounddevice as sd
+
+        sd.check_output_settings(
+            device=settings.audio.output_device,
+            samplerate=settings.audio.playback_sample_rate,
+            channels=1,
+        )
+        return Playback(settings.audio, settings.tts)
+    except Exception:  # noqa: BLE001
+        return NullPlayback(settings.audio, settings.tts)
 
 
 def load_wav(path: Path, target_rate: int) -> np.ndarray:
@@ -117,13 +137,17 @@ SERVICE_TARGETS = {
 
 app = typer.Typer(
     name="kotonoha",
-    help=_("cli.app.help"),
+    help=_("Consecutive four-language offline speech interpreter"),
     no_args_is_help=True,
     add_completion=True,
     context_settings={"help_option_names": ["-h", "--help"]},
 )
-glossary_app = typer.Typer(name="glossary", help=_("cli.glossary.help"), no_args_is_help=True)
+glossary_app = typer.Typer(name="glossary", help=_("Manage the glossary"), no_args_is_help=True)
 app.add_typer(glossary_app)
+history_app = typer.Typer(
+    name="history", help=_("Browse past interpretation turns"), no_args_is_help=True
+)
+app.add_typer(history_app)
 
 ConfigOption = Annotated[
     Path | None,
@@ -133,12 +157,12 @@ ConfigOption = Annotated[
         exists=True,
         dir_okay=False,
         readable=True,
-        help=_("cli.opt.config"),
+        help=_("Path to a YAML configuration file"),
     ),
 ]
 LangOption = Annotated[
     str | None,
-    typer.Option("--lang", help=_("cli.opt.lang")),
+    typer.Option("--lang", help=_("Interface language: auto, en, ko, ja, zh-TW")),
 ]
 
 
@@ -156,7 +180,7 @@ def _settings(ctx: typer.Context) -> Settings:
 
 
 # -- commands -------------------------------------------------------------
-@app.command(help=_("cli.run.help"))
+@app.command(help=_("Start the terminal interface"))
 def run(ctx: typer.Context) -> None:
     s = _settings(ctx)
     setup_logging(
@@ -171,20 +195,20 @@ def run(ctx: typer.Context) -> None:
     run_async(KotonohaApp(_build(s)).run_async())
 
 
-@app.command(help=_("cli.tui.help"))
+@app.command(help=_("Start the integrated terminal interface"))
 def tui(ctx: typer.Context) -> None:
     from .tui import run_unified_tui
 
     run_async(run_unified_tui(ctx.obj.config, _build))
 
 
-@app.command(help=_("cli.replay.help"))
+@app.command(help=_("Run the pipeline from a WAV file, without a microphone"))
 def replay(
     ctx: typer.Context,
     wav: Annotated[
-        Path, typer.Argument(exists=True, dir_okay=False, help=_("cli.replay.arg.wav"))
+        Path, typer.Argument(exists=True, dir_okay=False, help=_("16-bit PCM WAV file"))
     ],
-    seconds: Annotated[float, typer.Option(help=_("cli.replay.opt.seconds"))] = 30.0,
+    seconds: Annotated[float, typer.Option(help=_("Run duration in seconds"))] = 30.0,
 ) -> None:
     # Runs the whole pipeline from a file. This is the regression path for
     # end-of-utterance and preroll behaviour.
@@ -201,22 +225,70 @@ def replay(
         await orch.stop()
 
     run_async(go())
-    print(_("cli.replay.turn_log", path=s.resolve(s.logging.turn_log_path)))
+    print(_("Turn log: {path}", path=s.resolve(s.logging.turn_log_path)))
 
 
-@app.command(help=_("cli.devices.help"))
+@app.command("text", help=_("Interpret typed text without a microphone"))
+def text_command(
+    ctx: typer.Context,
+    message: Annotated[str, typer.Argument(help=_("Text to interpret"))],
+    source: Annotated[
+        str | None,
+        typer.Option("--from", help=_("Source language; omit to read it from the script")),
+    ] = None,
+    speak: Annotated[
+        bool, typer.Option("--speak/--no-speak", help=_("Play the synthesized translation"))
+    ] = True,
+) -> None:
+    # The translation chain without a microphone: the same path the interpreter
+    # uses in text mode, which makes it the way to exercise translation and TTS
+    # on a host that has no audio input.
+    s = _settings(ctx)
+    s.session.mode = "text"
+    setup_logging(s.logging.level, s.resolve(s.logging.log_path), False, "text")
+    orch = _build(s, text_only=True)
+    if not speak:
+        from .audio.playback import NullPlayback
+
+        orch.playback = NullPlayback(s.audio, s.tts)
+
+    async def go() -> dict | None:
+        await orch.start()
+        accepted = await orch.submit_text(message, src_lang=source)
+        if accepted and speak:
+            await orch.playback.wait_drained(timeout=s.tts.timeout_s * 4)
+        record = None
+        for event in orch.bus.drain_nowait(1024):
+            if event.kind == "history":
+                record = event.payload
+        await orch.stop()
+        return record
+
+    result = run_async(go())
+    if result is None:
+        print(_("The turn was refused: empty input, or another turn is running"))
+        raise typer.Exit(code=1)
+    print(_("[{lang}] {text}", lang=result.get("src_lang"), text=result.get("source_text") or ""))
+    print(
+        _("[{lang}] {text}", lang=result.get("tgt_lang"), text=result.get("translation") or "")
+    )
+
+
+@app.command(help=_("List audio devices"))
 def devices() -> None:
     import sounddevice as sd
 
     print(sd.query_devices())
-    print("\n" + _("cli.devices.default"), sd.default.device)
+    print("\n" + _("Default input/output:"), sd.default.device)
 
 
-@app.command(help=_("cli.serve.help"))
+@app.command(help=_("Start a model service"))
 def serve(
-    service: Annotated[ServiceName, typer.Argument(help=_("cli.serve.arg.service"))],
-    host: Annotated[str, typer.Option(help=_("cli.serve.opt.host"))] = "0.0.0.0",
-    port: Annotated[int | None, typer.Option(help=_("cli.serve.opt.port"))] = None,
+    service: Annotated[ServiceName, typer.Argument(help=_("Service to start"))],
+    host: Annotated[str, typer.Option(help=_("Bind address"))] = "0.0.0.0",
+    port: Annotated[
+        int | None, typer.Option(help=_("Port; defaults to the port assigned to the service"))
+    ] = None,
 ) -> None:
     import uvicorn
 
@@ -231,11 +303,11 @@ def serve(
     )
 
 
-@glossary_app.command("import", help=_("cli.glossary.import.help"))
+@glossary_app.command("import", help=_("Load glossary and Traditional Chinese rules from YAML"))
 def glossary_import(
     ctx: typer.Context,
     path: Annotated[
-        Path, typer.Argument(exists=True, dir_okay=False, help=_("cli.glossary.import.arg.path"))
+        Path, typer.Argument(exists=True, dir_okay=False, help=_("Glossary YAML file"))
     ],
 ) -> None:
     import yaml
@@ -253,10 +325,17 @@ def glossary_import(
         for r in data.get("zh_rules", [])
     ]
     m = st.upsert_zh_rules(rules) if rules else 0
-    print(_("cli.glossary.imported", terms=n, rules=m, path=s.resolve(s.store.path)))
+    print(
+        _(
+            "{terms} terms and {rules} rules applied to {path}",
+            terms=n,
+            rules=m,
+            path=s.resolve(s.store.path),
+        )
+    )
 
 
-@glossary_app.command("list", help=_("cli.glossary.list.help"))
+@glossary_app.command("list", help=_("List registered terms"))
 def glossary_list(ctx: typer.Context) -> None:
     from .store import Store
 
@@ -266,7 +345,7 @@ def glossary_list(ctx: typer.Context) -> None:
         print(f"{g.src_lang:>5} {g.src_term}  →  {g.tgt_lang} {g.tgt_term}   [{g.kind}]")
 
 
-@app.command(help=_("cli.doctor.help"))
+@app.command(help=_("Report environment, role placement and service health"))
 def doctor(ctx: typer.Context) -> None:
     # Pre-flight check before taking anything to the device. Do not guess at the
     # environment; confirm it here.
@@ -281,7 +360,7 @@ def doctor(ctx: typer.Context) -> None:
     print(f"perf_mode   {s.perf_mode}  remote={'on' if s.remote.enabled else 'off'}")
     print("placement   " + "  ".join(f"{k}={v}" for k, v in placement.items()))
     if s.audio_leaves_device:
-        print("            " + _("cli.doctor.audio_offbox"))
+        print("            " + _("! In this mode utterance audio leaves the device"))
     print()
 
     mods = [
@@ -303,11 +382,29 @@ def doctor(ctx: typer.Context) -> None:
     vad_path = s.resolve(s.frontend.vad.model_path)
     print(f"  silero_vad.onnx  {'ok' if vad_path.exists() else 'MISSING'}  {vad_path}")
 
+    # .mo is generated at install time, so a bare source checkout has none and the
+    # interface silently falls back to English. Say so rather than leaving it to be
+    # discovered.
+    from .i18n import DEFAULT_LOCALE, available_locales, mo_path
+
+    uncompiled = [
+        code
+        for code in available_locales()
+        if code != DEFAULT_LOCALE and not mo_path(code).exists()
+    ]
+    if uncompiled:
+        print(_("Translation catalogs not compiled: {locales}", locales=", ".join(uncompiled)))
+        print(_("Run: uv run python scripts/i18n.py compile"))
+    else:
+        print(_("Translation catalogs compiled: {locales}", locales=", ".join(
+            code for code in available_locales() if code != DEFAULT_LOCALE
+        )))
+
     async def probe() -> None:
         from .clients import build_service_group
 
         group = build_service_group(s)
-        print("\n" + _("cli.doctor.services"))
+        print("\n" + _("Services:"))
         for role in group.all():
             for client in filter(None, (role.preferred, role.fallback)):
                 h = await client.health()
@@ -319,11 +416,11 @@ def doctor(ctx: typer.Context) -> None:
     run_async(probe())
 
 
-@app.command(help=_("cli.netcheck.help"))
+@app.command(help=_("Measure latency and throughput to the external server"))
 def netcheck(
     ctx: typer.Context,
-    samples: Annotated[int, typer.Option(help=_("cli.netcheck.opt.samples"))] = 10,
-    seconds: Annotated[float, typer.Option(help=_("cli.netcheck.opt.seconds"))] = 6.0,
+    samples: Annotated[int, typer.Option(help=_("Measurements per role"))] = 10,
+    seconds: Annotated[float, typer.Option(help=_("Probe utterance length in seconds"))] = 6.0,
 ) -> None:
     # Every remote stage pays the round trip, and the utterance audio pays the
     # upload on top. §6 has 2.9 s total with no slack, so this gets measured
@@ -337,13 +434,13 @@ def netcheck(
 
     s = _settings(ctx)
     if not s.remote.enabled:
-        print(_("cli.netcheck.remote_disabled"))
+        print(_("remote.enabled is false. Use config/performance.yaml, or enable it and retry."))
         raise typer.Exit(code=1)
 
     placement = s.resolved_placement()
     remote_roles = [r for r, side in placement.items() if side == "remote"]
     if not remote_roles:
-        print(_("cli.netcheck.no_remote_roles", mode=s.perf_mode))
+        print(_("No role is routed remotely under perf_mode={mode}.", mode=s.perf_mode))
         raise typer.Exit(code=1)
 
     tk = remote_transport_kwargs(s.remote)
@@ -354,8 +451,7 @@ def netcheck(
         print(f"perf_mode   {s.perf_mode}")
         print("placement   " + "  ".join(f"{k}={v}" for k, v in placement.items()))
         print(
-            _(
-                "cli.netcheck.probe",
+            _("probe       {seconds}s utterance, {encoding}, {size} bytes",
                 seconds=seconds,
                 encoding=s.remote.audio_encoding,
                 size=len(blob),
@@ -420,7 +516,13 @@ def netcheck(
                 print(f"  {role:<11} upload median {med:6.1f}ms   {mbps:5.1f} MB/s")
 
         if failed:
-            print("\n" + _("cli.netcheck.failed", roles=", ".join(failed)))
+            print(
+                "\n"
+                + _(
+                    "Connection failed: {roles}. These roles fall back on-board.",
+                    roles=", ".join(failed),
+                )
+            )
 
         # What the link adds to one turn, stage by stage.
         overhead = uploads.get("asr", rtts.get("asr", 0.0))
@@ -430,12 +532,12 @@ def netcheck(
 
         b = s.budget_ms
         slack = b.total - b.silence
-        print("\n" + _("cli.netcheck.overhead", ms=f"{overhead:.0f}"))
-        print(_("cli.netcheck.budget", ms=slack))
+        print("\n" + _("Estimated link overhead per turn  {ms} ms", ms=f"{overhead:.0f}"))
+        print(_("Budget, end-of-utterance to first audio  {ms} ms", ms=slack))
         print(
-            _("cli.netcheck.over_budget")
+            _("  ! The link consumes more than 25% of the budget. Consider hybrid mode.")
             if overhead > slack * 0.25
-            else _("cli.netcheck.within_budget")
+            else _("  The link fits within the budget. The remainder is model inference time.")
         )
         return not failed
 
@@ -443,11 +545,108 @@ def netcheck(
         raise typer.Exit(code=1)
 
 
-@app.command(help=_("cli.config.help"))
+@app.command(help=_("Edit the configuration in a terminal interface"))
 def config(ctx: typer.Context) -> None:
     from .tui.config_app import ConfigApp
 
     run_async(ConfigApp(config_path=ctx.obj.config).run_async())
+
+
+# -- history ----------------------------------------------------------------
+SearchOption = Annotated[
+    str | None, typer.Option("--search", help=_("Match text in the source or the translation"))
+]
+HistoryLangOption = Annotated[
+    str | None, typer.Option("--lang", help=_("Filter by detected source language"))
+]
+OutcomeOption = Annotated[
+    str | None,
+    typer.Option("--outcome", help=_("Filter by turn outcome, for example ok or llm_timeout")),
+]
+
+
+def _open_store(settings):
+    from .store import Store
+
+    return Store(settings.resolve(settings.store.path))
+
+
+@history_app.command("browse", help=_("Open the history browser"))
+def history_browse(ctx: typer.Context) -> None:
+    from .tui.history_app import HistoryApp
+
+    run_async(HistoryApp(config_path=ctx.obj.config).run_async())
+
+
+@history_app.command("list", help=_("Print past turns to standard output"))
+def history_list(
+    ctx: typer.Context,
+    search: SearchOption = None,
+    lang: HistoryLangOption = None,
+    outcome: OutcomeOption = None,
+    limit: Annotated[int, typer.Option("--limit", help=_("Maximum turns to return"))] = 20,
+    full: Annotated[
+        bool, typer.Option("--full", help=_("Print complete text instead of an excerpt"))
+    ] = False,
+) -> None:
+    settings = _settings(ctx)
+    store = _open_store(settings)
+    try:
+        entries = store.search_turns(
+            query=search, src_lang=lang, outcome=outcome, limit=limit
+        )
+        total = store.count_turns(query=search, src_lang=lang, outcome=outcome)
+    finally:
+        store.close()
+
+    if not entries:
+        print(_("No turns match"))
+        return
+
+    # Oldest first when printing: a terminal is read top to bottom.
+    for entry in reversed(entries):
+        stamp = entry.when.strftime("%Y-%m-%d %H:%M:%S")
+        print(f"{stamp}  {entry.src_lang or '?'}→{entry.tgt_lang or '?'}  [{entry.outcome}]")
+        if full:
+            print(f"  {entry.source_text or ''}")
+            print(f"  {entry.translation or ''}")
+        else:
+            print(f"  {_excerpt(entry.source_text)}")
+            print(f"  {_excerpt(entry.translation)}")
+    print()
+    print(_("{shown} of {total} turns", shown=len(entries), total=total))
+
+
+@history_app.command("export", help=_("Export past turns as JSONL"))
+def history_export(
+    ctx: typer.Context,
+    out: Annotated[Path, typer.Argument(help=_("Destination JSONL file"))],
+    search: SearchOption = None,
+    lang: HistoryLangOption = None,
+    outcome: OutcomeOption = None,
+    limit: Annotated[int, typer.Option("--limit", help=_("Maximum turns to return"))] = 10_000,
+) -> None:
+    from .tui.history_app import export_jsonl
+
+    settings = _settings(ctx)
+    store = _open_store(settings)
+    try:
+        entries = store.search_turns(
+            query=search, src_lang=lang, outcome=outcome, limit=limit
+        )
+    finally:
+        store.close()
+
+    if not entries:
+        print(_("No turns match"))
+        raise typer.Exit(code=1)
+    export_jsonl(entries, out)
+    print(_("Exported {count} turns to {path}", count=len(entries), path=out))
+
+
+def _excerpt(value: str | None, width: int = 78) -> str:
+    text = (value or "").replace("\n", " ").strip()
+    return text if len(text) <= width else text[: width - 1] + "…"
 
 
 def main() -> None:

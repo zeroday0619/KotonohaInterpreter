@@ -22,7 +22,10 @@ Lang = Literal["ko", "en", "zh-TW", "ja"]
 
 
 class SessionCfg(BaseModel):
-    mode: Literal["push_to_talk", "auto"] = "push_to_talk"
+    # text closes the microphone and takes utterances from the keyboard.
+    mode: Literal["push_to_talk", "auto", "text"] = "push_to_talk"
+    # Source language for typed input. auto reads it from the script.
+    text_source_language: Literal["auto", "ko", "en", "zh-TW", "ja"] = "auto"
     routing: Literal["pair", "fixed", "broadcast"] = "pair"
     pair: list[Lang] = ["ko", "en"]
     fixed_target: Lang = "en"
@@ -224,6 +227,8 @@ class UiCfg(BaseModel):
     # auto follows KOTONOHA_LANG, then the system locale, then English.
     language: Literal["auto", "en", "ko", "ja", "zh-TW"] = "auto"
     refresh_hz: int = Field(60, ge=15, le=60)
+    # Completed turns kept on screen beside the live panes. 0 hides the panel.
+    history_turns: int = Field(20, ge=0, le=200)
 
 
 class StoreCfg(BaseModel):
@@ -352,6 +357,12 @@ def load_settings(path: str | Path | None = None) -> Settings:
     Layer 2 exists so files like performance.yaml can be small overlays that say
     only what differs, instead of duplicating the whole baseline and drifting
     from it. Environment variables still beat all three.
+
+    KOTONOHA_SKIP_LOCAL_CONFIG drops layer 3 when it resolves to this machine's own
+    config/local.yaml. The test suite sets it: that file carries a real device's
+    remote endpoints and token, and a suite that read it would dial the external
+    server instead of running offline. An explicit KOTONOHA_LOCAL_CONFIG still
+    applies, so the layer itself remains testable.
     """
     chosen = Path(path or os.environ.get("KOTONOHA_CONFIG") or DEFAULT_CONFIG)
     if not chosen.exists() and (path is not None or os.environ.get("KOTONOHA_CONFIG")):
@@ -362,9 +373,16 @@ def load_settings(path: str | Path | None = None) -> Settings:
         layers.append(DEFAULT_CONFIG)
     if chosen.exists() and chosen.resolve() != DEFAULT_CONFIG.resolve():
         layers.append(chosen)
-    local = local_config_path()
-    if local.exists():
-        layers.append(local)
+    # The skip applies to this machine's own file, not to the mechanism: a caller
+    # that names a path with KOTONOHA_LOCAL_CONFIG still gets that layer, which is
+    # how the management API and its tests exercise it.
+    skip_local = bool(os.environ.get("KOTONOHA_SKIP_LOCAL_CONFIG")) and not os.environ.get(
+        "KOTONOHA_LOCAL_CONFIG"
+    )
+    if not skip_local:
+        local = local_config_path()
+        if local.exists():
+            layers.append(local)
 
     data: dict[str, Any] = {}
     for layer in layers:

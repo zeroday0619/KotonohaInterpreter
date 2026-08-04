@@ -16,7 +16,7 @@ from textual.containers import VerticalScroll
 from textual.widgets import DataTable, Footer, Header, Static, TabbedContent, TabPane
 
 from ..config import REPO_ROOT
-from ..i18n import t
+from ..i18n import _
 
 PROJECT_DISTRIBUTION = "kotonoha-interpreter"
 REQUIREMENT_NAME = re.compile(r"^([A-Za-z0-9_.-]+)")
@@ -74,7 +74,7 @@ def _declared_license(metadata: Mapping[str, Any]) -> str:
         prefix = "License :: OSI Approved :: "
         if classifier.startswith(prefix):
             return classifier.removeprefix(prefix)
-    return t("license.unknown")
+    return _("See package metadata")
 
 
 def installed_direct_dependencies() -> tuple[PackageLicense, ...]:
@@ -129,52 +129,65 @@ class LicenseApp(App[None]):
         self.dependencies = installed_direct_dependencies()
         self._bindings = BindingsMap(
             [
-                Binding("p", "project", t("license.key.project")),
-                Binding("d", "dependencies", t("license.key.dependencies")),
-                Binding("q", "back", t("license.key.back")),
+                Binding("p", "project", _("Project")),
+                Binding("d", "dependencies", _("Dependencies")),
+                Binding("q", "back", _("Back")),
             ]
         )
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         with TabbedContent(initial="project", id="license-tabs"):
-            with TabPane(t("license.tab.project"), id="project"):
+            with TabPane(_("Project license"), id="project"):
                 with VerticalScroll(id="project-scroll"):
                     yield Static(self._project_summary(), id="project-summary")
                     yield Static(
-                        self.license_text or t("license.unavailable"),
+                        self.license_text
+                        or _("The project license text is unavailable in this installation."),
                         markup=False,
                         id="license-text",
                     )
-            with TabPane(t("license.tab.dependencies"), id="dependencies"):
-                yield Static(t("license.dependencies.notice"), id="dependency-notice")
+            with TabPane(_("Installed dependencies"), id="dependencies"):
+                yield Static(
+                    _(
+                        "License identifiers are read from installed package metadata. "
+                        "Retain any license files required by each distributed package."
+                    ),
+                    id="dependency-notice",
+                )
                 yield DataTable(zebra_stripes=True, cursor_type="row", id="dependency-table")
-                yield Static(t("license.models.notice"), id="model-notice")
+                yield Static(
+                    _(
+                        "Downloaded model artifacts are not covered by the project MIT "
+                        "license. Review and retain the license files supplied with each model."
+                    ),
+                    id="model-notice",
+                )
         yield Footer()
 
     def _project_summary(self) -> Text:
         summary = Text()
-        summary.append(t("license.project.name") + " ", style="dim")
+        summary.append(_("Product:") + " ", style="dim")
         summary.append("Kotonoha Interpreter\n", style="bold")
-        summary.append(t("license.project.version") + " ", style="dim")
+        summary.append(_("Version:") + " ", style="dim")
         summary.append(self.version + "\n")
-        summary.append(t("license.project.type") + " ", style="dim")
+        summary.append(_("License:") + " ", style="dim")
         summary.append("MIT")
         return summary
 
     def on_mount(self) -> None:
-        self.title = t("license.title")
-        self.sub_title = t("license.subtitle")
+        self.title = _("License information")
+        self.sub_title = _("Project and installed dependencies")
         table = self.query_one("#dependency-table", DataTable)
         table.add_columns(
-            t("license.column.package"),
-            t("license.column.version"),
-            t("license.column.license"),
+            _("Package"),
+            _("Version"),
+            _("Declared license"),
         )
         for package in self.dependencies:
             table.add_row(package.name, package.version, package.license_name)
         if not self.dependencies:
-            table.add_row(t("license.none"), "", "")
+            table.add_row(_("No direct dependencies detected"), "", "")
 
     def action_project(self) -> None:
         self.query_one("#license-tabs", TabbedContent).active = "project"

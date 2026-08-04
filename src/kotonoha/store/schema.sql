@@ -44,6 +44,9 @@ CREATE TABLE IF NOT EXISTS turns (
 );
 
 CREATE INDEX IF NOT EXISTS ix_turns_recent ON turns (session_id, ts DESC);
+-- The history browser orders across every session, which the composite
+-- index above cannot serve.
+CREATE INDEX IF NOT EXISTS ix_turns_ts ON turns (ts DESC);
 
 -- Traditional Chinese post-processing rules --------------------------------
 -- Final substitutions for Taiwanese usage that OpenCC s2twp does not catch.

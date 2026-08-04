@@ -4,7 +4,9 @@
 # report back, the defaults stay on the conservative side (transformers, dense, melo).
 
 session:
-  mode: push_to_talk # push_to_talk | auto   (§4: start with PTT)
+  mode: push_to_talk # push_to_talk | auto | text   (§4: start with PTT)
+  # Source language for typed input. auto reads it from the script.
+  text_source_language: auto # auto | ko | en | zh-TW | ja
   routing: pair # pair | fixed | broadcast (§9, Phase 4)
   pair: [ko, en]
   fixed_target: en
@@ -164,6 +166,9 @@ zh:
 ui:
   # auto follows KOTONOHA_LANG, then the system locale, then English.
   language: auto # auto | en | ko | ja | zh-TW
+  # Past turns shown alongside the live panes in the interpreter. 0 hides the
+  # panel; `h` toggles it at runtime.
+  history_turns: 20
   refresh_hz: 60 # idle frames do not trigger terminal repaint
 
 context:

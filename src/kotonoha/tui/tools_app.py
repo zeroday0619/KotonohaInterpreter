@@ -17,7 +17,7 @@ from textual.binding import Binding, BindingsMap
 from textual.containers import Container, Horizontal, VerticalScroll
 from textual.widgets import Button, Footer, Header, Input, Label, RichLog, Select, Static
 
-from ..i18n import current_locale, t
+from ..i18n import N_, _, current_locale
 
 OPERATIONS = (
     "replay",
@@ -52,11 +52,11 @@ def _positive_integer(value: str, field: str, *, maximum: int | None = None) -> 
     try:
         parsed = int(value)
     except ValueError as error:
-        raise ToolInputError(t("tools.error.positive_integer", field=field)) from error
+        raise ToolInputError(_("{field} must be a positive integer.", field=field)) from error
     if parsed <= 0:
-        raise ToolInputError(t("tools.error.positive_integer", field=field))
+        raise ToolInputError(_("{field} must be a positive integer.", field=field))
     if maximum is not None and parsed > maximum:
-        raise ToolInputError(t("tools.error.maximum", field=field, maximum=maximum))
+        raise ToolInputError(_("{field} must not exceed {maximum}.", field=field, maximum=maximum))
     return str(parsed)
 
 
@@ -64,16 +64,16 @@ def _positive_number(value: str, field: str) -> str:
     try:
         parsed = float(value)
     except ValueError as error:
-        raise ToolInputError(t("tools.error.positive_number", field=field)) from error
+        raise ToolInputError(_("{field} must be a positive number.", field=field)) from error
     if parsed <= 0:
-        raise ToolInputError(t("tools.error.positive_number", field=field))
+        raise ToolInputError(_("{field} must be a positive number.", field=field))
     return str(parsed)
 
 
 def _existing_file(value: str, field: str) -> str:
     path = Path(value).expanduser()
     if not value.strip() or not path.is_file():
-        raise ToolInputError(t("tools.error.file", field=field))
+        raise ToolInputError(_("{field} must reference an existing file.", field=field))
     return str(path)
 
 
@@ -84,7 +84,7 @@ def build_tool_command(
 ) -> list[str]:
     """Build a validated CLI invocation without involving a shell."""
     if operation not in OPERATIONS:
-        raise ToolInputError(t("tools.error.operation"))
+        raise ToolInputError(_("Select a valid operation."))
 
     command = [sys.executable, "-m", "kotonoha.cli"]
     if config_path is not None:
@@ -95,10 +95,10 @@ def build_tool_command(
         command.extend(
             (
                 "replay",
-                _existing_file(values.get("wav", ""), t("tools.field.wav")),
+                _existing_file(values.get("wav", ""), _("WAV file")),
                 "--seconds",
                 _positive_number(
-                    values.get("replay-seconds", ""), t("tools.field.seconds")
+                    values.get("replay-seconds", ""), _("Duration in seconds")
                 ),
             )
         )
@@ -107,15 +107,15 @@ def build_tool_command(
     elif operation == "serve":
         service = values.get("service", "")
         if service not in {"asr", "verify", "tts"}:
-            raise ToolInputError(t("tools.error.service"))
+            raise ToolInputError(_("Select a valid service."))
         host = values.get("host", "").strip()
         if not host:
-            raise ToolInputError(t("tools.error.required", field=t("tools.field.host")))
+            raise ToolInputError(_("{field} is required.", field=_("Bind address")))
         command.extend(("serve", service, "--host", host))
         port = values.get("port", "").strip()
         if port:
             command.extend(
-                ("--port", _positive_integer(port, t("tools.field.port"), maximum=65535))
+                ("--port", _positive_integer(port, _("Port"), maximum=65535))
             )
     elif operation == "doctor":
         command.append("doctor")
@@ -124,10 +124,10 @@ def build_tool_command(
             (
                 "netcheck",
                 "--samples",
-                _positive_integer(values.get("samples", ""), t("tools.field.samples")),
+                _positive_integer(values.get("samples", ""), _("Measurements per role")),
                 "--seconds",
                 _positive_number(
-                    values.get("netcheck-seconds", ""), t("tools.field.seconds")
+                    values.get("netcheck-seconds", ""), _("Duration in seconds")
                 ),
             )
         )
@@ -137,7 +137,7 @@ def build_tool_command(
                 "glossary",
                 "import",
                 _existing_file(
-                    values.get("glossary-path", ""), t("tools.field.glossary_path")
+                    values.get("glossary-path", ""), _("Glossary YAML file")
                 ),
             )
         )
@@ -148,6 +148,49 @@ def build_tool_command(
     else:
         command.append("--install-completion")
     return command
+
+
+# Command names and notes. N_ marks them for extraction without translating at
+# import time, so the active locale is applied when the widget is built.
+OPERATION_LABELS: dict[str, str] = {
+    "completion_install": N_("Install shell completion"),
+    "completion_show": N_("Show shell completion"),
+    "devices": N_("List audio devices"),
+    "doctor": N_("Run environment diagnostics"),
+    "glossary_import": N_("Import a glossary"),
+    "glossary_list": N_("List glossary entries"),
+    "netcheck": N_("Measure the external link"),
+    "replay": N_("Replay a WAV file"),
+    "serve": N_("Start a model service"),
+}
+
+OPERATION_DESCRIPTIONS: dict[str, str] = {
+    "completion_install": N_("Install completion for the active shell."),
+    "completion_show": N_("Print the completion script for the active shell."),
+    "devices": N_("Print available audio devices and system defaults."),
+    "doctor": N_("Inspect dependencies, placement, models, and service health."),
+    "glossary_import": N_("Load glossary terms and Chinese conversion rules."),
+    "glossary_list": N_("Print every term stored in the local glossary."),
+    "netcheck": N_("Measure remote service latency and audio upload throughput."),
+    "replay": N_("Run the full pipeline from a 16-bit PCM WAV file."),
+    "serve": N_("Start one ASR, verification ASR, or TTS service."),
+}
+
+FIELD_LABELS: dict[str, str] = {
+    "glossary_path": N_("Glossary YAML file"),
+    "host": N_("Bind address"),
+    "port": N_("Port"),
+    "samples": N_("Measurements per role"),
+    "seconds": N_("Duration in seconds"),
+    "service": N_("Service"),
+    "wav": N_("WAV file"),
+}
+
+FIELD_PLACEHOLDERS: dict[str, str] = {
+    "glossary": N_("/path/to/glossary.yaml"),
+    "port": N_("Use the service default when empty"),
+    "wav": N_("/path/to/probe.wav"),
+}
 
 
 class ToolsApp(App[None]):
@@ -186,10 +229,10 @@ class ToolsApp(App[None]):
         self.process: Process | None = None
         self._bindings = BindingsMap(
             [
-                Binding("r", "execute", t("tools.key.run")),
-                Binding("x", "stop", t("tools.key.stop")),
-                Binding("c", "clear", t("tools.key.clear")),
-                Binding("q", "back", t("tools.key.back")),
+                Binding("r", "execute", _("Run")),
+                Binding("x", "stop", _("Stop")),
+                Binding("c", "clear", _("Clear output")),
+                Binding("q", "back", _("Back")),
             ]
         )
 
@@ -197,74 +240,78 @@ class ToolsApp(App[None]):
         yield Header(show_clock=True)
         with Horizontal(id="tools-workspace"):
             with VerticalScroll(id="tools-options"):
-                yield Label(t("tools.operation"), id="operation-label")
+                yield Label(_("Operation"), id="operation-label")
                 yield Select(
-                    [(t(f"tools.operation.{operation}"), operation) for operation in OPERATIONS],
+                    [(_(OPERATION_LABELS[operation]), operation) for operation in OPERATIONS],
                     value=OPERATIONS[0],
                     allow_blank=False,
                     id="tool-operation",
                 )
-                yield Static(t("tools.description.replay"), id="operation-description")
-                yield from self._input_field("wav", "tools.field.wav", "tools.placeholder.wav")
+                yield Static(
+                    _("Run the full pipeline from a 16-bit PCM WAV file."),
+                    id="operation-description",
+                )
+                yield from self._input_field("wav", "wav", "wav")
                 yield from self._input_field(
-                    "replay-seconds", "tools.field.seconds", value="30.0", input_type="number"
+                    "replay-seconds", "seconds", value="30.0", input_type="number"
                 )
                 with Container(id="field-service", classes="tool-field"):
-                    yield Label(t("tools.field.service"), classes="field-label")
+                    yield Label(_("Service"), classes="field-label")
                     yield Select(
-                        [("ASR", "asr"), (t("tools.service.verify"), "verify"), ("TTS", "tts")],
+                        [("ASR", "asr"), (_("Verification ASR"), "verify"), ("TTS", "tts")],
                         value="asr",
                         allow_blank=False,
                         id="service",
                     )
-                yield from self._input_field("host", "tools.field.host", value="0.0.0.0")
+                yield from self._input_field("host", "host", value="0.0.0.0")
                 yield from self._input_field(
-                    "port", "tools.field.port", "tools.placeholder.port", input_type="integer"
+                    "port", "port", "port", input_type="integer"
                 )
                 yield from self._input_field(
-                    "samples", "tools.field.samples", value="10", input_type="integer"
+                    "samples", "samples", value="10", input_type="integer"
                 )
                 yield from self._input_field(
                     "netcheck-seconds",
-                    "tools.field.seconds",
+                    "seconds",
                     value="6.0",
                     input_type="number",
                 )
                 yield from self._input_field(
-                    "glossary-path", "tools.field.glossary_path", "tools.placeholder.glossary"
+                    "glossary-path", "glossary_path", "glossary"
                 )
                 with Horizontal(id="tool-actions"):
-                    yield Button(t("tools.run"), id="tool-run", variant="primary")
-                    yield Button(t("tools.stop"), id="tool-stop", disabled=True)
-                    yield Button(t("tools.back"), id="tool-back")
+                    yield Button(_("Run"), id="tool-run", variant="primary")
+                    yield Button(_("Stop"), id="tool-stop", disabled=True)
+                    yield Button(_("Back"), id="tool-back")
             with Container(id="tools-output"):
-                yield Static(t("tools.output"), id="output-title")
+                yield Static(_("Command output"), id="output-title")
                 yield RichLog(id="tool-log", wrap=True, markup=False)
-                yield Static(t("tools.status.ready"), id="tool-status")
+                yield Static(_("Ready"), id="tool-status")
         yield Footer()
 
     def _input_field(
         self,
         field_id: str,
-        label_key: str,
-        placeholder_key: str | None = None,
+        field: str,
+        placeholder: str | None = None,
         *,
         value: str = "",
         input_type: str = "text",
     ) -> ComposeResult:
         with Container(id=f"field-{field_id}", classes="tool-field"):
-            yield Label(t(label_key), classes="field-label")
+            yield Label(_(FIELD_LABELS[field]), classes="field-label")
             yield Input(
                 value=value,
-                placeholder=t(placeholder_key) if placeholder_key else "",
+                placeholder=_(FIELD_PLACEHOLDERS[placeholder]) if placeholder else "",
                 type=input_type,
                 id=field_id,
             )
 
     def on_mount(self) -> None:
-        self.title = t("tools.title")
-        self.sub_title = t(
-            "tools.subtitle", config=str(self.config_path or "config/default.yaml")
+        self.title = _("Kotonoha operations")
+        self.sub_title = _(
+            "Configuration: {config}",
+            config=str(self.config_path or "config/default.yaml"),
         )
         self._show_fields(OPERATIONS[0])
 
@@ -291,7 +338,7 @@ class ToolsApp(App[None]):
         for field_id in {field for fields in OPERATION_FIELDS.values() for field in fields}:
             self.query_one(f"#field-{field_id}").display = field_id in visible
         self.query_one("#operation-description", Static).update(
-            t(f"tools.description.{operation}")
+            _(OPERATION_DESCRIPTIONS[operation])
         )
 
     def _values(self) -> dict[str, str]:
@@ -318,7 +365,7 @@ class ToolsApp(App[None]):
     async def _execute_tool(self) -> None:
         operation_value = self.query_one("#tool-operation", Select).value
         if operation_value == Select.BLANK:
-            self._write(t("tools.error.operation"), "red")
+            self._write(_("Select a valid operation."), "red")
             return
         try:
             command = build_tool_command(str(operation_value), self._values(), self.config_path)
@@ -339,7 +386,7 @@ class ToolsApp(App[None]):
                 env=environment,
             )
         except OSError as error:
-            self._write(t("tools.error.start", error=error), "red")
+            self._write(_("Failed to start the process: {error}", error=error), "red")
             return
 
         self._set_running(True)
@@ -357,7 +404,7 @@ class ToolsApp(App[None]):
             if self.is_running:
                 self._set_running(False)
                 self.query_one("#tool-status", Static).update(
-                    t("tools.status.finished", code=return_code)
+                    _("Process finished with exit code {code}", code=return_code)
                 )
 
     def _set_running(self, running: bool) -> None:
@@ -365,7 +412,7 @@ class ToolsApp(App[None]):
         self.query_one("#tool-stop", Button).disabled = not running
         self.query_one("#tool-operation", Select).disabled = running
         self.query_one("#tool-status", Static).update(
-            t("tools.status.running") if running else t("tools.status.ready")
+            _("Running") if running else _("Ready")
         )
 
     def _write(self, message: str, style: str | None = None) -> None:
@@ -374,7 +421,7 @@ class ToolsApp(App[None]):
 
     async def action_stop(self) -> None:
         if self.process is not None:
-            self._write(t("tools.status.stopping"), "yellow")
+            self._write(_("Stopping the process"), "yellow")
             await self._terminate_process()
 
     async def _terminate_process(self) -> None:

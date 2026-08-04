@@ -35,7 +35,7 @@ from ..store import Store
 from ..transport import AudioPayload
 from .clauses import ClauseStreamer
 from .events import EventBus
-from .lid import decide_language, route_targets
+from .lid import decide_language, decide_typed_language, route_targets
 from .quality import cer, is_divergent, should_cross_verify
 from .state import Machine, State
 from .zh import TraditionalizeTW, looks_simplified
@@ -171,7 +171,6 @@ class Orchestrator:
 
     # -- frame loop ------------------------------------------------------
     async def _frame_loop(self) -> None:
-        auto = self.s.session.mode == "auto"
         level_tick = 0
         while self._running:
             frame = await self.capture.frames.get()
@@ -181,10 +180,13 @@ class Orchestrator:
             if self.machine.state is State.SPEAKING:
                 continue
 
+            if self.s.session.mode == "text":
+                continue
+
             if self.machine.state is State.PROCESSING:
                 continue
 
-            if not auto and self.machine.state is State.IDLE:
+            if self.s.session.mode != "auto" and self.machine.state is State.IDLE:
                 # PTT mode: the key decides the transition. Skip the VAD and
                 # just keep the preroll ring filled (§5.1 applies to PTT too).
                 self.seg.prime_preroll(frame.pcm)
@@ -325,8 +327,19 @@ class Orchestrator:
                     log.warning("verify.failed", error=repr(e))
                     self.bus.emit("verify", state="failed", message=str(e))
 
-        # -- target routing -------------------------------------------------
-        targets = route_targets(dec.lang, self.s.session)
+        await self._route_and_translate(m, n_best, verify_text, dec.lang, history, failover_base)
+
+    # -- routing shared by the spoken and typed paths ----------------------
+    async def _route_and_translate(
+        self,
+        m: TurnMetrics,
+        n_best: list[str],
+        verify_text: str | None,
+        src_lang: str,
+        history,
+        failover_base: int,
+    ) -> None:
+        targets = route_targets(src_lang, self.s.session)
         if not targets:
             m.outcome = "ok"
             m.notes["no_target"] = True
@@ -338,10 +351,81 @@ class Orchestrator:
         translation: str | None = None
         for i, tgt in enumerate(targets):
             translation = await self._translate_and_speak(
-                m, n_best, verify_text, dec.lang, tgt, history, first=(i == 0)
+                m, n_best, verify_text, src_lang, tgt, history, first=(i == 0)
             )
 
-        self._finish(m, n_best[0], translation, dec.lang, failover_base)
+        self._finish(m, n_best[0], translation, src_lang, failover_base)
+
+    # -- typed input --------------------------------------------------------
+    def text_mode_active(self) -> bool:
+        return self.s.session.mode == "text"
+
+    def set_text_mode(self, active: bool, previous: str = "push_to_talk") -> str:
+        """Switch the keyboard in or out as the input source.
+
+        The microphone is closed while typing. In automatic mode the VAD would
+        otherwise segment room noise into a turn while the operator is still
+        composing, and in push-to-talk the space bar belongs to the text field.
+        """
+        self.s.session.mode = "text" if active else previous
+        if active:
+            self.capture.close_gate()
+        elif self.machine.state is not State.SPEAKING:
+            self.capture.open_gate()
+        self.seg.reset()
+        log.info("session.input_mode", mode=self.s.session.mode)
+        return self.s.session.mode
+
+    async def submit_text(self, text: str, src_lang: str | None = None) -> bool:
+        """Run one turn from typed text, skipping capture, ASR and verification.
+
+        Returns False when the submission was refused, which happens for blank
+        input and while another turn is still running.
+        """
+        text = text.strip()
+        if not text:
+            return False
+        if self._busy.locked() or self.machine.state is not State.IDLE:
+            log.warning("text.dropped_busy", state=self.machine.state.value)
+            self.bus.emit("error", where="text", message="busy")
+            return False
+        async with self._busy:
+            await self._process_text(text, src_lang)
+        return True
+
+    async def _process_text(self, text: str, src_lang: str | None) -> None:
+        m = TurnMetrics()
+        m.input_mode = "text"
+        # There is no end of utterance, so the clock starts at submission. ASR is
+        # skipped rather than measured, which the marks show as a zero-length stage.
+        m.mark("eou")
+        m.mark("asr_done")
+        m.perf_mode = self.s.perf_mode
+        m.placement = dict(self.svc.placement)
+        failover_base = self._failover_total()
+        self.machine.to(State.PROCESSING, "text")
+
+        self.bus.emit("text_submitted", turn_id=m.turn_id, text=text)
+
+        dec = decide_typed_language(
+            text,
+            src_lang or self.s.session.text_source_language,
+            self.last_lang,
+            self.s.session.languages,
+        )
+        m.lang_detected, m.lang_source, m.lid_confidence = dec.lang, dec.source, dec.confidence
+        self.last_lang = dec.lang
+        self.bus.emit(
+            "lang", lang=dec.lang, source=dec.source, confidence=dec.confidence, note=dec.note
+        )
+
+        # Typed Simplified input is converted for the same reason ASR output is:
+        # this device produces Taiwanese Traditional (§5).
+        source = self._maybe_tw(text, dec.lang, "asr")
+        self.bus.emit("asr", text=source, n_best=[source], avg_logprob=None)
+
+        history = self.store.recent_turns(self.session_id, self.s.context.history_turns)
+        await self._route_and_translate(m, [source], None, dec.lang, history, failover_base)
 
     # -- translation + TTS -------------------------------------------------
     async def _translate_and_speak(
@@ -533,7 +617,7 @@ class Orchestrator:
         m.failovers = max(0, self._failover_total() - failover_base)
         m.placement = dict(self.svc.placement)
         rec = self.turnlog.write(m)
-        self.store.add_turn(
+        stored_at = self.store.add_turn(
             turn_id=m.turn_id,
             session_id=self.session_id,
             src_lang=src_lang or m.lang_detected,
@@ -549,6 +633,19 @@ class Orchestrator:
         )
         log.info("turn", **rec)
         self.bus.emit("turn", **rec)
+        if source_text or translation:
+            # The panel appends from this rather than re-querying: the row was
+            # just written, and a query per turn would run inside the latency budget.
+            self.bus.emit(
+                "history",
+                turn_id=m.turn_id,
+                ts=stored_at,
+                src_lang=src_lang or m.lang_detected,
+                tgt_lang=m.target_lang,
+                source_text=source_text,
+                translation=translation,
+                outcome=m.outcome,
+            )
         if rec.get("over_budget_ms"):
             # §6: when the budget is blown, report which stage caused it.
             self.bus.emit("budget", over=rec["over_budget_ms"], stages=rec["stages_ms"])

@@ -20,7 +20,7 @@ from kotonoha.clients.config_admin import RemoteConfigSnapshot
 from kotonoha.config import load_settings
 from kotonoha.config_store import set_path
 from kotonoha.core.events import UiEvent
-from kotonoha.i18n import CATALOGS, set_locale
+from kotonoha.i18n import set_locale, translate_to
 from kotonoha.services.config_admin import REMOTE_EDITABLE_PATHS
 from kotonoha.tui import tools_app
 from kotonoha.tui.app import KotonohaApp
@@ -56,23 +56,22 @@ async def test_control_center_composes_with_localized_actions():
     app = TuiMenuApp(load_settings())
     async with app.run_test() as pilot:
         await pilot.pause()
-        assert app.title == CATALOGS["ja"]["tui.title"]
-        assert str(app.query_one("#interpreter", Button).label) == CATALOGS["ja"][
-            "tui.menu.interpreter"
-        ]
-        assert str(app.query_one("#configuration", Button).label) == CATALOGS["ja"][
-            "tui.menu.configuration"
-        ]
-        assert str(app.query_one("#tools", Button).label) == CATALOGS["ja"]["tui.menu.tools"]
-        assert str(app.query_one("#license", Button).label) == CATALOGS["ja"][
-            "tui.menu.license"
-        ]
+        assert app.title == translate_to("ja", "Kotonoha Interpreter")
+        assert str(app.query_one("#interpreter", Button).label) == translate_to(
+            "ja", "Interpreter"
+        )
+        assert str(app.query_one("#configuration", Button).label) == translate_to(
+            "ja", "Configuration"
+        )
+        assert str(app.query_one("#tools", Button).label) == translate_to("ja", "Operations")
+        assert str(app.query_one("#license", Button).label) == translate_to("ja", "License")
         assert [binding.description for binding in app._bindings.shown_keys] == [
-            CATALOGS["ja"]["tui.menu.key.interpreter"],
-            CATALOGS["ja"]["tui.menu.key.configuration"],
-            CATALOGS["ja"]["tui.menu.key.tools"],
-            CATALOGS["ja"]["tui.menu.key.license"],
-            CATALOGS["ja"]["tui.menu.key.quit"],
+            translate_to("ja", "Interpreter"),
+            translate_to("ja", "Configuration"),
+            translate_to("ja", "Interpretation history"),
+            translate_to("ja", "Operations"),
+            translate_to("ja", "License"),
+            translate_to("ja", "Exit"),
         ]
 
 
@@ -95,14 +94,14 @@ async def test_license_screen_composes_with_localized_tabs():
     app = LicenseApp()
     async with app.run_test() as pilot:
         await pilot.pause()
-        assert app.title == CATALOGS["zh-TW"]["license.title"]
+        assert app.title == translate_to("zh-TW", "License information")
         assert app.license_text is not None
         assert "MIT License" in app.license_text
         assert app.query_one("#dependency-table").row_count == len(app.dependencies)
         assert [binding.description for binding in app._bindings.shown_keys] == [
-            CATALOGS["zh-TW"]["license.key.project"],
-            CATALOGS["zh-TW"]["license.key.dependencies"],
-            CATALOGS["zh-TW"]["license.key.back"],
+            translate_to("zh-TW", "Project"),
+            translate_to("zh-TW", "Dependencies"),
+            translate_to("zh-TW", "Back"),
         ]
 
         await pilot.press("d")
@@ -116,14 +115,14 @@ async def test_operations_screen_composes_every_cli_operation():
         await pilot.pause()
         operation_select = app.query_one("#tool-operation")
         assert len(operation_select._options) == len(OPERATIONS)
-        assert app.title == CATALOGS["ko"]["tools.title"]
+        assert app.title == translate_to("ko", "Kotonoha operations")
         assert app.query_one("#field-wav").display
         assert not app.query_one("#field-host").display
         assert [binding.description for binding in app._bindings.shown_keys] == [
-            CATALOGS["ko"]["tools.key.run"],
-            CATALOGS["ko"]["tools.key.stop"],
-            CATALOGS["ko"]["tools.key.clear"],
-            CATALOGS["ko"]["tools.key.back"],
+            translate_to("ko", "Run"),
+            translate_to("ko", "Stop"),
+            translate_to("ko", "Clear output"),
+            translate_to("ko", "Back"),
         ]
         app._write("styled output", "red")
 
@@ -182,12 +181,12 @@ async def test_config_editor_titles_follow_the_locale(tmp_path):
     app = ConfigApp(local_path=tmp_path / "local.yaml")
     async with app.run_test() as pilot:
         await pilot.pause()
-        assert app.title == CATALOGS["ja"]["cfg.title"]
+        assert app.title == translate_to("ja", "Kotonoha configuration")
         assert [b.description for b in app._bindings.shown_keys] == [
-            CATALOGS["ja"]["cfg.key.save"],
-            CATALOGS["ja"]["cfg.key.reload"],
-            CATALOGS["ja"]["cfg.key.menu"],
-            CATALOGS["ja"]["cfg.key.quit"],
+            translate_to("ja", "Save"),
+            translate_to("ja", "Reload"),
+            translate_to("ja", "Categories"),
+            translate_to("ja", "Quit"),
         ]
 
 
@@ -240,7 +239,7 @@ async def test_saving_without_edits_writes_nothing(tmp_path):
         await pilot.pause()
         app._say = lambda message, style: said.append(message)  # noqa: ARG005
         await app.action_save()
-    assert said == [CATALOGS["en"]["cfg.no_changes"]]
+    assert said == [translate_to("en", "No changes to save")]
     assert not target.exists()
 
 
@@ -361,21 +360,24 @@ async def test_main_interface_composes_with_localized_labels(wav_path, tmp_path,
     app = KotonohaApp(orch)
     async with app.run_test() as pilot:
         await pilot.pause()
-        assert app.title == CATALOGS["ko"]["tui.title"]
-        assert app.src._title == CATALOGS["ko"]["tui.pane.source"]
-        assert app.tgt._title == CATALOGS["ko"]["tui.pane.target"]
-        assert str(app.query_one("#log-title").render()) == CATALOGS["ko"]["tui.panel.logs"]
+        assert app.title == translate_to("ko", "Kotonoha Interpreter")
+        assert app.src._title == translate_to("ko", "Source (ASR)")
+        assert app.tgt._title == translate_to("ko", "Translation")
+        assert str(app.query_one("#log-title").render()) == translate_to("ko", "Application logs")
         get_logger().info("tui.test", readable=True)
         await pilot.pause(0.2)
         log_text = "\n".join(line.text for line in app.log_output.lines)
         assert "tui.test" in log_text
         assert "readable=true" in log_text
         assert [b.description for b in app._bindings.shown_keys] == [
-            CATALOGS["ko"]["tui.key.talk"],
-            CATALOGS["ko"]["tui.key.mode"],
-            CATALOGS["ko"]["tui.key.routing"],
-            CATALOGS["ko"]["tui.key.clear"],
-            CATALOGS["ko"]["tui.key.quit"],
+            translate_to("ko", "Talk (toggle)"),
+            translate_to("ko", "PTT/auto"),
+            translate_to("ko", "Routing"),
+            translate_to("ko", "Clear"),
+            translate_to("ko", "History"),
+            translate_to("ko", "Text input"),
+            translate_to("ko", "Leave text input"),
+            translate_to("ko", "Quit"),
         ]
         app.src.push("previous source")
         app.tgt.push("previous translation")

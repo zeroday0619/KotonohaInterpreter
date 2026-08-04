@@ -1,3 +1,3 @@
-from .db import GlossaryEntry, Store, TurnRecord
+from .db import GlossaryEntry, HistoryEntry, SessionSummary, Store, TurnRecord
 
-__all__ = ["Store", "GlossaryEntry", "TurnRecord"]
+__all__ = ["Store", "GlossaryEntry", "HistoryEntry", "SessionSummary", "TurnRecord"]

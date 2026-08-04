@@ -36,7 +36,7 @@ from ..config_store import (
     validate_candidate,
     write_local,
 )
-from ..i18n import CATALOGS, DEFAULT_LOCALE, LOCALE_NAMES, t
+from ..i18n import LOCALE_NAMES, N_, _
 
 
 @dataclass(frozen=True)
@@ -150,6 +150,79 @@ def _build_fields() -> tuple[FieldSpec, ...]:
 FIELDS = _build_fields()
 
 
+# Category titles. N_ marks them for extraction without translating at import
+# time, so the active locale is applied when a label is rendered.
+SECTION_LABELS: dict[str, str] = {
+    "asr": N_("Primary ASR"),
+    "asr_verify": N_("Verification ASR"),
+    "audio": N_("Audio devices"),
+    "data": N_("Context and storage"),
+    "frontend": N_("Audio frontend"),
+    "interface": N_("Interface"),
+    "language": N_("Language processing"),
+    "llm": N_("Translation LLM"),
+    "observability": N_("Logging and latency budgets"),
+    "remote": N_("External server"),
+    "runtime": N_("Runtime services"),
+    "session": N_("Session"),
+    "tts": N_("Speech synthesis"),
+}
+
+# Fallback description, by value kind, for a field with no specific note.
+VALUE_KIND_DESCRIPTIONS: dict[str, str] = {
+    "collection": N_("YAML list or mapping for {path}."),
+    "number": N_("Numeric value for {path}."),
+    "path": N_("Filesystem path for {path}."),
+    "text": N_("Text value for {path}."),
+}
+
+# Per-setting notes, keyed by dotted configuration path. A path absent here
+# falls back to VALUE_KIND_DESCRIPTIONS.
+FIELD_DESCRIPTIONS: dict[str, str] = {
+    "asr.backend": N_("transformers is confirmed; vllm awaits Spike 1."),
+    "asr.n_best": N_("Hypotheses returned per utterance. The correction pass consumes all."),
+    "asr_verify.mode": N_("conditional gates on confidence; always runs every turn."),
+    "audio.input_device": N_("Microphone index or name. Empty selects the system default."),
+    "audio.output_device": N_("Speaker index or name. Empty selects the system default."),
+    "frontend.denoise.enabled": N_("DeepFilterNet3 noise suppression."),
+    "frontend.vad.backend": N_("silero_onnx on the device; energy is a workstation fallback."),
+    "frontend.vad.preroll_ms": N_(
+            "Audio retained before speech onset. Below 200 ms the first syllable is clipped."
+    ),
+    "frontend.vad.silence_ms": N_("Silence required before end-of-utterance."),
+    "frontend.vad.threshold": N_("Speech onset probability, 0 to 1."),
+    "llm.profile": N_("moe is the 30B mixture; dense is the 14B."),
+    "logging.console": N_(
+            "Show structured application logs in the TUI. Model services emit JSON to their "
+            "console."
+    ),
+    "perf_mode": N_(
+            "onboard runs everything locally. hybrid moves only the LLM and keeps audio on the "
+            "device. remote moves every model."
+    ),
+    "remote.audio_encoding": N_("s16le halves the bytes on the wire against f32le."),
+    "remote.enabled": N_("When false every role runs locally, whatever perf_mode says."),
+    "remote.failover_after": N_("Consecutive transport failures before a role falls back."),
+    "remote.services.asr": N_("ASR service URL on the external server."),
+    "remote.services.asr_verify": N_("Verification service URL on the external server."),
+    "remote.services.llm": N_("Translation service URL on the external server."),
+    "remote.services.tts": N_("Speech synthesis service URL on the external server."),
+    "session.mode": N_(
+            "push_to_talk requires a key press, auto segments on the VAD, and text closes the "
+            "microphone and takes utterances from the keyboard."
+    ),
+    "session.routing": N_("pair swaps between two languages; fixed always targets one."),
+    "session.text_source_language": N_(
+            "Source language for typed input. auto reads it from the script."
+    ),
+    "tts.backend": N_("qwen3 depends on the Spike 2 result; melo is the fallback."),
+    "ui.language": N_("Interface language. auto follows the system locale."),
+    "ui.refresh_hz": N_(
+            "Maximum TUI frame scheduler rate. Idle frames do not repaint the terminal."
+    ),
+}
+
+
 def effective_value(settings: Settings, path: str) -> Any:
     """Read the value the runtime would use, through the pydantic model."""
     node: Any = settings
@@ -159,10 +232,11 @@ def effective_value(settings: Settings, path: str) -> Any:
 
 
 def field_description(specification: FieldSpec) -> str:
-    specific = f"cfg.f.{specification.path}"
-    if specific in CATALOGS[DEFAULT_LOCALE]:
-        return t(specific)
-    return t(f"cfg.field.{specification.value_kind}", path=specification.path)
+    specific = FIELD_DESCRIPTIONS.get(specification.path)
+    if specific:
+        return _(specific)
+    generic = VALUE_KIND_DESCRIPTIONS[specification.value_kind]
+    return _(generic, path=specification.path)
 
 
 def _format_value(value: Any) -> str:
@@ -217,7 +291,7 @@ class FieldRow(Static):
     def _label(self) -> Text:
         label = Text(self.specification.path, style="bold")
         if self.from_override:
-            label.append(f"  [{t('cfg.modified')}]", style="yellow")
+            label.append(f"  [{_('modified')}]", style="yellow")
         return label
 
     def _make_editor(self):
@@ -263,7 +337,7 @@ class FieldRow(Static):
         if not raw:
             if specification.optional:
                 return None
-            raise ValueError(t("cfg.value_required", path=specification.path))
+            raise ValueError(_("{path}: value required", path=specification.path))
         try:
             return yaml.safe_load(raw)
         except yaml.YAMLError as error:
@@ -282,7 +356,7 @@ class CategoryItem(ListItem):
         yield Static(self._label())
 
     def _label(self) -> Text:
-        label = Text(t(f"cfg.section.{self.section}"))
+        label = Text(_(SECTION_LABELS[self.section]))
         if self.modified:
             label.append(f"  {self.modified}", style="yellow bold")
         return label
@@ -351,10 +425,10 @@ class ConfigApp(App):
         self.current_section = SECTIONS[0]
         self._bindings = BindingsMap(
             [
-                Binding("s", "save", t("cfg.key.save")),
-                Binding("r", "reload", t("cfg.key.reload")),
-                Binding("m", "menu", t("cfg.key.menu")),
-                Binding("q", "quit", t("cfg.key.quit")),
+                Binding("s", "save", _("Save")),
+                Binding("r", "reload", _("Reload")),
+                Binding("m", "menu", _("Categories")),
+                Binding("q", "quit", _("Quit")),
             ]
         )
 
@@ -377,19 +451,19 @@ class ConfigApp(App):
         with Horizontal(id="workspace"):
             with Container(id="navigation"):
                 yield Select(
-                    [(t("cfg.target.local"), "local"), (t("cfg.target.remote"), "remote")],
+                    [(_("Local device"), "local"), (_("Remote A6000"), "remote")],
                     value="local",
                     allow_blank=False,
                     id="target-select",
                 )
-                yield Static(t("cfg.categories"), id="navigation-title")
+                yield Static(_("Categories"), id="navigation-title")
                 with ListView(id="category-list"):
                     for section in SECTIONS:
                         yield CategoryItem(section, self._modified_count(section))
             with Container(id="content"):
                 for section in SECTIONS:
                     with VerticalScroll(id=f"panel-{section}", classes="category-panel"):
-                        yield Static(t(f"cfg.section.{section}"), classes="category-title")
+                        yield Static(_(SECTION_LABELS[section]), classes="category-title")
                         for specification in FIELDS:
                             if specification.section != section:
                                 continue
@@ -405,7 +479,7 @@ class ConfigApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        self.title = t("cfg.title")
+        self.title = _("Kotonoha configuration")
         self._update_subtitle()
         self._show_section(self.current_section)
         self.query_one("#category-list", ListView).index = 0
@@ -438,18 +512,18 @@ class ConfigApp(App):
             self.query_one(f"#panel-{candidate}").display = candidate == section
 
     async def _load_remote(self) -> None:
-        self._say(t("cfg.remote.loading"), "dim")
+        self._say(_("Loading configuration from the remote server"), "dim")
         if self.remote_client is None:
             remote = self.client_settings.remote
             self.remote_client = RemoteConfigClient(remote.services.asr, remote)
         try:
             snapshot = await self.remote_client.read()
         except ServiceError as error:
-            self._say(t("cfg.remote.failed", error=str(error)), "red")
+            self._say(_("Remote configuration failed: {error}", error=str(error)), "red")
             self._set_target_selector("local")
             return
         self._apply_remote_snapshot(snapshot)
-        self._say(t("cfg.remote.loaded", path=snapshot.path), "green")
+        self._say(_("Loaded remote configuration from {path}", path=snapshot.path), "green")
 
     def _load_local(self) -> None:
         self.target = "local"
@@ -458,7 +532,7 @@ class ConfigApp(App):
         self.overrides = self._read_local_overrides()
         self._refresh_rows()
         self._update_subtitle()
-        self._say(t("cfg.reloaded"), "dim")
+        self._say(_("Reloaded from disk"), "dim")
 
     def _apply_remote_snapshot(self, snapshot: RemoteConfigSnapshot) -> None:
         self.target = "remote"
@@ -477,7 +551,7 @@ class ConfigApp(App):
 
     def _update_subtitle(self) -> None:
         path = self.local_path if self.target == "local" else self.remote_path or "remote"
-        self.sub_title = t("cfg.subtitle", path=path)
+        self.sub_title = _("Changes are written to {path}", path=path)
 
     def _modified_count(self, section: str) -> int:
         return sum(
@@ -539,10 +613,12 @@ class ConfigApp(App):
         try:
             changes = self._collect_changes()
         except ValueError as error:
-            self._say(t("cfg.invalid", error=str(error)), "red")
+            self._say(
+                _("Rejected, configuration would be invalid: {error}", error=str(error)), "red"
+            )
             return
         if not changes:
-            self._say(t("cfg.no_changes"), "dim")
+            self._say(_("No changes to save"), "dim")
             return
 
         if self.target == "remote":
@@ -551,32 +627,38 @@ class ConfigApp(App):
 
         result = apply_changes(changes, self.config_path, self.local_path)
         if not result.written:
-            self._say(t("cfg.invalid", error=result.error), "red")
+            self._say(
+                _("Rejected, configuration would be invalid: {error}", error=result.error), "red"
+            )
             return
         self.settings = load_settings(self.config_path)
         self.overrides = self._read_local_overrides()
         self._refresh_rows()
         self._say(
-            t("cfg.saved", count=len(changes), path=self.local_path)
+            _("Saved {count} settings to {path}", count=len(changes), path=self.local_path)
             + "  "
-            + t("cfg.restart_required"),
+            + _("Restart the interpreter for these values to take effect"),
             "green",
         )
 
     async def _save_remote(self, changes: dict[str, Any]) -> None:
         if self.remote_client is None:
-            self._say(t("cfg.remote.not_connected"), "red")
+            self._say(_("The remote configuration service is not connected"), "red")
             return
         try:
             snapshot = await self.remote_client.update(changes)
         except ServiceError as error:
-            self._say(t("cfg.remote.failed", error=str(error)), "red")
+            self._say(_("Remote configuration failed: {error}", error=str(error)), "red")
             return
         self._apply_remote_snapshot(snapshot)
         self._say(
-            t("cfg.remote.saved", count=len(changes), path=snapshot.path)
+            _(
+                "Saved {count} settings to the remote file {path}",
+                count=len(changes),
+                path=snapshot.path,
+            )
             + "  "
-            + t("cfg.remote.restart_required"),
+            + _("Restart the remote services to apply these values"),
             "green",
         )
 

@@ -9,7 +9,7 @@ from textual.containers import Container
 from textual.widgets import Button, Footer, Header, Static
 
 from ..config import Settings
-from ..i18n import t
+from ..i18n import _
 
 
 class TuiMenuApp(App[str | None]):
@@ -31,6 +31,7 @@ class TuiMenuApp(App[str | None]):
     BINDINGS = [
         ("i", "interpreter", ""),
         ("s", "configuration", ""),
+        ("h", "history", ""),
         ("t", "tools", ""),
         ("l", "license", ""),
         ("q", "quit", ""),
@@ -41,11 +42,12 @@ class TuiMenuApp(App[str | None]):
         self.settings = settings
         self._bindings = BindingsMap(
             [
-                Binding("i", "interpreter", t("tui.menu.key.interpreter")),
-                Binding("s", "configuration", t("tui.menu.key.configuration")),
-                Binding("t", "tools", t("tui.menu.key.tools")),
-                Binding("l", "license", t("tui.menu.key.license")),
-                Binding("q", "quit", t("tui.menu.key.quit")),
+                Binding("i", "interpreter", _("Interpreter")),
+                Binding("s", "configuration", _("Configuration")),
+                Binding("h", "history", _("Interpretation history")),
+                Binding("t", "tools", _("Operations")),
+                Binding("l", "license", _("License")),
+                Binding("q", "quit", _("Exit")),
             ]
         )
 
@@ -55,39 +57,49 @@ class TuiMenuApp(App[str | None]):
         )
         yield Header(show_clock=True)
         with Container(id="control-center"):
-            yield Static(t("tui.menu.title"), id="menu-title")
-            yield Static(t("tui.menu.subtitle"), id="menu-subtitle")
+            yield Static(_("Control center"), id="menu-title")
+            yield Static(_("Select an operation"), id="menu-subtitle")
             yield Static(
-                t("tui.menu.performance", mode=self.settings.perf_mode),
+                _("Performance mode: {mode}", mode=self.settings.perf_mode),
                 classes="runtime-detail",
             )
             yield Static(
-                t("tui.menu.placement", placement=placement),
+                _("Placement: {placement}", placement=placement),
                 classes="runtime-detail",
             )
             yield Button(
-                t("tui.menu.interpreter"),
+                _("Interpreter"),
                 id="interpreter",
                 variant="primary",
                 classes="menu-button",
             )
-            yield Static(t("tui.menu.interpreter.description"), classes="menu-description")
+            yield Static(
+                _("Start microphone capture and interpretation"), classes="menu-description"
+            )
             yield Button(
-                t("tui.menu.configuration"),
+                _("Configuration"),
                 id="configuration",
                 classes="menu-button",
             )
-            yield Static(t("tui.menu.configuration.description"), classes="menu-description")
-            yield Button(t("tui.menu.tools"), id="tools", classes="menu-button")
-            yield Static(t("tui.menu.tools.description"), classes="menu-description")
-            yield Button(t("tui.menu.license"), id="license", classes="menu-button")
-            yield Static(t("tui.menu.license.description"), classes="menu-description")
-            yield Button(t("tui.menu.quit"), id="quit", classes="menu-button")
+            yield Static(_("Edit local and remote settings"), classes="menu-description")
+            yield Button(_("Interpretation history"), id="history", classes="menu-button")
+            yield Static(_("Search past turns and export them"), classes="menu-description")
+            yield Button(_("Operations"), id="tools", classes="menu-button")
+            yield Static(
+                _("Run diagnostics, services, replay, and glossary commands"),
+                classes="menu-description",
+            )
+            yield Button(_("License"), id="license", classes="menu-button")
+            yield Static(
+                _("Review project and installed dependency licenses"),
+                classes="menu-description",
+            )
+            yield Button(_("Exit"), id="quit", classes="menu-button")
         yield Footer()
 
     def on_mount(self) -> None:
-        self.title = t("tui.title")
-        self.sub_title = t("tui.menu.title")
+        self.title = _("Kotonoha Interpreter")
+        self.sub_title = _("Control center")
 
     @on(Button.Pressed)
     def button_pressed(self, event: Button.Pressed) -> None:
@@ -95,6 +107,8 @@ class TuiMenuApp(App[str | None]):
             self.action_interpreter()
         elif event.button.id == "configuration":
             self.action_configuration()
+        elif event.button.id == "history":
+            self.action_history()
         elif event.button.id == "tools":
             self.action_tools()
         elif event.button.id == "license":
@@ -107,6 +121,9 @@ class TuiMenuApp(App[str | None]):
 
     def action_configuration(self) -> None:
         self.exit("configuration")
+
+    def action_history(self) -> None:
+        self.exit("history")
 
     def action_tools(self) -> None:
         self.exit("tools")

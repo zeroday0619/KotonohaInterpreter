@@ -16,16 +16,18 @@ toggle: press to start, press again to finish.
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 
 from rich.text import Text
+from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding, BindingsMap
 from textual.containers import Container, Horizontal
 from textual.reactive import reactive
-from textual.widgets import Footer, Header, RichLog, Static
+from textual.widgets import Footer, Header, Input, RichLog, Static
 
 from ..core.events import UiEvent
-from ..i18n import t as _
+from ..i18n import _
 from ..logging_setup import drain_terminal_interface_logs
 from .log_panel import format_json_log
 from .rendering import FrameAccumulator
@@ -83,7 +85,7 @@ class StatusBar(Static):
         t.append(" ● ", style=STATE_STYLE.get(self.state, "white"))
         t.append(f"{self.state:<11}", style=STATE_STYLE.get(self.state, "white"))
         t.append("│ mic ", style="dim")
-        label = _("tui.mic.open") if self.mic else _("tui.mic.shut")
+        label = _("OPEN") if self.mic else _("SHUT")
         t.append(f"{label} ", style="green" if self.mic else "red bold")
         t.append(level_meter_text(self._meter_units), style="cyan")
         t.append(" │ ", style="dim")
@@ -98,7 +100,7 @@ class StatusBar(Static):
         t.append(self.perf, style="bold blue" if self.perf != "onboard" else "dim")
         if self.offbox_audio:
             # The operator should never have to guess whether audio is leaving.
-            t.append(" ⇗" + _("tui.audio_offbox"), style="yellow bold")
+            t.append(" ⇗" + _(" audio off-box"), style="yellow bold")
         return t
 
 
@@ -136,6 +138,56 @@ class Pane(Static):
         return t
 
 
+class HistoryPane(Static):
+    """Completed turns, seeded from the database and appended as turns finish.
+
+    The live panes are cleared at the start of every utterance, so without this
+    the screen forgets the conversation the moment the next one begins. It is
+    seeded across sessions: after a restart the preceding exchanges are still
+    the context the operator is working in.
+    """
+
+    def __init__(self, title: str, limit: int, **kw):
+        super().__init__(**kw)
+        self._title = title
+        self._limit = max(1, limit)
+        self._entries: list[tuple[float, str, str, str, str]] = []
+
+    def load(self, entries) -> None:
+        self._entries = [
+            (e.ts, e.src_lang or "?", e.tgt_lang or "?", e.source_text or "", e.translation or "")
+            for e in entries
+        ][-self._limit :]
+        self.refresh()
+
+    def append(
+        self, ts: float, src_lang: str | None, tgt_lang: str | None, source: str, translation: str
+    ) -> None:
+        self._entries.append((ts, src_lang or "?", tgt_lang or "?", source, translation))
+        self._entries = self._entries[-self._limit :]
+        self.refresh()
+
+    def clear_entries(self) -> None:
+        self._entries.clear()
+        self.refresh()
+
+    def render(self) -> Text:
+        t = Text()
+        t.append(f"{self._title}\n", style="bold underline")
+        if not self._entries:
+            t.append(_("No past turns") + "\n", style="dim")
+            return t
+        # Newest last, so the eye lands on the most recent exchange at the bottom.
+        for ts, src, tgt, source, translation in self._entries:
+            t.append(datetime.fromtimestamp(ts).strftime("%H:%M:%S "), style="dim")
+            t.append(f"{src}→{tgt}\n", style="magenta")
+            if source:
+                t.append(f"  {source}\n", style="white")
+            if translation:
+                t.append(f"  {translation}\n", style="cyan")
+        return t
+
+
 class LatencyPanel(Static):
     """§6 budget comparison and the five §11 marks."""
 
@@ -164,13 +216,13 @@ class LatencyPanel(Static):
     def render(self) -> Text:
         b = self.budget
         rows = [
-            (_("tui.stage.asr"), self.stages.get("asr"), b.asr + b.verify),
-            (_("tui.stage.llm"), self.stages.get("llm_first_clause"), b.llm_first_clause),
-            (_("tui.stage.tts"), self.stages.get("tts_first_packet"), b.tts_first_packet),
-            (_("tui.stage.total"), self.stages.get("total_to_first_audio"), b.total - b.silence),
+            (_("ASR (+verify)"), self.stages.get("asr"), b.asr + b.verify),
+            (_("LLM first clause"), self.stages.get("llm_first_clause"), b.llm_first_clause),
+            (_("TTS first packet"), self.stages.get("tts_first_packet"), b.tts_first_packet),
+            (_("EOU to audio"), self.stages.get("total_to_first_audio"), b.total - b.silence),
         ]
         t = Text()
-        t.append(_("tui.panel.latency") + "\n", style="bold underline")
+        t.append(_("Latency (ms)        measured / budget") + "\n", style="bold underline")
         for name, v, lim in rows:
             t.append(f"{name:<16}")
             if v is None:
@@ -181,7 +233,7 @@ class LatencyPanel(Static):
             t.append(f" / {lim:<6}\n", style="dim")
         if self.over:
             over = ", ".join(f"{k} +{v:.0f}ms" for k, v in self.over.items())
-            t.append(_("tui.over_budget") + over + "\n", style="red bold")
+            t.append(_("Over: ") + over + "\n", style="red bold")
         if self.extra:
             t.append("\n")
             for k, v in self.extra.items():
@@ -209,7 +261,7 @@ class ServicePanel(Static):
 
     def render(self) -> Text:
         t = Text()
-        t.append(_("tui.panel.services") + "\n", style="bold underline")
+        t.append(_("Services") + "\n", style="bold underline")
         for name in ("asr", "asr-verify", "llm", "tts"):
             s = self.services.get(name)
             if s is None:
@@ -229,7 +281,7 @@ class ServicePanel(Static):
                 t.append(f" {str(tag)[:26]}", style="dim")
             t.append("\n")
         if self.errors:
-            t.append("\n" + _("tui.panel.errors") + "\n", style="bold underline red")
+            t.append("\n" + _("Recent errors") + "\n", style="bold underline red")
             for e in self.errors:
                 t.append(f"  {e[:60]}\n", style="red")
         return t
@@ -241,8 +293,10 @@ class KotonohaApp(App):
     StatusBar { height: 1; background: $panel; }
     #panes { height: 1fr; }
     #src, #tgt { width: 1fr; border: round $primary; padding: 0 1; }
+    #hist { width: 1fr; border: round $secondary; padding: 0 1; overflow-y: auto; }
     #bottom { height: 9; }
     #lat, #svc { width: 1fr; border: round $secondary; padding: 0 1; }
+    #text-input { height: 3; border: round $accent; }
     #logs { height: 7; border: round $secondary; padding: 0 1; }
     #log-title { height: 1; text-style: bold underline; }
     #log-output { height: 1fr; }
@@ -255,6 +309,9 @@ class KotonohaApp(App):
         ("a", "toggle_mode", ""),
         ("r", "cycle_routing", ""),
         ("c", "clear", ""),
+        ("h", "toggle_history", ""),
+        ("t", "text_mode", ""),
+        ("escape", "exit_text_mode", ""),
         ("q", "quit", ""),
     ]
 
@@ -262,17 +319,31 @@ class KotonohaApp(App):
         super().__init__()
         self.orch = orch
         self._talking = False
+        # Restored when text mode is left, so `t` is a round trip rather than a
+        # one-way switch out of whatever the operator had configured.
+        self._voice_mode = orch.s.session.mode if orch.s.session.mode != "text" else "push_to_talk"
         self._frame_accumulator = FrameAccumulator()
         # Replace the map rather than calling bind() on it: Textual builds the map
         # from the class attribute, so mutating it would leak one instance's locale
         # into the next.
         self._bindings = BindingsMap(
             [
-                Binding("space", "talk", _("tui.key.talk")),
-                Binding("a", "toggle_mode", _("tui.key.mode")),
-                Binding("r", "cycle_routing", _("tui.key.routing")),
-                Binding("c", "clear", _("tui.key.clear")),
-                Binding("q", "quit", _("tui.key.quit")),
+                Binding("space", "talk", _("Talk (toggle)")),
+                Binding("a", "toggle_mode", _("PTT/auto")),
+                Binding("r", "cycle_routing", _("Routing")),
+                Binding("c", "clear", _("Clear")),
+                Binding("h", "toggle_history", _("History")),
+                Binding("t", "text_mode", _("Text input")),
+                # priority, because the focused input consumes ordinary keys.
+                # Without it there is no way out of text mode: `t` becomes a
+                # character in the field rather than a binding.
+                Binding(
+                    "escape",
+                    "exit_text_mode",
+                    _("Leave text input"),
+                    priority=True,
+                ),
+                Binding("q", "quit", _("Quit")),
             ]
         )
 
@@ -281,17 +352,26 @@ class KotonohaApp(App):
         self.status = StatusBar()
         yield self.status
         with Horizontal(id="panes"):
-            self.src = Pane(_("tui.pane.source"), "white", id="src")
-            self.tgt = Pane(_("tui.pane.target"), "bold cyan", id="tgt")
+            self.src = Pane(_("Source (ASR)"), "white", id="src")
+            self.tgt = Pane(_("Translation"), "bold cyan", id="tgt")
+            self.hist = HistoryPane(
+                _("History"), max(1, self.orch.s.ui.history_turns), id="hist"
+            )
             yield self.src
             yield self.tgt
+            yield self.hist
         with Horizontal(id="bottom"):
             self.lat = LatencyPanel(self.orch.s.budget_ms, id="lat")
             self.svc = ServicePanel(id="svc")
             yield self.lat
             yield self.svc
+        self.text_input = Input(
+            placeholder=_("Type an utterance and press Enter. Press t to return to voice."),
+            id="text-input",
+        )
+        yield self.text_input
         with Container(id="logs"):
-            yield Static(_("tui.panel.logs"), id="log-title")
+            yield Static(_("Application logs"), id="log-title")
             self.log_output = RichLog(
                 max_lines=500,
                 wrap=True,
@@ -302,14 +382,21 @@ class KotonohaApp(App):
         yield Footer()
 
     async def on_mount(self) -> None:
-        self.title = _("tui.title")
-        self.sub_title = _("tui.subtitle", session=self.orch.session_id)
+        self.title = _("Kotonoha Interpreter")
+        self.sub_title = _("session {session}", session=self.orch.session_id)
         self.status.mode = self.orch.s.session.mode
         self.status.routing = self.orch.s.session.routing
+        self._show_text_input(self.orch.s.session.mode == "text")
         self.status.perf = self.orch.s.perf_mode
         self.status.offbox_audio = self.orch.s.audio_leaves_device
         if not self.orch.s.logging.console:
-            self.log_output.write(Text(_("tui.logs.disabled"), style="dim"))
+            self.log_output.write(
+                Text(_("TUI logging is disabled by logging.console=false"), style="dim")
+            )
+        history_turns = self.orch.s.ui.history_turns
+        self.hist.display = history_turns > 0
+        if history_turns > 0:
+            self.hist.load(self.orch.store.recent_history(history_turns))
         await self.orch.start()
         self.run_worker(self._drain(), exclusive=False)
         self.set_interval(
@@ -362,16 +449,17 @@ class KotonohaApp(App):
                 self.svc.push_error("lid", p["note"])
         elif ev.kind == "eou":
             self.src.push(
-                _(
-                    "tui.eou",
+                _("[{seconds}s, preroll {preroll}ms, {reason}]",
                     seconds=p["seconds"],
                     preroll=p["preroll_ms"],
                     reason=p["ended_by"],
                 )
             )
+        elif ev.kind == "text_submitted":
+            self._clear_transcripts()
         elif ev.kind == "asr":
             if p.get("empty"):
-                self.src.replace_last(_("tui.asr.empty"))
+                self.src.replace_last(_("(silence, returning without playback)"))
             else:
                 self.src.replace_last(p.get("text", ""))
         elif ev.kind == "verify":
@@ -379,7 +467,7 @@ class KotonohaApp(App):
                 mark = "≠" if p.get("divergent") else "≈"
                 self.src.push(f"  {mark} whisper: {p.get('text', '')[:70]}")
             elif p.get("state") == "running":
-                self.src.push("  … " + _("tui.verify.running", reason=p.get("reason", "")))
+                self.src.push("  … " + _("verifying ({reason})", reason=p.get("reason", "")))
         elif ev.kind == "translation_delta":
             self._frame_accumulator.push_translation(p.get("text", ""))
         elif ev.kind == "clause":
@@ -387,10 +475,18 @@ class KotonohaApp(App):
         elif ev.kind == "translation":
             self._frame_accumulator.discard_translation()
             if p.get("timeout"):
-                self.tgt.replace_last(_("tui.llm.timeout"))
+                self.tgt.replace_last(_("(LLM timeout, transcript only, TTS skipped)"))
             else:
                 self.tgt.replace_last(p.get("text") or "")
                 self.tgt.push("")
+        elif ev.kind == "history":
+            self.hist.append(
+                p["ts"],
+                p.get("src_lang"),
+                p.get("tgt_lang"),
+                p.get("source_text") or "",
+                p.get("translation") or "",
+            )
         elif ev.kind == "turn":
             self.lat.update_turn(p)
         elif ev.kind == "service":
@@ -405,7 +501,12 @@ class KotonohaApp(App):
             # A role moved between the A6000 and the on-board service.
             self.svc.push_error(
                 "placement",
-                _("tui.placement.moved", role=p["role"], side=p["side"], reason=p["reason"]),
+                _(
+                    "{role} to {side} ({reason})",
+                    role=p["role"],
+                    side=p["side"],
+                    reason=p["reason"],
+                ),
             )
             self.status.offbox_audio = self.orch.s.audio_leaves_device
         elif ev.kind == "privacy":
@@ -425,9 +526,52 @@ class KotonohaApp(App):
             self.orch.ptt_down()
 
     def action_toggle_mode(self) -> None:
-        s = self.orch.s.session
-        s.mode = "auto" if s.mode == "push_to_talk" else "push_to_talk"
-        self.status.mode = s.mode
+        """Cycle push_to_talk, auto and text."""
+        order = ["push_to_talk", "auto", "text"]
+        current = self.orch.s.session.mode
+        self._set_mode(order[(order.index(current) + 1) % len(order)])
+
+    def action_text_mode(self) -> None:
+        """Enter typed input, or leave it when the field does not hold focus."""
+        leaving = self.orch.s.session.mode == "text"
+        self._set_mode(self._voice_mode if leaving else "text")
+
+    def action_exit_text_mode(self) -> None:
+        """Leave typed input. Bound to escape so it works from the focused field."""
+        if self.orch.s.session.mode == "text":
+            self._set_mode(self._voice_mode)
+
+    def _set_mode(self, mode: str) -> None:
+        if mode != "text":
+            self._voice_mode = mode
+        self.orch.set_text_mode(mode == "text", previous=self._voice_mode)
+        self.status.mode = self.orch.s.session.mode
+        self._show_text_input(mode == "text")
+        if mode == "text":
+            self.text_input.focus()
+        else:
+            self.text_input.value = ""
+
+    def _show_text_input(self, visible: bool) -> None:
+        """Show or hide the field, and keep it out of the focus chain when hidden.
+
+        display alone is not enough. Textual focuses the first focusable widget on
+        mount, and a hidden Input is still focusable, so it would take focus and
+        swallow every single-letter binding — including `t`, the key that reveals it.
+        """
+        self.text_input.display = visible
+        self.text_input.can_focus = visible
+        if not visible:
+            self.set_focus(None)
+
+    @on(Input.Submitted, "#text-input")
+    def text_submitted(self, event: Input.Submitted) -> None:
+        text = event.value.strip()
+        if not text:
+            return
+        self.text_input.value = ""
+        # submit_text runs the whole turn, so it cannot block the input handler.
+        self.run_worker(self.orch.submit_text(text), exclusive=False)
 
     def action_cycle_routing(self) -> None:
         s = self.orch.s.session
@@ -437,6 +581,10 @@ class KotonohaApp(App):
 
     def action_clear(self) -> None:
         self._clear_transcripts()
+
+    def action_toggle_history(self) -> None:
+        """Reclaim the column when the live panes need the width."""
+        self.hist.display = not self.hist.display
 
     def _clear_transcripts(self) -> None:
         self._frame_accumulator.discard_translation()

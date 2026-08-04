@@ -2,17 +2,31 @@
 
 from __future__ import annotations
 
+import importlib.util
 import string
 
 import pytest
 import yaml
 
 from kotonoha import i18n
-from kotonoha.config import load_settings
-from kotonoha.i18n import CATALOGS, DEFAULT_LOCALE, normalize_locale, set_locale, t
+from kotonoha.config import REPO_ROOT, load_settings
+from kotonoha.i18n import (
+    DEFAULT_LOCALE,
+    _,
+    available_locales,
+    mo_path,
+    normalize_locale,
+    po_path,
+    set_locale,
+    translate_to,
+    translation,
+)
 from kotonoha.tui.config_app import (
+    FIELD_DESCRIPTIONS,
     FIELDS,
+    SECTION_LABELS,
     SECTIONS,
+    VALUE_KIND_DESCRIPTIONS,
     apply_changes,
     effective_value,
     field_description,
@@ -21,7 +35,11 @@ from kotonoha.tui.config_app import (
     validate_candidate,
 )
 
-REFERENCE = CATALOGS[DEFAULT_LOCALE]
+# Babel is a development dependency, so catalog checks skip where it is absent.
+babel_pofile = pytest.importorskip("babel.messages.pofile")
+
+TRANSLATED_LOCALES = [code for code in available_locales() if code != DEFAULT_LOCALE]
+PROBE = "Consecutive four-language offline speech interpreter"
 
 
 @pytest.fixture(autouse=True)
@@ -30,33 +48,111 @@ def _reset_locale():
     set_locale(None)
 
 
+def read_catalog(path):
+    with path.open("rb") as handle:
+        return babel_pofile.read_po(handle)
+
+
+@pytest.fixture(scope="module")
+def template():
+    """Message ids rebuilt by running the extractor, not read from the .pot.
+
+    Reading the committed template would only prove it agrees with itself. Running
+    extraction makes these tests fail when source strings change and the catalogs
+    were not updated.
+    """
+    spec = importlib.util.spec_from_file_location(
+        "kotonoha_i18n_tool", REPO_ROOT / "scripts" / "i18n.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.build_template()
+
+
 # -- catalog integrity ------------------------------------------------------
-@pytest.mark.parametrize("locale", [c for c in CATALOGS if c != DEFAULT_LOCALE])
-def test_catalogs_have_the_same_keys_as_english(locale):
-    """A string added to English without a translation must fail here.
+def test_english_has_no_catalog():
+    """English message ids are the source strings, so a catalog would be redundant."""
+    assert not po_path(DEFAULT_LOCALE).exists()
+    assert translation(DEFAULT_LOCALE).gettext("Quit") == "Quit"
+
+
+@pytest.mark.parametrize("locale", TRANSLATED_LOCALES)
+def test_every_extracted_message_is_translated(locale, template):
+    """A string added to the source without a translation must fail here.
 
     Without this, the omission only shows up as an English fragment inside an
     otherwise translated screen.
     """
-    missing = sorted(set(REFERENCE) - set(CATALOGS[locale]))
-    extra = sorted(set(CATALOGS[locale]) - set(REFERENCE))
-    assert not missing, f"{locale} is missing: {missing}"
-    assert not extra, f"{locale} has keys not in {DEFAULT_LOCALE}: {extra}"
+    catalog = read_catalog(po_path(locale))
+    extracted = {entry.id for entry in template if entry.id}
+    present = {entry.id for entry in catalog if entry.id}
+
+    missing = sorted(extracted - present)
+    obsolete = sorted(present - extracted)
+    untranslated = sorted(entry.id for entry in catalog if entry.id and not entry.string)
+
+    assert not missing, f"{locale}: absent from catalog: {missing[:5]}"
+    assert not obsolete, f"{locale}: no longer in source: {obsolete[:5]}"
+    assert not untranslated, f"{locale}: untranslated: {untranslated[:5]}"
 
 
-@pytest.mark.parametrize("locale", list(CATALOGS))
-def test_format_placeholders_match_the_reference(locale):
+@pytest.mark.parametrize("locale", TRANSLATED_LOCALES)
+def test_format_placeholders_match_the_message_id(locale):
     """A translation that drops or renames a placeholder would format incorrectly."""
-    for key, reference in REFERENCE.items():
-        expected = {f for _, f, _, _ in string.Formatter().parse(reference) if f}
-        actual = {f for _, f, _, _ in string.Formatter().parse(CATALOGS[locale][key]) if f}
-        assert actual == expected, f"{locale}:{key} placeholders {actual} != {expected}"
+    parse = string.Formatter().parse
+    for entry in read_catalog(po_path(locale)):
+        if not entry.id or not entry.string:
+            continue
+        expected = {name for _t, name, _s, _c in parse(entry.id) if name}
+        actual = {name for _t, name, _s, _c in parse(entry.string) if name}
+        assert actual == expected, f"{locale}: {entry.id!r} has {actual}, expected {expected}"
 
 
-@pytest.mark.parametrize("locale", list(CATALOGS))
-def test_no_empty_messages(locale):
-    empty = [k for k, v in CATALOGS[locale].items() if not v.strip()]
-    assert not empty, f"{locale} has empty messages: {empty}"
+@pytest.mark.parametrize("locale", TRANSLATED_LOCALES)
+def test_no_fuzzy_entries(locale):
+    """Compilation drops fuzzy entries, so one would silently show English."""
+    fuzzy = [entry.id for entry in read_catalog(po_path(locale)) if entry.id and entry.fuzzy]
+    assert not fuzzy, f"{locale} has fuzzy entries: {fuzzy[:5]}"
+
+
+@pytest.mark.parametrize("locale", TRANSLATED_LOCALES)
+def test_compiled_catalog_matches_its_source(locale):
+    """.mo is generated and committed, so it must not drift from its .po.
+
+    A stale .mo serves yesterday's text with no other symptom.
+    """
+    assert mo_path(locale).exists(), f"{locale}: run scripts/i18n.py compile"
+    catalog = translation(locale)
+    stale = [
+        entry.id
+        for entry in read_catalog(po_path(locale))
+        if entry.id
+        and entry.string
+        and isinstance(entry.id, str)
+        and catalog.gettext(entry.id) != entry.string
+    ]
+    assert not stale, f"{locale}: .mo is stale for {stale[:5]}; run scripts/i18n.py compile"
+
+
+@pytest.mark.parametrize("locale", TRANSLATED_LOCALES)
+def test_translations_are_not_blank(locale):
+    blank = [
+        entry.id
+        for entry in read_catalog(po_path(locale))
+        if entry.id and entry.string and not str(entry.string).strip()
+    ]
+    assert not blank, f"{locale} has blank translations: {blank}"
+
+
+def test_import_time_tables_are_extracted(template):
+    """N_ tables are invisible to a naive extractor; confirm the keyword is configured."""
+    extracted = {entry.id for entry in template if entry.id}
+    for text in (
+        *FIELD_DESCRIPTIONS.values(),
+        *SECTION_LABELS.values(),
+        *VALUE_KIND_DESCRIPTIONS.values(),
+    ):
+        assert text in extracted, f"not extracted: {text[:60]}"
 
 
 def test_every_editable_field_has_a_description():
@@ -66,6 +162,7 @@ def test_every_editable_field_has_a_description():
 
 def test_every_field_section_is_rendered():
     assert {spec.section for spec in FIELDS} <= set(SECTIONS)
+    assert set(SECTION_LABELS) == set(SECTIONS)
 
 
 def test_editor_exposes_the_complete_settings_schema():
@@ -112,25 +209,27 @@ def test_default_locale_is_english():
 
 def test_set_locale_switches_the_catalog():
     set_locale("ja")
-    assert t("cli.app.help") == CATALOGS["ja"]["cli.app.help"]
+    assert _(PROBE) == translate_to("ja", PROBE)
     set_locale("zh-TW")
-    assert t("cli.app.help") == CATALOGS["zh-TW"]["cli.app.help"]
+    assert _(PROBE) == translate_to("zh-TW", PROBE)
+    assert translate_to("ja", PROBE) != translate_to("zh-TW", PROBE)
 
 
-def test_unknown_key_returns_the_key():
-    """A missing string must be visible, not raise during a turn."""
-    assert t("cli.definitely.not.a.key") == "cli.definitely.not.a.key"
+def test_untranslated_message_falls_through_to_english():
+    """The fallback is the message id, which is already the English text."""
+    set_locale("ko")
+    assert _("A string that is not in any catalog") == "A string that is not in any catalog"
 
 
 def test_missing_format_argument_returns_the_template():
     set_locale("en")
-    assert "{path}" in t("cli.replay.turn_log")
+    assert "{path}" in _("Turn log: {path}")
 
 
 def test_formatting_applies_in_every_locale():
-    for locale in CATALOGS:
+    for locale in available_locales():
         set_locale(locale)
-        assert "/tmp/x.jsonl" in t("cli.replay.turn_log", path="/tmp/x.jsonl")
+        assert "/tmp/x.jsonl" in _("Turn log: {path}", path="/tmp/x.jsonl")
 
 
 # -- configuration editor ---------------------------------------------------

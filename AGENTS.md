@@ -22,6 +22,10 @@ verified by measurement on the Orin, not by inspection.
 | Environment report | `uv run kotonoha doctor` |
 | Integrated terminal UI | `uv run kotonoha tui` |
 | Configuration editor | `uv run kotonoha config` |
+| History browser | `uv run kotonoha history browse` |
+| Translation catalogs | `uv run python scripts/i18n.py check` |
+| Compile catalogs without reinstalling | `uv run python scripts/i18n.py compile` |
+| Typed turn, no microphone | `uv run kotonoha text "<utterance>"` |
 | Pipeline without a microphone | `uv run kotonoha replay <wav> --seconds 12` |
 | Link measurement | `uv run kotonoha netcheck` |
 | Deploy Jetson services | `bash scripts/deploy.sh jetson` |
@@ -30,7 +34,7 @@ verified by measurement on the Orin, not by inspection.
 | Uninstall A6000 services | `bash scripts/deploy.sh uninstall a6000` |
 
 `uv run ruff check .` and `uv run pytest -q` must both pass before any change is reported
-as complete. Current baseline: 147 tests, zero lint findings.
+as complete. Current baseline: 201 tests, zero lint findings.
 
 Dependencies are managed with uv. Use `uv add`, `uv add --group dev`, and
 `uv lock --upgrade-package`. Do not edit `uv.lock` by hand. Do not invoke `pip`.
@@ -47,10 +51,14 @@ Dependencies are managed with uv. Use `uv add`, `uv add --group dev`, and
 | Generated report text in `spikes/report.py` and spike `verdict` fields | Korean |
 | Glossary data and CJK test fixtures | Source language |
 
-Operator-facing text is never written inline. It goes through `i18n.t("key")` with the
-string defined in `src/kotonoha/locales/en.py` and translated in `ko.py`, `ja.py` and
-`zh_tw.py`. `tests/test_i18n.py` enforces key parity and matching format placeholders
-across all four catalogs, so an untranslated addition fails the suite.
+Operator-facing text is wrapped in `_()` with the **English source string** as the
+message id, the gettext and Django convention. Translations live in
+`src/kotonoha/locale/<language>/LC_MESSAGES/kotonoha.po`. There is no English catalog:
+an untranslated string falls through to its message id, which is already English.
+
+`tests/test_i18n.py` fails on an extracted string that is missing or untranslated in any
+catalog, on a translation whose `{placeholders}` differ from the message id, on a fuzzy
+entry, and on a `.mo` that no longer matches its `.po`.
 
 The spike verdicts stay Korean. They are written into `PHASE0.md`, which is a report
 rather than an interface, and they are not routed through the catalogs.
@@ -155,6 +163,8 @@ that property.
 | `test_deploy_script.py` | Deployment script interface and host override templates |
 | `test_i18n.py` | Catalog parity, placeholder parity, locale resolution, configuration editor persistence |
 | `test_tui.py` | Interfaces compose, bindings and labels follow the locale |
+| `test_history.py` | History queries and filters, LIKE escaping, the interpreter panel, the browser |
+| `test_text_mode.py` | Script detection, typed language decision, the IDLE to PROCESSING path, the input bar |
 | `test_tui_logging.py` | TUI log buffering, JSON parsing, formatting, and file preservation |
 | `test_tui_license.py` | Packaged license and installed dependency metadata discovery |
 | `test_tui_rendering.py` | Frame coalescing, level interpolation, and bounded event bursts |
@@ -199,20 +209,45 @@ Each of these was encountered and fixed. Reintroducing them is a regression.
 | Logging | The turn log and the application log must not share a path. |
 | `tui/*.py` | Textual builds `_bindings` from the class attribute and shares it across instances. Replace the map with a new `BindingsMap`; calling `bind()` on it leaks one instance's locale into the next. |
 | `i18n.py` | Typer renders command help at import time. A locale change after parsing affects command output only, which is why `KOTONOHA_LANG` exists alongside `--lang`. |
+| `store/db.py` | History search interpolates operator text into LIKE. Escape `%` and `_` through `_like`, or a search for "100%" matches every row. |
+| `tui/app.py` | A hidden Textual `Input` is still focusable and takes focus on mount, swallowing every single-letter binding. Clear `can_focus` with `display`. |
+| `tui/app.py` | A focused `Input` consumes ordinary keys, so the exit from text mode needs `priority=True`. Without it there is no way out. |
+| `i18n.py` | `.mo` is built at install time, not committed. After editing a `.po`, run `scripts/i18n.py compile` or reinstall, or the interface keeps serving the previous text. |
+| `tests/conftest.py` | The suite sets `KOTONOHA_SKIP_LOCAL_CONFIG`. `config/local.yaml` holds a real device's remote endpoints and token; reading it points tests at the external server. |
 
 ## Localization
 
-Supported locales: `en` (reference), `ko`, `ja`, `zh-TW`. Resolution order is
-`KOTONOHA_LANG`, then `ui.language` in the configuration, then the system locale, then
-English.
+gettext with English message ids. Locales: `en` (source), `ko`, `ja`, `zh-TW`. Resolution
+order is `KOTONOHA_LANG`, then `ui.language`, then the system locale, then English.
 
-When adding operator-facing text:
+| Path | Role |
+|---|---|
+| `src/kotonoha/i18n.py` | Locale resolution, `_`, `N_`, `pgettext` |
+| `src/kotonoha/locale/kotonoha.pot` | Extracted template, generated |
+| `src/kotonoha/locale/<lang>/LC_MESSAGES/kotonoha.po` | Translations, the source of truth |
+| `src/kotonoha/locale/<lang>/LC_MESSAGES/kotonoha.mo` | Compiled at install time, gitignored |
+| `scripts/i18n.py` | extract, update, compile, check |
 
-1. Add the key to `src/kotonoha/locales/en.py` with the English string.
-2. Add the same key to `ko.py`, `ja.py` and `zh_tw.py`.
-3. Keep format placeholders identical across all four.
-4. Use Taiwanese vocabulary in `zh_tw.py`, matching the glossary policy applied to
-   translation output.
+Adding operator-facing text:
+
+1. Write the English string inline: `_("Start the terminal interface")`.
+2. `uv run python scripts/i18n.py extract && uv run python scripts/i18n.py update`
+3. Fill the new `msgstr` in each `.po`. Use Taiwanese vocabulary in `zh_TW`, matching the
+   glossary policy applied to translation output.
+4. `uv run python scripts/i18n.py compile` to see it locally.
+
+Commit the `.po` only. `.mo` is compiled at install time by `hatch_build.py` and is
+gitignored; the hook runs for editable installs too, which is what the containers use.
+The test suite compiles the catalogs itself, so a missing `.mo` never makes tests pass
+against English by accident.
+
+Strings held in tables built at import time — configuration field notes, operation
+labels — use `N_()` to mark them for extraction, and the caller applies `_()` when
+rendering. Calling `_()` at import time would bind the locale before `--lang` is parsed.
+
+`_(msgid, **kwargs)` translates and then applies `str.format`. That is a convenience on
+top of gettext, not part of it; Babel extracts the first string literal, so the catalogs
+stay standard.
 
 Do not localize: dotted configuration paths, log event names, structured log fields, or
 identifiers that also appear in YAML.
@@ -245,6 +280,23 @@ configuration on a device is worse than a rejected edit.
 Remote changes require a service restart because models remain resident. Do not add live
 model reloads to the management request path. LLM settings that affect llama.cpp are
 mirrored to `config/remote-llm.env`, which `scripts/run_llm.sh` sources on restart.
+
+## Text input mode
+
+`session.mode` has three values: `push_to_talk`, `auto`, and `text`. In `text` mode the
+microphone gate is closed and utterances come from the keyboard.
+
+The typed path skips capture, ASR and cross-verification, then rejoins the spoken path at
+`Orchestrator._route_and_translate`. Both paths share routing, translation, TTS and
+`_finish`, so a change to one applies to both. Keep it that way rather than duplicating
+the tail.
+
+- `State.IDLE` allows a direct transition to `PROCESSING`. There is no utterance to
+  segment, so `LISTENING` is skipped.
+- Language comes from `decide_typed_language`: an explicit setting wins, then the script,
+  then the previous language is inherited. There is no acoustic LID for typed text.
+- `TurnMetrics.input_mode` records `voice` or `text`. `audio_seconds` is null and the
+  `asr` stage measures zero.
 
 ## High-performance mode
 

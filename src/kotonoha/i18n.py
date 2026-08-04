@@ -1,11 +1,28 @@
-"""Localization for operator-facing text.
+"""Localization for operator-facing text, on gettext.
 
-English is the default and the reference catalog. Korean, Japanese and Traditional
-Chinese are translations of it.
+English source strings are the message ids, following the Django and gettext
+convention. Catalogs live where gettext expects them:
 
-Message catalogs are plain dictionaries rather than gettext. The string count is small,
-the catalogs are typed source files that ruff and the test suite already inspect, and
-there is no compilation step to keep in sync with the build.
+    src/kotonoha/locale/<language>/LC_MESSAGES/kotonoha.po
+                                              kotonoha.mo
+
+There is deliberately no English catalog. An untranslated string falls through to
+its message id, which is already the English text, so a missing translation
+degrades to readable English instead of a symbolic key.
+
+`.po` is committed and is the source of truth. `.mo` is generated at install time
+by the build hook in hatch_build.py and is never committed, so there is no
+artifact in the repository that can fall out of step with its source. An installed
+copy — including the editable install the Jetson containers use — therefore always
+carries catalogs compiled from the current `.po`.
+
+A source checkout that has not been installed has no `.mo` and falls back to
+English. `kotonoha doctor` reports that; `scripts/i18n.py compile` fixes it.
+
+    uv run python scripts/i18n.py extract    # rebuild the .pot template
+    uv run python scripts/i18n.py update     # merge new strings into each .po
+    uv run python scripts/i18n.py compile    # compile without reinstalling
+    uv run python scripts/i18n.py check      # report untranslated and uncompiled
 
 Resolution order, highest first:
 
@@ -14,30 +31,23 @@ Resolution order, highest first:
     3. LC_ALL, LC_MESSAGES, or LANG
     4. English
 
-Locale is resolved once and cached. Typer renders command help at import time, so the
-resolution must not depend on the --config path, which is not known then. KOTONOHA_LANG
-covers the case where help text must be forced to a specific language.
+Typer renders command help at import time, so the locale must resolve without the
+--config path, which is not known then. KOTONOHA_LANG covers forcing help text to
+a specific language.
 """
 
 from __future__ import annotations
 
+import gettext as _gettext
 import os
 from functools import lru_cache
+from pathlib import Path
 
-from .locales import en as _en
-from .locales import ja as _ja
-from .locales import ko as _ko
-from .locales import zh_tw as _zh_tw
-
+DOMAIN = "kotonoha"
+LOCALE_DIR = Path(__file__).resolve().parent / "locale"
 DEFAULT_LOCALE = "en"
 
-CATALOGS: dict[str, dict[str, str]] = {
-    "en": _en.MESSAGES,
-    "ko": _ko.MESSAGES,
-    "ja": _ja.MESSAGES,
-    "zh-TW": _zh_tw.MESSAGES,
-}
-
+# Interface languages. English is the source language and has no catalog.
 LOCALE_NAMES: dict[str, str] = {
     "en": "English",
     "ko": "한국어",
@@ -45,11 +55,15 @@ LOCALE_NAMES: dict[str, str] = {
     "zh-TW": "繁體中文",
 }
 
+# Our language codes are the interpreter's own (zh-TW). gettext directories use
+# the POSIX form, so the two are mapped rather than conflated.
+GETTEXT_NAMES: dict[str, str] = {"en": "en", "ko": "ko", "ja": "ja", "zh-TW": "zh_TW"}
+
 # Accepts the forms found in LANG and in configuration files.
 _ALIASES: dict[str, str] = {
     "en": "en", "en_us": "en", "en_gb": "en", "c": "en", "posix": "en",
     "ko": "ko", "ko_kr": "ko", "kor": "ko",
-    "ja": "ja", "ja_jp": "ja", "jpn": "ja",
+    "ja": "ja", "jpn": "ja", "ja_jp": "ja",
     "zh-tw": "zh-TW", "zh_tw": "zh-TW", "zh-hant": "zh-TW", "zh_hant": "zh-TW",
     "zh-hk": "zh-TW", "zh_hk": "zh-TW", "zh": "zh-TW",
 }
@@ -58,7 +72,15 @@ _override: str | None = None
 
 
 def available_locales() -> list[str]:
-    return list(CATALOGS)
+    return list(LOCALE_NAMES)
+
+
+def po_path(locale: str) -> Path:
+    return LOCALE_DIR / GETTEXT_NAMES[locale] / "LC_MESSAGES" / f"{DOMAIN}.po"
+
+
+def mo_path(locale: str) -> Path:
+    return LOCALE_DIR / GETTEXT_NAMES[locale] / "LC_MESSAGES" / f"{DOMAIN}.mo"
 
 
 def normalize_locale(raw: str | None) -> str | None:
@@ -83,8 +105,8 @@ def _from_config() -> str | None:
 
 
 def _from_environment() -> str | None:
-    for var in ("LC_ALL", "LC_MESSAGES", "LANG"):
-        code = normalize_locale(os.environ.get(var))
+    for variable in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        code = normalize_locale(os.environ.get(variable))
         if code:
             return code
     return None
@@ -107,26 +129,105 @@ def current_locale() -> str:
 def set_locale(code: str | None) -> str:
     """Override the resolved locale for the remainder of the process.
 
-    Used by the --lang option and by the configuration editor's live preview.
-    Passing None restores automatic resolution.
+    Used by the --lang option and by the configuration editor. Passing None
+    restores automatic resolution.
     """
     global _override
     _override = normalize_locale(code) if code else None
     return current_locale()
 
 
-def t(key: str, /, **fmt: object) -> str:
-    """Look up a message and format it.
+@lru_cache(maxsize=len(LOCALE_NAMES) + 1)
+def translation(locale: str) -> _gettext.NullTranslations:
+    """The compiled catalog for one locale.
 
-    An unknown key returns the key itself, which makes the omission visible in the
-    interface instead of raising during a turn. A missing format argument returns the
-    unformatted template for the same reason.
+    English, and any locale whose .mo is absent, resolve to NullTranslations, which
+    returns each message id unchanged. That is the English text, so the interface
+    stays readable rather than showing symbolic keys.
     """
-    catalog = CATALOGS.get(current_locale(), CATALOGS[DEFAULT_LOCALE])
-    template = catalog.get(key) or CATALOGS[DEFAULT_LOCALE].get(key) or key
-    if not fmt:
-        return template
+    if locale == DEFAULT_LOCALE:
+        return _gettext.NullTranslations()
     try:
-        return template.format(**fmt)
+        return _gettext.translation(
+            DOMAIN,
+            localedir=str(LOCALE_DIR),
+            languages=[GETTEXT_NAMES.get(locale, locale)],
+            fallback=False,
+        )
+    except FileNotFoundError:
+        return _gettext.NullTranslations()
+
+
+def _(message: str, /, **fmt: object) -> str:
+    """Translate, then apply str.format when arguments are given.
+
+    gettext itself takes only the message id; formatting is a convenience so call
+    sites stay on one line. Babel extracts the first string literal, so the .po
+    files remain standard.
+
+    A missing format argument returns the unformatted template rather than
+    raising: a turn must not fail because a translation dropped a placeholder.
+    """
+    text = translation(current_locale()).gettext(message)
+    if not fmt:
+        return text
+    try:
+        return text.format(**fmt)
     except (KeyError, IndexError, ValueError):
-        return template
+        return text
+
+
+def N_(message: str) -> str:
+    """Mark a string for extraction without translating it yet.
+
+    Tables built at import time — configuration field notes, operation labels —
+    cannot call the translator, because the locale may change afterwards. They hold
+    N_-marked English, and the caller applies `_` when the value is rendered.
+    """
+    return message
+
+
+def pgettext(context: str, message: str, /, **fmt: object) -> str:
+    """Disambiguate one English string that needs different translations."""
+    text = translation(current_locale()).pgettext(context, message)
+    if not fmt:
+        return text
+    try:
+        return text.format(**fmt)
+    except (KeyError, IndexError, ValueError):
+        return text
+
+
+def translate_to(locale: str, message: str, /, **fmt: object) -> str:
+    """Translate into a named locale, independent of the active one. Used by tests."""
+    text = translation(locale).gettext(message)
+    if not fmt:
+        return text
+    try:
+        return text.format(**fmt)
+    except (KeyError, IndexError, ValueError):
+        return text
+
+
+# Retained so existing call sites keep working; `_` is the name to use in new code.
+t = _
+
+__all__ = [
+    "DEFAULT_LOCALE",
+    "N_",
+    "DOMAIN",
+    "GETTEXT_NAMES",
+    "LOCALE_DIR",
+    "LOCALE_NAMES",
+    "available_locales",
+    "current_locale",
+    "mo_path",
+    "normalize_locale",
+    "pgettext",
+    "po_path",
+    "set_locale",
+    "t",
+    "translate_to",
+    "translation",
+    "_",
+]

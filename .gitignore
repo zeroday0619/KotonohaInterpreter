@@ -58,6 +58,10 @@ cover/
 # Translations
 *.mo
 *.pot
+# ...except this project's extraction template. Compiled .mo files are never
+# committed: the runtime reads the .po directly, so there is no build artifact to
+# keep in step with its source.
+!src/kotonoha/locale/*.pot
 
 # Django stuff:
 *.log
