@@ -66,7 +66,7 @@ uv run ruff check .
 uv run pytest -q
 ```
 
-Current baseline: 213 tests and zero lint findings.
+Current baseline: 214 tests and zero lint findings.
 
 ## Non-negotiable constraints
 

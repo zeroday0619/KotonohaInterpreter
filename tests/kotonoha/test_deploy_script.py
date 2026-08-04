@@ -111,6 +111,33 @@ def test_remote_lock_and_dockerfile_install_into_x86_conda_python() -> None:
     assert "import kotonoha, pydantic_settings" in dockerfile
 
 
+def test_editable_container_installs_include_the_custom_build_hook() -> None:
+    standalone_dockerfiles = (
+        PROJECT_ROOT / "docker" / "Dockerfile.asr",
+        PROJECT_ROOT / "docker" / "Dockerfile.asr-verify",
+        PROJECT_ROOT / "docker" / "Dockerfile.orchestrator",
+        PROJECT_ROOT / "docker" / "Dockerfile.tts",
+    )
+    required_copy = "COPY pyproject.toml uv.lock README.md LICENSE hatch_build.py ./"
+
+    for dockerfile_path in standalone_dockerfiles:
+        dockerfile = dockerfile_path.read_text(encoding="utf-8")
+        assert required_copy in dockerfile
+        editable_install = "uv pip install --no-cache --no-deps -e ."
+        assert dockerfile.index(required_copy) < dockerfile.index(editable_install)
+
+    remote_dockerfile = (PROJECT_ROOT / "docker" / "Dockerfile.remote").read_text(
+        encoding="utf-8"
+    )
+    editable_stages = tuple(
+        stage for stage in remote_dockerfile.split("\nFROM ") if "-e ." in stage
+    )
+    assert len(editable_stages) == 2
+    for stage in editable_stages:
+        assert required_copy in stage
+        assert stage.index(required_copy) < stage.index("-e .")
+
+
 def test_remote_tts_image_builds_and_verifies_required_dependencies() -> None:
     compose = yaml.safe_load(
         (PROJECT_ROOT / "docker" / "compose.remote.yaml").read_text(encoding="utf-8")

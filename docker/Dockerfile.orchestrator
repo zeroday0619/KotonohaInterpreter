@@ -22,7 +22,7 @@ WORKDIR /app
 
 # Runtime dependencies come from the lockfile, pinned. Copy these before the
 # source so the layer is reused when only code changes.
-COPY pyproject.toml uv.lock README.md LICENSE ./
+COPY pyproject.toml uv.lock README.md LICENSE hatch_build.py ./
 RUN uv export --frozen --no-dev --no-emit-project --no-hashes -o /tmp/req.txt \
  && uv pip install --no-cache -r /tmp/req.txt
 
