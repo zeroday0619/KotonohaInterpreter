@@ -17,6 +17,7 @@ CATEGORY_INDEXES: Final[tuple[Path, ...]] = tuple(
         "development",
         "operations",
         "performance",
+        "planning",
         "user-guide",
     )
 )
@@ -50,6 +51,15 @@ def _local_link_targets(
 def test_documentation_categories_exist() -> None:
     assert (DOCUMENTATION_ROOT / "README.md").is_file()
     assert all(path.is_file() for path in CATEGORY_INDEXES)
+
+
+def test_implementation_plan_defines_all_phase_gates() -> None:
+    plan = (DOCUMENTATION_ROOT / "planning" / "README.md").read_text(encoding="utf-8")
+
+    for phase in range(6):
+        assert f"## Phase {phase}:" in plan
+    assert "explicit approval" in plan
+    assert "Source implementation alone does not satisfy a phase gate" in plan
 
 
 def test_local_documentation_links_resolve() -> None:

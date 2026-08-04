@@ -34,7 +34,7 @@ remain provisional until measured on their deployment hosts:
 The primary ASR service implements vLLM multimodal beam search and returns five scored
 hypotheses. Spike 1 must still verify model loading, latency, and sm_87 behavior on the
 Jetson. No target compatibility or performance result is claimed without target
-measurement.
+measurement. The [Implementation Plan](docs/planning/README.md) defines the phase gates.
 
 ## Quick Start
 
@@ -70,6 +70,7 @@ The [documentation index](docs/README.md) organizes project documentation by cat
 
 | Category | Document |
 |---|---|
+| Planning | [Implementation Plan](docs/planning/README.md) |
 | Architecture | [System Architecture](docs/architecture/README.md) |
 | User guide | [Operator Guide](docs/user-guide/README.md) |
 | Deployment | [Installation and Deployment](docs/deployment/installation.md) |

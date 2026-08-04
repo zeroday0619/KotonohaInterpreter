@@ -6,6 +6,9 @@ This procedure validates Jetson compatibility and optimizes the optional RTX A60
 high-performance mode. It defines the authoritative measurement conditions, acceptance
 thresholds, evidence, and configuration outputs.
 
+The [Implementation Plan](../planning/README.md) defines Phase 0 governance and the
+approval gate for subsequent phases.
+
 | Track | Host | Purpose | Output directory |
 |---|---|---|---|
 | Phase 0 | Jetson AGX Orin | Validate hardware compatibility and on-device fallbacks | `spikes/out` |

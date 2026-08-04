@@ -4,6 +4,7 @@
 
 | Category | Scope | Entry point |
 |---|---|---|
+| Planning | Phase sequence, gates, deliverables, and current acceptance state | [Implementation Plan](planning/README.md) |
 | Architecture | Runtime topology, processing contracts, placement, and model identifiers | [System Architecture](architecture/README.md) |
 | User guide | TUI, CLI, text input, history, configuration, and localization | [Operator Guide](user-guide/README.md) |
 | Deployment | Host requirements, installation, model staging, and acceptance | [Deployment](deployment/README.md) |
