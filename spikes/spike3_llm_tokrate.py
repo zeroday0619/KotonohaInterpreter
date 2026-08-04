@@ -1,23 +1,21 @@
 #!/usr/bin/env python3
 """Spike 3 — measured token generation rate, MoE versus dense 14B.
 
-Conditions: context 2048, batch 1, 60 output tokens.
-Verdict: **under 5 tok/s falls back to the dense 14B.** Adopt the MoE only if it
-is both faster than the dense model and at least as good.
+Conditions: context 2048, batch 1, 60 output tokens. A result below 5 tok/s
+selects the dense 14B profile. The MoE profile requires a generation rate at
+least equal to the dense profile and acceptable translation quality.
 
-The bottleneck on Orin is the 204.8 GB/s of memory bandwidth. In theory the MoE
-wins because only the active parameters are read, but routing changes which
-experts are touched from token to token, and that destroys locality. How it
-plays out at Orin bandwidth is not something prediction gets right — hence
-measuring it.
+The Orin provides 204.8 GB/s of memory bandwidth. MoE inference reads active
+parameters, while expert routing changes memory locality between tokens. The
+benchmark measures the resulting behavior instead of deriving it from model size.
 
-Two numbers are taken:
+The spike records two measurements:
+
   · llama-bench (raw generation speed)
-  · a real translation prompt streamed through llama-server, TTFT included —
-    this is the number we will actually live with
+  · a representative translation prompt streamed through llama-server, including TTFT
 
-The second is the real one. Prompt processing lands inside the 0.7 s allowed for
-"correction + translation, first clause" in §6.
+The llama-server measurement governs the decision because it includes production prompt
+processing within the §6 first-clause stage.
 
     python3 spikes/spike3_llm_tokrate.py \\
         --bin /opt/llama.cpp/build/bin \\

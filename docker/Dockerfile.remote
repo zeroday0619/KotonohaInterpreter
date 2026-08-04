@@ -4,7 +4,7 @@
 # ordinary x86 CUDA, so vLLM, flash-attn and the usual wheels are eligible.
 # Role-specific targets share the application layer but produce distinct images.
 #
-# Pin BASE_IMAGE to a tag you have actually pulled. Do not leave it floating.
+# Pin BASE_IMAGE to a verified tag that is present on the deployment host.
 ARG BASE_IMAGE=pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime
 ARG TTS_BUILD_IMAGE=pytorch/pytorch:2.6.0-cuda12.6-cudnn9-devel
 FROM ${BASE_IMAGE} AS common

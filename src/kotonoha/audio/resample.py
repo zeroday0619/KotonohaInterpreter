@@ -3,9 +3,11 @@ output device rate."""
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 
-try:  # soxr publishes aarch64 wheels; a miss shows up at install time.
+try:
     import soxr
 except ImportError:  # pragma: no cover
     soxr = None
@@ -14,37 +16,61 @@ except ImportError:  # pragma: no cover
 class Resampler:
     """Streaming resampler. Keeps state so phase does not break at block edges."""
 
-    def __init__(self, in_rate: int, out_rate: int, quality: str = "HQ"):
-        self.in_rate = in_rate
-        self.out_rate = out_rate
-        self._passthrough = in_rate == out_rate
-        self._st = None
+    input_rate: int
+    output_rate: int
+    _passthrough: bool
+    _stream: Any | None
+
+    def __init__(self, input_rate: int, output_rate: int, quality: str = "HQ"):
+        self.input_rate = input_rate
+        self.output_rate = output_rate
+        self._passthrough = input_rate == output_rate
+        self._stream = None
         if not self._passthrough:
             if soxr is None:
-                raise RuntimeError("soxr is not installed: pip install soxr")
-            self._st = soxr.ResampleStream(
-                in_rate, out_rate, num_channels=1, dtype="float32", quality=quality
+                raise RuntimeError("soxr is not installed")
+            self._stream = soxr.ResampleStream(
+                input_rate,
+                output_rate,
+                num_channels=1,
+                dtype="float32",
+                quality=quality,
             )
 
-    def __call__(self, x: np.ndarray, last: bool = False) -> np.ndarray:
+    def __call__(self, samples: np.ndarray, last: bool = False) -> np.ndarray:
         if self._passthrough:
-            return x.astype(np.float32, copy=False)
-        out = self._st.resample_chunk(x.astype(np.float32, copy=False), last=last)
-        return np.asarray(out, dtype=np.float32)
+            return samples.astype(np.float32, copy=False)
+        output = self._stream.resample_chunk(
+            samples.astype(np.float32, copy=False),
+            last=last,
+        )
+        return np.asarray(output, dtype=np.float32)
 
     def reset(self) -> None:
         if not self._passthrough:
-            self._st = soxr.ResampleStream(
-                self.in_rate, self.out_rate, num_channels=1, dtype="float32"
+            self._stream = soxr.ResampleStream(
+                self.input_rate,
+                self.output_rate,
+                num_channels=1,
+                dtype="float32",
             )
 
 
-def resample_once(x: np.ndarray, in_rate: int, out_rate: int) -> np.ndarray:
+def resample_once(
+    samples: np.ndarray,
+    input_rate: int,
+    output_rate: int,
+) -> np.ndarray:
     """One-shot resample, for loading files and similar."""
-    if in_rate == out_rate:
-        return x.astype(np.float32, copy=False)
+    if input_rate == output_rate:
+        return samples.astype(np.float32, copy=False)
     if soxr is None:
-        raise RuntimeError("soxr is not installed: pip install soxr")
+        raise RuntimeError("soxr is not installed")
     return np.asarray(
-        soxr.resample(x.astype(np.float32, copy=False), in_rate, out_rate), dtype=np.float32
+        soxr.resample(
+            samples.astype(np.float32, copy=False),
+            input_rate,
+            output_rate,
+        ),
+        dtype=np.float32,
     )

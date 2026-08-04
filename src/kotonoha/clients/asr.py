@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-from ..config import AsrCfg
-from ..transport import AudioPayload, Encoding
-from .base import BaseClient, ServiceError
+from kotonoha.clients.base import BaseClient, ServiceError
+from kotonoha.config import AsrConfig
+from kotonoha.transport import AudioPayload, Encoding
 
 
 @dataclass
@@ -42,17 +42,20 @@ class AsrResult:
 
 
 class AsrClient(BaseClient):
+    config: AsrConfig
+    encoding: Encoding
+
     def __init__(
         self,
         base_url: str,
-        cfg: AsrCfg,
+        config: AsrConfig,
         *,
         side: str = "local",
         encoding: Encoding = "s16le",
         **transport,
     ):
-        super().__init__(base_url, cfg.timeout_s, "asr", side=side, **transport)
-        self.cfg = cfg
+        super().__init__(base_url, config.timeout_s, "asr", side=side, **transport)
+        self.config = config
         self.encoding = encoding
 
     async def transcribe(
@@ -62,21 +65,24 @@ class AsrClient(BaseClient):
         language_hint: str | None = None,
     ) -> AsrResult:
         params = {
-            "n_best": self.cfg.n_best,
-            "num_beams": self.cfg.num_beams,
-            "max_new_tokens": self.cfg.max_new_tokens,
+            "n_best": self.config.n_best,
+            "num_beams": self.config.num_beams,
+            "max_new_tokens": self.config.max_new_tokens,
             "context": context,
             "language_hint": language_hint,
         }
 
         if self.side == "local":
-            if payload.ref is None:
+            if payload.audio_reference is None:
                 raise ServiceError("local asr client requires a shared-memory reference")
-            d = await self._post_json("/transcribe", {"audio": payload.ref.to_json(), **params})
+            result = await self._post_json(
+                "/transcribe",
+                {"audio": payload.audio_reference.to_json(), **params},
+            )
         else:
             # Remote: no shared memory to attach to, so the PCM travels as a
             # binary part. Still not base64 (§3).
-            d = await self._post_multipart(
+            result = await self._post_multipart(
                 "/transcribe/upload",
                 files={
                     "audio": ("utt.pcm", payload.encoded(self.encoding), "application/octet-stream")
@@ -94,15 +100,18 @@ class AsrClient(BaseClient):
 
         return AsrResult(
             hypotheses=[
-                Hypothesis(text=h["text"], avg_logprob=float(h.get("avg_logprob", -99.0)))
-                for h in d.get("hypotheses", [])
+                Hypothesis(
+                    text=hypothesis["text"],
+                    avg_logprob=float(hypothesis.get("avg_logprob", -99.0)),
+                )
+                for hypothesis in result.get("hypotheses", [])
             ],
-            language=d.get("language"),
+            language=result.get("language"),
             language_confidence=(
-                float(d["language_confidence"])
-                if d.get("language_confidence") is not None
+                float(result["language_confidence"])
+                if result.get("language_confidence") is not None
                 else None
             ),
-            duration_s=float(d.get("duration_s", payload.seconds)),
-            infer_ms=float(d.get("infer_ms", 0.0)),
+            duration_s=float(result.get("duration_s", payload.seconds)),
+            infer_ms=float(result.get("infer_ms", 0.0)),
         )

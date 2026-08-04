@@ -36,6 +36,9 @@ class IllegalTransition(RuntimeError):
 
 
 class Machine:
+    _state: State
+    _on_change: Callable[[State, State, str], None] | None
+
     def __init__(self, on_change: Callable[[State, State, str], None] | None = None):
         self._state = State.IDLE
         self._on_change = on_change
@@ -52,13 +55,13 @@ class Machine:
             return self._state
         if target not in ALLOWED[self._state]:
             raise IllegalTransition(f"{self._state.value} → {target.value} ({reason})")
-        prev, self._state = self._state, target
+        previous, self._state = self._state, target
         if self._on_change:
-            self._on_change(prev, target, reason)
+            self._on_change(previous, target, reason)
         return self._state
 
     def force_idle(self, reason: str = "reset") -> None:
         """Error-recovery path. Returns to IDLE from any state."""
-        prev, self._state = self._state, State.IDLE
-        if prev is not State.IDLE and self._on_change:
-            self._on_change(prev, State.IDLE, reason)
+        previous, self._state = self._state, State.IDLE
+        if previous is not State.IDLE and self._on_change:
+            self._on_change(previous, State.IDLE, reason)

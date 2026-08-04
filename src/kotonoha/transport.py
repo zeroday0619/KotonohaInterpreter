@@ -26,7 +26,7 @@ from typing import Literal
 
 import numpy as np
 
-from .shmring import AudioRef
+from kotonoha.shmring import AudioRef
 
 Encoding = Literal["s16le", "f32le"]
 
@@ -41,7 +41,7 @@ class AudioPayload:
     """
 
     pcm: np.ndarray
-    ref: AudioRef | None = None
+    audio_reference: AudioRef | None = None
     sample_rate: int = 16000
 
     @property
@@ -53,18 +53,18 @@ class AudioPayload:
 
 
 def encode_pcm(pcm: np.ndarray, encoding: Encoding = "s16le") -> bytes:
-    x = np.asarray(pcm, dtype=np.float32).reshape(-1)
+    audio_samples = np.asarray(pcm, dtype=np.float32).reshape(-1)
     if encoding == "f32le":
-        return x.astype("<f4").tobytes()
-    return (np.clip(x, -1.0, 1.0) * 32767.0).astype("<i2").tobytes()
+        return audio_samples.astype("<f4").tobytes()
+    return (np.clip(audio_samples, -1.0, 1.0) * 32767.0).astype("<i2").tobytes()
 
 
 def decode_pcm(data: bytes, encoding: Encoding = "s16le") -> np.ndarray:
     if encoding == "f32le":
-        n = (len(data) // 4) * 4
-        return np.frombuffer(data[:n], dtype="<f4").astype(np.float32, copy=True)
-    n = (len(data) // 2) * 2
-    return np.frombuffer(data[:n], dtype="<i2").astype(np.float32) / 32768.0
+        byte_count = (len(data) // 4) * 4
+        return np.frombuffer(data[:byte_count], dtype="<f4").astype(np.float32, copy=True)
+    byte_count = (len(data) // 2) * 2
+    return np.frombuffer(data[:byte_count], dtype="<i2").astype(np.float32) / 32768.0
 
 
 def encoded_size(seconds: float, sample_rate: int = 16000, encoding: Encoding = "s16le") -> int:

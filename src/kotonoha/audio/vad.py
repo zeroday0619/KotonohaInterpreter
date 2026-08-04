@@ -17,11 +17,11 @@ from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 import numpy as np
 
-from ..logging_setup import get_logger
+from kotonoha.logging_setup import get_logger
 
 log = get_logger(__name__)
 
@@ -32,7 +32,7 @@ class VadModel(Protocol):
     name: str
     window: int
 
-    def prob(self, frame: np.ndarray) -> float: ...
+    def probability(self, frame: np.ndarray) -> float: ...
     def reset(self) -> None: ...
 
 
@@ -41,50 +41,69 @@ class SileroVadOnnx:
 
     name = "silero_onnx"
     window = SILERO_WINDOW
+    sample_rate: int
+    session: Any
+    _uses_version_five: bool
+    _state: np.ndarray
+    _hidden_state: np.ndarray
+    _cell_state: np.ndarray
 
     def __init__(self, model_path: Path, sample_rate: int = 16000, threads: int = 1):
-        import onnxruntime as ort  # type: ignore[import-not-found]
+        import onnxruntime  # type: ignore[import-not-found]
 
         if not model_path.exists():
             raise FileNotFoundError(
                 f"silero_vad.onnx missing: {model_path}\n"
                 f"  fetch it with scripts/fetch_models.sh"
             )
-        opts = ort.SessionOptions()
-        opts.inter_op_num_threads = threads
-        opts.intra_op_num_threads = threads
-        opts.log_severity_level = 3
-        self.sess = ort.InferenceSession(
-            str(model_path), sess_options=opts, providers=["CPUExecutionProvider"]
+        session_options = onnxruntime.SessionOptions()
+        session_options.inter_op_num_threads = threads
+        session_options.intra_op_num_threads = threads
+        session_options.log_severity_level = 3
+        self.session = onnxruntime.InferenceSession(
+            str(model_path),
+            sess_options=session_options,
+            providers=["CPUExecutionProvider"],
         )
         self.sample_rate = sample_rate
-        names = {i.name for i in self.sess.get_inputs()}
-        self._v5 = "state" in names  # v5 takes `state`; v4 takes `h` and `c`.
+        input_names = {
+            model_input.name for model_input in self.session.get_inputs()
+        }
+        self._uses_version_five = "state" in input_names
         self.reset()
-        log.info("vad.loaded", backend=self.name, v5=self._v5, path=str(model_path))
+        log.info("vad.loaded", backend=self.name, v5=self._uses_version_five, path=str(model_path))
 
     def reset(self) -> None:
-        if self._v5:
+        if self._uses_version_five:
             self._state = np.zeros((2, 1, 128), dtype=np.float32)
         else:
-            self._h = np.zeros((2, 1, 64), dtype=np.float32)
-            self._c = np.zeros((2, 1, 64), dtype=np.float32)
+            self._hidden_state = np.zeros((2, 1, 64), dtype=np.float32)
+            self._cell_state = np.zeros((2, 1, 64), dtype=np.float32)
 
-    def prob(self, frame: np.ndarray) -> float:
-        x = frame.astype(np.float32, copy=False).reshape(1, -1)
-        if x.shape[1] != self.window:
+    def probability(self, frame: np.ndarray) -> float:
+        samples = frame.astype(np.float32, copy=False).reshape(1, -1)
+        if samples.shape[1] != self.window:
             # Zero-pad a short trailing frame.
-            pad = np.zeros((1, self.window), dtype=np.float32)
-            pad[0, : x.shape[1]] = x[0, : self.window]
-            x = pad
-        sr = np.array(self.sample_rate, dtype=np.int64)
-        if self._v5:
-            out, self._state = self.sess.run(None, {"input": x, "state": self._state, "sr": sr})
-        else:
-            out, self._h, self._c = self.sess.run(
-                None, {"input": x, "h": self._h, "c": self._c, "sr": sr}
+            padded = np.zeros((1, self.window), dtype=np.float32)
+            padded[0, : samples.shape[1]] = samples[0, : self.window]
+            samples = padded
+        sample_rate = np.array(self.sample_rate, dtype=np.int64)
+        if self._uses_version_five:
+            output, self._state = self.session.run(
+                None,
+                {"input": samples, "state": self._state, "sr": sample_rate},
             )
-        return float(np.asarray(out).reshape(-1)[0])
+        else:
+            output, self._hidden_state, self._cell_state = self.session.run(
+                None,
+                {
+                    "input": samples,
+                    "h": self._hidden_state,
+                    "c": self._cell_state,
+                    "sr": sample_rate,
+                },
+            )
+        return float(np.asarray(output).reshape(-1)[0])
 
 
 class EnergyVad:
@@ -95,6 +114,7 @@ class EnergyVad:
 
     name = "energy"
     window = SILERO_WINDOW
+    floor_db: float
 
     def __init__(self, floor_db: float = -45.0):
         self.floor_db = floor_db
@@ -102,11 +122,13 @@ class EnergyVad:
     def reset(self) -> None:
         return None
 
-    def prob(self, frame: np.ndarray) -> float:
-        rms = float(np.sqrt(np.mean(np.square(frame, dtype=np.float64)) + 1e-12))
-        db = 20.0 * np.log10(rms + 1e-12)
+    def probability(self, frame: np.ndarray) -> float:
+        root_mean_square = float(
+            np.sqrt(np.mean(np.square(frame, dtype=np.float64)) + 1e-12)
+        )
+        decibels = 20.0 * np.log10(root_mean_square + 1e-12)
         # Map linearly: 0 at floor_db, 1 at floor_db + 25 dB.
-        return float(np.clip((db - self.floor_db) / 25.0, 0.0, 1.0))
+        return float(np.clip((decibels - self.floor_db) / 25.0, 0.0, 1.0))
 
 
 def build_vad(backend: str, model_path: Path, sample_rate: int = 16000) -> VadModel:
@@ -115,15 +137,15 @@ def build_vad(backend: str, model_path: Path, sample_rate: int = 16000) -> VadMo
         return EnergyVad()
     try:
         return SileroVadOnnx(model_path, sample_rate=sample_rate)
-    except Exception as e:  # noqa: BLE001
-        log.error("vad.silero_unavailable", error=repr(e), fallback="energy")
+    except Exception as error:  # noqa: BLE001
+        log.error("vad.silero_unavailable", error=repr(error), fallback="energy")
         return EnergyVad()
 
 
 # -- segmentation --------------------------------------------------------
 
 
-class SegState(str, Enum):
+class SegmentationState(str, Enum):
     IDLE = "idle"
     SPEECH = "speech"
     TRAILING = "trailing"  # in speech, counting silence towards EOU
@@ -139,9 +161,9 @@ class Utterance:
 
 
 @dataclass
-class SegEvent:
+class SegmentationEvent:
     kind: str  # speech_start | speech_end | none
-    prob: float = 0.0
+    probability: float = 0.0
     utterance: Utterance | None = None
 
 
@@ -157,12 +179,13 @@ class UtteranceSegmenter:
     min_speech_ms: int = 120
     silence_ms: int = 800
     max_utterance_ms: int = 30000
+    frame_ms: float = field(init=False)
 
-    state: SegState = SegState.IDLE
-    _preroll: deque = field(default_factory=deque, init=False)
-    _buf: list = field(default_factory=list, init=False)
+    state: SegmentationState = SegmentationState.IDLE
+    _preroll: deque[np.ndarray] = field(default_factory=deque, init=False)
+    _buffer: list[np.ndarray] = field(default_factory=list, init=False)
     _speech_ms: float = 0.0
-    _silence_ms_acc: float = 0.0
+    _accumulated_silence_ms: float = 0.0
     _preroll_used_ms: float = 0.0
 
     def __post_init__(self) -> None:
@@ -170,16 +193,19 @@ class UtteranceSegmenter:
         # Round up: preroll is a *minimum*, and frame quantisation must not drag
         # it below 200 ms. The +1 is for the frame that triggered speech onset —
         # that one belongs to the utterance, not to the preroll.
-        n_preroll = max(1, math.ceil(self.preroll_ms / self.frame_ms)) + 1
-        self._preroll = deque(maxlen=n_preroll)
+        preroll_frame_count = max(
+            1,
+            math.ceil(self.preroll_ms / self.frame_ms),
+        ) + 1
+        self._preroll = deque(maxlen=preroll_frame_count)
 
     # -- public API ------------------------------------------------------
     def reset(self) -> None:
-        self.state = SegState.IDLE
+        self.state = SegmentationState.IDLE
         self._preroll.clear()
-        self._buf.clear()
+        self._buffer.clear()
         self._speech_ms = 0.0
-        self._silence_ms_acc = 0.0
+        self._accumulated_silence_ms = 0.0
         self._preroll_used_ms = 0.0
         self.vad.reset()
 
@@ -189,70 +215,74 @@ class UtteranceSegmenter:
         Preroll matters even with PTT: people start speaking at the same moment
         they press the key, sometimes a little before.
         """
-        if self.state is SegState.IDLE:
+        if self.state is SegmentationState.IDLE:
             self._preroll.append(frame)
 
-    def feed(self, frame: np.ndarray) -> SegEvent:
+    def feed(self, frame: np.ndarray) -> SegmentationEvent:
         """One 16 kHz float32 frame of length vad.window."""
-        p = self.vad.prob(frame)
-        speaking = p >= self.threshold if self.state is SegState.IDLE else p >= self.neg_threshold
+        probability = self.vad.probability(frame)
+        speaking = (
+            probability >= self.threshold
+            if self.state is SegmentationState.IDLE
+            else probability >= self.neg_threshold
+        )
 
-        if self.state is SegState.IDLE:
+        if self.state is SegmentationState.IDLE:
             self._preroll.append(frame)
             if speaking:
                 self._start(frame)
-                return SegEvent("speech_start", p)
-            return SegEvent("none", p)
+                return SegmentationEvent("speech_start", probability)
+            return SegmentationEvent("none", probability)
 
         # SPEECH / TRAILING
-        self._buf.append(frame)
-        total_ms = len(self._buf) * self.frame_ms
+        self._buffer.append(frame)
+        total_ms = len(self._buffer) * self.frame_ms
 
         if speaking:
-            self.state = SegState.SPEECH
+            self.state = SegmentationState.SPEECH
             self._speech_ms += self.frame_ms
-            self._silence_ms_acc = 0.0
+            self._accumulated_silence_ms = 0.0
         else:
-            self.state = SegState.TRAILING
-            self._silence_ms_acc += self.frame_ms
-            if self._silence_ms_acc >= self.silence_ms:
-                return self._finish("silence", p)
+            self.state = SegmentationState.TRAILING
+            self._accumulated_silence_ms += self.frame_ms
+            if self._accumulated_silence_ms >= self.silence_ms:
+                return self._finish("silence", probability)
 
         if total_ms >= self.max_utterance_ms:
-            return self._finish("max_len", p)
+            return self._finish("max_len", probability)
 
-        return SegEvent("none", p)
+        return SegmentationEvent("none", probability)
 
-    def force_end(self) -> SegEvent:
+    def force_end(self) -> SegmentationEvent:
         """Push-to-talk key released."""
-        if self.state is SegState.IDLE:
-            return SegEvent("none")
+        if self.state is SegmentationState.IDLE:
+            return SegmentationEvent("none")
         return self._finish("manual", 0.0)
 
-    def force_start(self) -> SegEvent:
+    def force_start(self) -> SegmentationEvent:
         """Push-to-talk key pressed. The preroll is kept and used as-is."""
-        if self.state is not SegState.IDLE:
-            return SegEvent("none")
+        if self.state is not SegmentationState.IDLE:
+            return SegmentationEvent("none")
         self._start(None)
-        return SegEvent("speech_start", 1.0)
+        return SegmentationEvent("speech_start", 1.0)
 
     # -- internals -------------------------------------------------------
     def _start(self, first_frame: np.ndarray | None) -> None:
         # §5.1 preroll: prepend the frames from *before* the VAD reacted.
-        pre = list(self._preroll)
-        if first_frame is not None and pre and pre[-1] is first_frame:
-            pre = pre[:-1]
-        self._buf = pre + ([first_frame] if first_frame is not None else [])
-        self._preroll_used_ms = len(pre) * self.frame_ms
+        preroll = list(self._preroll)
+        if first_frame is not None and preroll and preroll[-1] is first_frame:
+            preroll = preroll[:-1]
+        self._buffer = preroll + ([first_frame] if first_frame is not None else [])
+        self._preroll_used_ms = len(preroll) * self.frame_ms
         self._preroll.clear()
         self._speech_ms = self.frame_ms if first_frame is not None else 0.0
-        self._silence_ms_acc = 0.0
-        self.state = SegState.SPEECH
+        self._accumulated_silence_ms = 0.0
+        self.state = SegmentationState.SPEECH
 
-    def _finish(self, reason: str, p: float) -> SegEvent:
+    def _finish(self, reason: str, probability: float) -> SegmentationEvent:
         pcm = (
-            np.concatenate(self._buf).astype(np.float32, copy=False)
-            if self._buf
+            np.concatenate(self._buffer).astype(np.float32, copy=False)
+            if self._buffer
             else np.zeros(0, dtype=np.float32)
         )
         speech_ms = self._speech_ms
@@ -262,11 +292,11 @@ class UtteranceSegmenter:
         if speech_ms < self.min_speech_ms and reason != "manual":
             # A cough, a door closing. Not an utterance.
             log.debug("vad.too_short", speech_ms=round(speech_ms, 1))
-            return SegEvent("none", p)
+            return SegmentationEvent("none", probability)
 
-        return SegEvent(
+        return SegmentationEvent(
             "speech_end",
-            p,
+            probability,
             Utterance(
                 pcm=pcm,
                 sample_rate=self.sample_rate,

@@ -14,62 +14,74 @@ import unicodedata
 
 
 def should_cross_verify(
-    avg_logprob: float,
+    average_log_probability: float,
     threshold: float,
-    n_best: list[str] | None = None,
-    duration_s: float = 0.0,
+    hypotheses: list[str] | None = None,
+    duration_seconds: float = 0.0,
 ) -> tuple[bool, str]:
-    """Returns (should_fire, reason)."""
-    if avg_logprob < threshold:
-        return True, f"avg_logprob {avg_logprob:.3f} < {threshold}"
+    """Return whether cross-verification is required and the activation reason."""
+    if average_log_probability < threshold:
+        return True, f"avg_logprob {average_log_probability:.3f} < {threshold}"
 
     # If the top N-best candidates disagree sharply, the model is wobbling
     # regardless of what its confidence score says.
-    if n_best and len(n_best) >= 2:
-        d = cer(n_best[0], n_best[1])
-        if d > 0.5:
-            return True, f"n-best disagreement cer={d:.2f}"
+    if hypotheses and len(hypotheses) >= 2:
+        disagreement = character_error_rate(hypotheses[0], hypotheses[1])
+        if disagreement > 0.5:
+            return True, f"n-best disagreement cer={disagreement:.2f}"
 
-    # Very short utterances tend to have inflated log-probabilities, and the
-    # check is cheap for them anyway.
-    if 0.0 < duration_s < 1.0:
-        return True, f"short utterance {duration_s:.2f}s"
+    # Very short utterances tend to have inflated log-probabilities and require
+    # explicit verification under the configured quality policy.
+    if 0.0 < duration_seconds < 1.0:
+        return True, f"short utterance {duration_seconds:.2f}s"
 
     return False, ""
 
 
-def normalize_for_compare(s: str) -> str:
+def normalize_for_comparison(text: str) -> str:
     """Normalise before comparing: NFKC, lowercase, strip whitespace and punctuation."""
-    s = unicodedata.normalize("NFKC", s).lower()
+    normalized = unicodedata.normalize("NFKC", text).lower()
     return "".join(
-        ch for ch in s if not ch.isspace() and unicodedata.category(ch)[0] not in ("P", "Z")
+        character
+        for character in normalized
+        if not character.isspace()
+        and unicodedata.category(character)[0] not in ("P", "Z")
     )
 
 
-def levenshtein(a: str, b: str) -> int:
-    if a == b:
+def levenshtein(reference: str, hypothesis: str) -> int:
+    if reference == hypothesis:
         return 0
-    if not a:
-        return len(b)
-    if not b:
-        return len(a)
-    prev = list(range(len(b) + 1))
-    for i, ca in enumerate(a, 1):
-        cur = [i]
-        for j, cb in enumerate(b, 1):
-            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
-        prev = cur
-    return prev[-1]
+    if not reference:
+        return len(hypothesis)
+    if not hypothesis:
+        return len(reference)
+    previous_row = list(range(len(hypothesis) + 1))
+    for reference_index, reference_character in enumerate(reference, 1):
+        current_row = [reference_index]
+        for hypothesis_index, hypothesis_character in enumerate(hypothesis, 1):
+            current_row.append(
+                min(
+                    previous_row[hypothesis_index] + 1,
+                    current_row[hypothesis_index - 1] + 1,
+                    previous_row[hypothesis_index - 1]
+                    + (reference_character != hypothesis_character),
+                )
+            )
+        previous_row = current_row
+    return previous_row[-1]
 
 
-def cer(ref: str, hyp: str) -> float:
+def character_error_rate(reference: str, hypothesis: str) -> float:
     """Character error rate. 0.0 means identical, >= 1.0 means completely different."""
-    r = normalize_for_compare(ref)
-    h = normalize_for_compare(hyp)
-    if not r:
-        return 0.0 if not h else 1.0
-    return levenshtein(r, h) / len(r)
+    normalized_reference = normalize_for_comparison(reference)
+    normalized_hypothesis = normalize_for_comparison(hypothesis)
+    if not normalized_reference:
+        return 0.0 if not normalized_hypothesis else 1.0
+    return levenshtein(normalized_reference, normalized_hypothesis) / len(
+        normalized_reference
+    )
 
 
-def is_divergent(a: str, b: str, threshold: float) -> bool:
-    return cer(a, b) >= threshold
+def is_divergent(reference: str, hypothesis: str, threshold: float) -> bool:
+    return character_error_rate(reference, hypothesis) >= threshold

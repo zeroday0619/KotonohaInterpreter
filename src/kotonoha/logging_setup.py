@@ -61,9 +61,9 @@ def setup_logging(
 
     if json_path is not None:
         json_path.parent.mkdir(parents=True, exist_ok=True)
-        fh = logging.FileHandler(json_path, encoding="utf-8")
-        fh.setFormatter(logging.Formatter("%(message)s"))
-        handlers.append(fh)
+        file_handler = logging.FileHandler(json_path, encoding="utf-8")
+        file_handler.setFormatter(logging.Formatter("%(message)s"))
+        handlers.append(file_handler)
 
     if console and terminal_interface:
         reset_terminal_interface_logs()
@@ -71,18 +71,18 @@ def setup_logging(
         terminal_handler.setFormatter(logging.Formatter("%(message)s"))
         handlers.append(terminal_handler)
     elif console:
-        sh = logging.StreamHandler(sys.stderr)
-        sh.setFormatter(logging.Formatter("%(message)s"))
-        handlers.append(sh)
+        stream_handler = logging.StreamHandler(sys.stderr)
+        stream_handler.setFormatter(logging.Formatter("%(message)s"))
+        handlers.append(stream_handler)
 
     if not handlers:
         handlers.append(logging.NullHandler())
 
     root = logging.getLogger()
-    for h in list(root.handlers):
-        root.removeHandler(h)
-    for h in handlers:
-        root.addHandler(h)
+    for handler in list(root.handlers):
+        root.removeHandler(handler)
+    for handler in handlers:
+        root.addHandler(handler)
     root.setLevel(getattr(logging, level.upper(), logging.INFO))
 
     structlog.configure(

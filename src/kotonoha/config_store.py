@@ -11,7 +11,7 @@ from typing import Any
 import yaml
 from pydantic import ValidationError
 
-from .config import Settings, config_layers, deep_merge, local_config_path, read_yaml
+from kotonoha.config import Settings, config_layers, deep_merge, local_config_path, read_yaml
 
 
 def get_path(data: Any, path: str) -> Any:
@@ -90,13 +90,3 @@ def apply_changes(
 
     write_local(local_path, candidate)
     return ApplyResult(written=True, changed=sorted(changes))
-
-
-__all__ = [
-    "ApplyResult",
-    "apply_changes",
-    "get_path",
-    "set_path",
-    "validate_candidate",
-    "write_local",
-]

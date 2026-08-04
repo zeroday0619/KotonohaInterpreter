@@ -79,12 +79,12 @@ services:
 
   llm:
     <<: *a6000
-    # llama.cpp with CUDA for x86. Pin a tag you have pulled.
+    # llama.cpp with CUDA for x86. Pin a verified tag present on the host.
     image: ${LLM_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda}
     ports: ["8003:8003"]
     environment:
-      # 48 GB comfortably holds the 30B MoE at Q4_K_M, which is what the Orin
-      # could not run fast enough. That is the whole point of this box.
+      # The remote profile selects the 30B MoE at Q4_K_M. Deployment acceptance
+      # measures residency and generation rate on the A6000.
       - LLM_PROFILE=${LLM_PROFILE:-moe}
       - LLAMA_BIN=/app
       - MODELS_DIR=/models/gguf

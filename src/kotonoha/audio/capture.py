@@ -8,8 +8,8 @@ Capture runs at 48 kHz for two reasons:
 The VAD runs on 16k frames while the original 48k audio is kept in a separate
 ring. When EOU fires, the utterance length in 16k samples is multiplied by three
 and that many samples are pulled from the 48k ring for noise suppression. (The
-streaming resampler adds a few ms of skew, which is comfortably absorbed by the
-300 ms preroll.)
+streaming resampler retains bounded frame carry. The preroll remains attached to
+the segmented utterance.)
 
 Half-duplex gating (§4): closing the gate in SPEAKING drops incoming blocks on
 the spot and resets the resampler and VAD state. If TTS output leaks back into
@@ -23,12 +23,13 @@ import asyncio
 import queue
 import threading
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
-from ..config import AudioCfg, VadCfg
-from ..logging_setup import get_logger
-from .resample import Resampler
+from kotonoha.audio.resample import Resampler
+from kotonoha.config import AudioConfig, VadConfig
+from kotonoha.logging_setup import get_logger
 
 log = get_logger(__name__)
 
@@ -44,64 +45,88 @@ class Frame:
 class RawRing:
     """Fixed-length ring holding the original 48k audio, for pulling the tail back."""
 
+    _buffer: np.ndarray
+    _capacity: int
+    _written: int
+
     def __init__(self, capacity: int):
-        self._buf = np.zeros(capacity, dtype=np.float32)
-        self._cap = capacity
+        self._buffer = np.zeros(capacity, dtype=np.float32)
+        self._capacity = capacity
         self._written = 0
 
-    def push(self, x: np.ndarray) -> None:
-        n = x.shape[0]
-        if n >= self._cap:
-            self._buf[:] = x[-self._cap :]
-            self._written += n
+    def push(self, samples: np.ndarray) -> None:
+        sample_count = samples.shape[0]
+        if sample_count >= self._capacity:
+            self._buffer[:] = samples[-self._capacity :]
+            self._written += sample_count
             return
-        pos = self._written % self._cap
-        end = pos + n
-        if end <= self._cap:
-            self._buf[pos:end] = x
+        position = self._written % self._capacity
+        end = position + sample_count
+        if end <= self._capacity:
+            self._buffer[position:end] = samples
         else:
-            k = self._cap - pos
-            self._buf[pos:] = x[:k]
-            self._buf[: end - self._cap] = x[k:]
-        self._written += n
+            first_part_length = self._capacity - position
+            self._buffer[position:] = samples[:first_part_length]
+            self._buffer[: end - self._capacity] = samples[first_part_length:]
+        self._written += sample_count
 
-    def tail(self, n: int) -> np.ndarray:
-        n = min(n, self._cap, self._written)
-        if n == 0:
+    def tail(self, sample_count: int) -> np.ndarray:
+        sample_count = min(sample_count, self._capacity, self._written)
+        if sample_count == 0:
             return np.zeros(0, dtype=np.float32)
-        pos = self._written % self._cap
-        start = pos - n
+        position = self._written % self._capacity
+        start = position - sample_count
         if start >= 0:
-            return self._buf[start:pos].copy()
-        return np.concatenate([self._buf[start:], self._buf[:pos]])
+            return self._buffer[start:position].copy()
+        return np.concatenate([self._buffer[start:], self._buffer[:position]])
 
     def clear(self) -> None:
         self._written = 0
-        self._buf[:] = 0.0
+        self._buffer[:] = 0.0
 
 
 class MicCapture:
-    def __init__(self, audio: AudioCfg, vad: VadCfg, loop: asyncio.AbstractEventLoop | None = None):
-        self.audio = audio
-        self.vad_cfg = vad
-        self.loop = loop
-        self.window16 = 512  # silero window size
-        self.frames: asyncio.Queue[Frame] = asyncio.Queue(maxsize=256)
+    audio: AudioConfig
+    loop: asyncio.AbstractEventLoop | None
+    frames: asyncio.Queue[Frame]
+    dropped_blocks: int
+    overflows: int
+    _raw_queue: queue.Queue[np.ndarray | None]
+    _stream: Any | None
+    _worker_thread: threading.Thread | None
+    _stop_event: threading.Event
+    _gate_open: threading.Event
+    _resampler: Resampler
+    _pending_samples: np.ndarray
+    _sample_index: int
+    _raw_capture: RawRing
+    _window_size: int
 
-        self._raw_q: queue.Queue[np.ndarray | None] = queue.Queue(maxsize=64)
+    def __init__(
+        self,
+        audio: AudioConfig,
+        vad: VadConfig,
+        loop: asyncio.AbstractEventLoop | None = None,
+    ):
+        self.audio = audio
+        self.loop = loop
+        self._window_size = 512
+        self.frames = asyncio.Queue(maxsize=256)
+
+        self._raw_queue = queue.Queue(maxsize=64)
         self._stream = None
-        self._worker: threading.Thread | None = None
-        self._stop = threading.Event()
+        self._worker_thread = None
+        self._stop_event = threading.Event()
 
         self._gate_open = threading.Event()
         self._gate_open.set()
 
         self._resampler = Resampler(audio.capture_sample_rate, audio.work_sample_rate)
-        self._pending16 = np.zeros(0, dtype=np.float32)
-        self._idx16 = 0
+        self._pending_samples = np.zeros(0, dtype=np.float32)
+        self._sample_index = 0
 
         ring_seconds = (vad.max_utterance_ms + vad.preroll_ms) / 1000.0 + 2.0
-        self._raw48 = RawRing(int(ring_seconds * audio.capture_sample_rate))
+        self._raw_capture = RawRing(int(ring_seconds * audio.capture_sample_rate))
         self.dropped_blocks = 0
         self.overflows = 0
 
@@ -122,8 +147,8 @@ class MicCapture:
                 self.frames.get_nowait()
             except asyncio.QueueEmpty:
                 break
-        self._pending16 = np.zeros(0, dtype=np.float32)
-        self._raw48.clear()
+        self._pending_samples = np.zeros(0, dtype=np.float32)
+        self._raw_capture.clear()
         self._resampler.reset()
         self._gate_open.set()
 
@@ -133,14 +158,21 @@ class MicCapture:
 
         self.loop = self.loop or asyncio.get_event_loop()
 
-        def _cb(indata, frames_n, time_info, status):  # noqa: ANN001 - portaudio signature
+        def capture_callback(  # noqa: ANN001 - PortAudio callback signature
+            input_data,
+            frame_count,
+            time_info,
+            status,
+        ):
             if status:
                 self.overflows += 1
             if not self._gate_open.is_set():
                 self.dropped_blocks += 1
                 return
             try:
-                self._raw_q.put_nowait(np.array(indata[:, 0], dtype=np.float32, copy=True))
+                self._raw_queue.put_nowait(
+                    np.array(input_data[:, 0], dtype=np.float32, copy=True)
+                )
             except queue.Full:
                 self.overflows += 1
 
@@ -150,11 +182,15 @@ class MicCapture:
             channels=self.audio.channels,
             dtype="float32",
             device=self.audio.input_device,
-            callback=_cb,
+            callback=capture_callback,
         )
         self._stream.start()
-        self._worker = threading.Thread(target=self._run, name="mic-worker", daemon=True)
-        self._worker.start()
+        self._worker_thread = threading.Thread(
+            target=self._run,
+            name="mic-worker",
+            daemon=True,
+        )
+        self._worker_thread.start()
         log.info(
             "mic.started",
             rate=self.audio.capture_sample_rate,
@@ -163,55 +199,57 @@ class MicCapture:
         )
 
     def stop(self) -> None:
-        self._stop.set()
-        self._raw_q.put(None)
+        self._stop_event.set()
+        self._raw_queue.put(None)
         if self._stream is not None:
             self._stream.stop()
             self._stream.close()
             self._stream = None
-        if self._worker is not None:
-            self._worker.join(timeout=2.0)
-            self._worker = None
+        if self._worker_thread is not None:
+            self._worker_thread.join(timeout=2.0)
+            self._worker_thread = None
         log.info("mic.stopped", dropped_blocks=self.dropped_blocks, overflows=self.overflows)
 
     # -- pulling the original 48k back -----------------------------------
-    def tail48(self, samples16: int) -> np.ndarray:
+    def tail48(self, work_sample_count: int) -> np.ndarray:
         ratio = self.audio.capture_sample_rate / self.audio.work_sample_rate
-        return self._raw48.tail(int(samples16 * ratio))
+        return self._raw_capture.tail(int(work_sample_count * ratio))
 
     # -- internals -------------------------------------------------------
     def _drain_raw_queue(self) -> None:
         while True:
             try:
-                self._raw_q.get_nowait()
+                self._raw_queue.get_nowait()
             except queue.Empty:
                 return
 
     def _run(self) -> None:
-        while not self._stop.is_set():
-            blk = self._raw_q.get()
-            if blk is None:
+        while not self._stop_event.is_set():
+            block = self._raw_queue.get()
+            if block is None:
                 return
             if not self._gate_open.is_set():
                 continue
-            self._raw48.push(blk)
-            y = self._resampler(blk)
-            if y.size == 0:
+            self._raw_capture.push(block)
+            resampled = self._resampler(block)
+            if resampled.size == 0:
                 continue
-            self._pending16 = (
-                y if self._pending16.size == 0 else np.concatenate([self._pending16, y])
+            self._pending_samples = (
+                resampled
+                if self._pending_samples.size == 0
+                else np.concatenate([self._pending_samples, resampled])
             )
-            while self._pending16.size >= self.window16:
-                frame = self._pending16[: self.window16]
-                self._pending16 = self._pending16[self.window16 :]
-                f = Frame(index=self._idx16, pcm=frame)
-                self._idx16 += self.window16
+            while self._pending_samples.size >= self._window_size:
+                frame = self._pending_samples[: self._window_size]
+                self._pending_samples = self._pending_samples[self._window_size :]
+                output_frame = Frame(index=self._sample_index, pcm=frame)
+                self._sample_index += self._window_size
                 if self.loop is not None and not self.loop.is_closed():
-                    self.loop.call_soon_threadsafe(self._emit, f)
+                    self.loop.call_soon_threadsafe(self._emit, output_frame)
 
-    def _emit(self, f: Frame) -> None:
+    def _emit(self, frame: Frame) -> None:
         try:
-            self.frames.put_nowait(f)
+            self.frames.put_nowait(frame)
         except asyncio.QueueFull:
             self.overflows += 1
 
@@ -222,6 +260,12 @@ class NullCapture:
     Used by text-only runs, where the keyboard is the input source and touching
     PortAudio would fail on hosts without a microphone.
     """
+
+    frames: asyncio.Queue[Frame]
+    loop: asyncio.AbstractEventLoop | None
+    dropped_blocks: int
+    overflows: int
+    _gate_open: bool
 
     def __init__(self, **_ignored):
         self.frames: asyncio.Queue[Frame] = asyncio.Queue()
@@ -246,7 +290,7 @@ class NullCapture:
     def stop(self) -> None:
         return None
 
-    def tail48(self, samples16: int) -> np.ndarray:
+    def tail48(self, work_sample_count: int) -> np.ndarray:
         return np.zeros(0, dtype=np.float32)
 
 
@@ -256,9 +300,16 @@ class FileCapture:
     Used for EOU regression tests and for development on macOS.
     """
 
-    def __init__(self, pcm16k: np.ndarray, window: int = 512):
+    frames: asyncio.Queue[Frame]
+    dropped_blocks: int
+    overflows: int
+    _pcm: np.ndarray
+    _window: int
+    _gate_open: bool
+
+    def __init__(self, pcm: np.ndarray, window: int = 512):
         self.frames: asyncio.Queue[Frame] = asyncio.Queue()
-        self._pcm = pcm16k.astype(np.float32, copy=False)
+        self._pcm = pcm.astype(np.float32, copy=False)
         self._window = window
         self._gate_open = True
         self.dropped_blocks = 0
@@ -275,17 +326,33 @@ class FileCapture:
         self._gate_open = True
 
     def start(self) -> None:
-        idx = 0
-        while idx + self._window <= self._pcm.size:
-            self.frames.put_nowait(Frame(idx, self._pcm[idx : idx + self._window]))
-            idx += self._window
+        index = 0
+        while index + self._window <= self._pcm.size:
+            self.frames.put_nowait(
+                Frame(index, self._pcm[index : index + self._window])
+            )
+            index += self._window
         # Append a silent tail so EOU definitely fires.
         for _ in range(40):
-            self.frames.put_nowait(Frame(idx, np.zeros(self._window, dtype=np.float32)))
-            idx += self._window
+            self.frames.put_nowait(
+                Frame(index, np.zeros(self._window, dtype=np.float32))
+            )
+            index += self._window
 
     def stop(self) -> None:
         return None
 
-    def tail48(self, samples16: int) -> np.ndarray:
+    def tail48(self, work_sample_count: int) -> np.ndarray:
         return np.zeros(0, dtype=np.float32)
+    frames: asyncio.Queue[Frame]
+    loop: asyncio.AbstractEventLoop | None
+    dropped_blocks: int
+    overflows: int
+    _gate_open: bool
+
+    frames: asyncio.Queue[Frame]
+    dropped_blocks: int
+    overflows: int
+    _pcm: np.ndarray
+    _window: int
+    _gate_open: bool

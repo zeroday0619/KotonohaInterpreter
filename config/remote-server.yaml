@@ -3,14 +3,11 @@
 # Only the model sections matter here. perf_mode, placement and remote are the
 # orchestrator's business; a service does not know or care where its caller is.
 #
-# The A6000 has 48 GB and roughly 3.5x the Orin's memory bandwidth, so the
-# concessions §2 forced on the Jetson build are lifted: fp16 instead of int8,
-# the MoE instead of the dense 14B, sm_86 instead of sm_87.
+# The A6000 profile uses fp16 ASR verification and the MoE translation model.
+# Deployment acceptance requires measurements on this host.
 
 asr:
-  # Set to vllm only after running spikes/spike1_asr_load.py on THIS box.
-  # sm_86 is a first-class vLLM target, so it is far more likely to work here
-  # than on the Orin — but the rule is still measure, do not assume.
+  # Set to vllm only after running spikes/spike1_asr_load.py on this host.
   backend: transformers
   model_id: Qwen/Qwen3-ASR-1.7B-hf
   dtype: float16

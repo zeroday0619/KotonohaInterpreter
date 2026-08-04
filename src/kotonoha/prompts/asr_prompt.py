@@ -13,7 +13,7 @@ vocabulary choices that follow from that.
 
 from __future__ import annotations
 
-from ..store.db import GlossaryEntry, TurnRecord
+from kotonoha.store.db import GlossaryEntry, TurnRecord
 
 # Long context makes the model hallucinate towards the context instead of the
 # audio. Cap it.
@@ -38,20 +38,20 @@ def build_asr_context(
 
     terms: list[str] = []
     seen: set[str] = set()
-    for g in glossary:
-        for t in (g.src_term, g.tgt_term):
-            if t and t not in seen:
-                seen.add(t)
-                terms.append(t)
+    for entry in glossary:
+        for term in (entry.src_term, entry.tgt_term):
+            if term and term not in seen:
+                seen.add(term)
+                terms.append(term)
     if terms:
         parts.append("關鍵詞 / keywords: " + ", ".join(terms[:40]))
 
     if history:
-        recent = [h.source_text for h in history[-3:] if h.source_text]
+        recent = [turn.source_text for turn in history[-3:] if turn.source_text]
         if recent:
             parts.append("上文 / context: " + " ".join(recent))
 
-    ctx = "\n".join(parts)
-    if len(ctx) > MAX_CONTEXT_CHARS:
-        ctx = ctx[:MAX_CONTEXT_CHARS]
-    return ctx
+    context = "\n".join(parts)
+    if len(context) > MAX_CONTEXT_CHARS:
+        context = context[:MAX_CONTEXT_CHARS]
+    return context

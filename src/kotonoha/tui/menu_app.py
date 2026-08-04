@@ -8,11 +8,16 @@ from textual.binding import Binding, BindingsMap
 from textual.containers import Container
 from textual.widgets import Button, Footer, Header, Static
 
-from ..config import Settings
-from ..i18n import _
+from kotonoha.config import Settings
+from kotonoha.i18n import _
 
 
 class TuiMenuApp(App[str | None]):
+    settings: Settings
+    title: str
+    sub_title: str
+    _bindings: BindingsMap
+
     CSS = """
     Screen { align: center middle; }
     #control-center {

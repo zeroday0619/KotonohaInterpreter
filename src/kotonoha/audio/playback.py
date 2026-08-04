@@ -11,28 +11,45 @@ from __future__ import annotations
 import asyncio
 import threading
 from collections import deque
+from typing import Any
 
 import numpy as np
 
-from ..config import AudioCfg, TtsCfg
-from ..logging_setup import get_logger
-from .resample import Resampler
+from kotonoha.audio.resample import Resampler
+from kotonoha.config import AudioConfig, TextToSpeechConfig
+from kotonoha.logging_setup import get_logger
 
 log = get_logger(__name__)
 
 
 class Playback:
-    def __init__(self, audio: AudioCfg, tts: TtsCfg):
-        self.audio = audio
-        self.tts = tts
-        self._q: deque[np.ndarray] = deque()
-        self._lock = threading.Lock()
-        self._cur: np.ndarray | None = None
-        self._pos = 0
-        self._stream = None
-        self._resampler = Resampler(tts.sample_rate, audio.playback_sample_rate)
+    audio: AudioConfig
+    text_to_speech: TextToSpeechConfig
+    first_packet: asyncio.Event
+    drained: asyncio.Event
+    _queue: deque[np.ndarray]
+    _lock: threading.Lock
+    _current: np.ndarray | None
+    _position: int
+    _stream: Any | None
+    _resampler: Resampler
+    _loop: asyncio.AbstractEventLoop | None
+    _closing: bool
 
-        self._loop: asyncio.AbstractEventLoop | None = None
+    def __init__(self, audio: AudioConfig, text_to_speech: TextToSpeechConfig):
+        self.audio = audio
+        self.text_to_speech = text_to_speech
+        self._queue = deque()
+        self._lock = threading.Lock()
+        self._current = None
+        self._position = 0
+        self._stream = None
+        self._resampler = Resampler(
+            text_to_speech.sample_rate,
+            audio.playback_sample_rate,
+        )
+
+        self._loop = None
         self.first_packet = asyncio.Event()
         self.drained = asyncio.Event()
         self.drained.set()
@@ -40,37 +57,47 @@ class Playback:
 
     # -- lifecycle -------------------------------------------------------
     def start(self, loop: asyncio.AbstractEventLoop | None = None) -> None:
-        import sounddevice as sd
+        import sounddevice
 
         self._loop = loop or asyncio.get_event_loop()
 
-        def _cb(outdata, frames_n, time_info, status):  # noqa: ANN001 - portaudio signature
+        def playback_callback(  # noqa: ANN001 - PortAudio callback signature
+            output_data,
+            frame_count,
+            time_info,
+            status,
+        ):
             if status:
                 log.debug("playback.status", status=str(status))
             written = 0
-            while written < frames_n:
-                if self._cur is None or self._pos >= self._cur.size:
+            while written < frame_count:
+                if self._current is None or self._position >= self._current.size:
                     with self._lock:
-                        self._cur = self._q.popleft() if self._q else None
-                    self._pos = 0
-                    if self._cur is None:
-                        outdata[written:, 0] = 0.0
+                        self._current = self._queue.popleft() if self._queue else None
+                    self._position = 0
+                    if self._current is None:
+                        output_data[written:, 0] = 0.0
                         if written > 0 or not self.drained.is_set():
                             self._signal_drained()
                         return
-                take = min(frames_n - written, self._cur.size - self._pos)
-                outdata[written : written + take, 0] = self._cur[self._pos : self._pos + take]
-                self._pos += take
-                written += take
+                write_count = min(
+                    frame_count - written,
+                    self._current.size - self._position,
+                )
+                output_data[written : written + write_count, 0] = self._current[
+                    self._position : self._position + write_count
+                ]
+                self._position += write_count
+                written += write_count
                 if not self.first_packet.is_set():
                     self._signal_first()
 
-        self._stream = sd.OutputStream(
+        self._stream = sounddevice.OutputStream(
             samplerate=self.audio.playback_sample_rate,
             channels=1,
             dtype="float32",
             device=self.audio.output_device,
-            callback=_cb,
+            callback=playback_callback,
         )
         self._stream.start()
         log.info("playback.started", rate=self.audio.playback_sample_rate)
@@ -90,36 +117,36 @@ class Playback:
 
     def enqueue(self, pcm: np.ndarray, rate: int | None = None) -> None:
         """Push a TTS chunk. Given a rate, resample from it to the output rate."""
-        x = np.asarray(pcm, dtype=np.float32).reshape(-1)
-        if x.size == 0:
+        samples = np.asarray(pcm, dtype=np.float32).reshape(-1)
+        if samples.size == 0:
             return
-        src = rate or self.tts.sample_rate
-        if src != self.audio.playback_sample_rate:
-            r = (
+        source_rate = rate or self.text_to_speech.sample_rate
+        if source_rate != self.audio.playback_sample_rate:
+            resampler = (
                 self._resampler
-                if src == self.tts.sample_rate
-                else Resampler(src, self.audio.playback_sample_rate)
+                if source_rate == self.text_to_speech.sample_rate
+                else Resampler(source_rate, self.audio.playback_sample_rate)
             )
-            x = r(x)
+            samples = resampler(samples)
         with self._lock:
-            self._q.append(x)
+            self._queue.append(samples)
         self.drained.clear()
 
     def flush(self) -> None:
         """Abort playback (cancellation or error) and empty the queue."""
         with self._lock:
-            self._q.clear()
-        self._cur = None
-        self._pos = 0
+            self._queue.clear()
+        self._current = None
+        self._position = 0
         self._signal_drained()
 
     @property
     def pending_seconds(self) -> float:
         with self._lock:
-            n = sum(a.size for a in self._q)
-        if self._cur is not None:
-            n += max(0, self._cur.size - self._pos)
-        return n / float(self.audio.playback_sample_rate)
+            sample_count = sum(chunk.size for chunk in self._queue)
+        if self._current is not None:
+            sample_count += max(0, self._current.size - self._position)
+        return sample_count / float(self.audio.playback_sample_rate)
 
     async def wait_drained(self, timeout: float | None = None) -> bool:
         try:
@@ -140,6 +167,8 @@ class Playback:
 
 class NullPlayback(Playback):
     """For environments with no audio output device (CI, remote shells)."""
+
+    _loop: asyncio.AbstractEventLoop | None
 
     def start(self, loop: asyncio.AbstractEventLoop | None = None) -> None:
         self._loop = loop or asyncio.get_event_loop()

@@ -10,6 +10,7 @@ the page size regardless of how many turns the device has accumulated.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -21,9 +22,9 @@ from textual.binding import Binding, BindingsMap
 from textual.containers import Horizontal
 from textual.widgets import DataTable, Footer, Header, Input, Select, Static
 
-from ..config import Settings, load_settings
-from ..i18n import _
-from ..store import HistoryEntry, Store
+from kotonoha.config import Settings, load_settings
+from kotonoha.i18n import _
+from kotonoha.store.db import HistoryEntry, Store
 
 PAGE_SIZE = 200
 OUTCOMES = ("ok", "empty_asr", "llm_timeout", "tts_failed", "oom", "aborted")
@@ -60,6 +61,18 @@ def excerpt(value: str | None, width: int = 60) -> str:
 
 
 class HistoryApp(App[None]):
+    settings: Settings
+    store: Store | None
+    query: HistoryQuery
+    entries: list[HistoryEntry]
+    total: int
+    table: DataTable
+    detail: Static
+    status: Static
+    title: str
+    sub_title: str
+    _bindings: BindingsMap
+
     CSS = """
     Screen { layout: vertical; }
     #filters { height: 3; padding: 0 1; }
@@ -83,7 +96,7 @@ class HistoryApp(App[None]):
     def __init__(self, config_path: Path | None = None, settings: Settings | None = None):
         super().__init__()
         self.settings = settings or load_settings(config_path)
-        self.store = Store(self.settings.resolve(self.settings.store.path))
+        self.store = None
         self.query = HistoryQuery()
         self.entries: list[HistoryEntry] = []
         self.total = 0
@@ -106,8 +119,7 @@ class HistoryApp(App[None]):
                 placeholder=_("Search source or translation, then press Enter"), id="search"
             )
             yield Select(
-                [(_("All languages"), ANY)]
-                + [(code, code) for code in self.store.history_languages()],
+                [(_("All languages"), ANY)],
                 value=ANY,
                 allow_blank=False,
                 id="filter-lang",
@@ -127,7 +139,11 @@ class HistoryApp(App[None]):
         yield self.status
         yield Footer()
 
-    def on_mount(self) -> None:
+    async def on_mount(self) -> None:
+        self.store = await asyncio.to_thread(
+            Store,
+            self.settings.resolve(self.settings.store.path),
+        )
         self.title = _("Interpretation history")
         self.sub_title = str(self.store.path)
         self.table.add_columns(
@@ -137,21 +153,26 @@ class HistoryApp(App[None]):
             _("Translation"),
             _("Outcome"),
         )
-        self.reload()
+        languages = await asyncio.to_thread(self.store.history_languages)
+        self.query_one("#filter-lang", Select).set_options(
+            [(_("All languages"), ANY)] + [(code, code) for code in languages]
+        )
+        await self.reload()
 
-    def on_unmount(self) -> None:
-        self.store.close()
+    async def on_unmount(self) -> None:
+        if self.store is not None:
+            await asyncio.to_thread(self.store.close)
 
     # -- data ---------------------------------------------------------------
-    def reload(self) -> None:
+    async def reload(self) -> None:
         filters = {
             "query": self.query.text or None,
             "src_lang": self.query.src_lang,
             "outcome": self.query.outcome,
         }
-        self.total = self.store.count_turns(**filters)
-        self.entries = self.store.search_turns(
-            **filters, limit=PAGE_SIZE, offset=self.query.offset
+        self.total, self.entries = await asyncio.to_thread(
+            self._load_page,
+            filters,
         )
 
         self.table.clear()
@@ -166,6 +187,20 @@ class HistoryApp(App[None]):
             )
         self._update_status()
         self._show_detail(self.entries[0] if self.entries else None)
+
+    def _load_page(
+        self,
+        filters: dict[str, str | None],
+    ) -> tuple[int, list[HistoryEntry]]:
+        if self.store is None:
+            return 0, []
+        total = self.store.count_turns(**filters)
+        entries = self.store.search_turns(
+            **filters,
+            limit=PAGE_SIZE,
+            offset=self.query.offset,
+        )
+        return total, entries
 
     def _update_status(self) -> None:
         if not self.total:
@@ -209,22 +244,22 @@ class HistoryApp(App[None]):
 
     # -- events -------------------------------------------------------------
     @on(Input.Submitted, "#search")
-    def search_submitted(self, event: Input.Submitted) -> None:
+    async def search_submitted(self, event: Input.Submitted) -> None:
         self.query.text = event.value.strip()
         self.query.offset = 0
-        self.reload()
+        await self.reload()
 
     @on(Select.Changed, "#filter-lang")
-    def language_changed(self, event: Select.Changed) -> None:
+    async def language_changed(self, event: Select.Changed) -> None:
         self.query.src_lang = None if event.value == ANY else str(event.value)
         self.query.offset = 0
-        self.reload()
+        await self.reload()
 
     @on(Select.Changed, "#filter-outcome")
-    def outcome_changed(self, event: Select.Changed) -> None:
+    async def outcome_changed(self, event: Select.Changed) -> None:
         self.query.outcome = None if event.value == ANY else str(event.value)
         self.query.offset = 0
-        self.reload()
+        await self.reload()
 
     @on(DataTable.RowHighlighted)
     def row_highlighted(self, event: DataTable.RowHighlighted) -> None:
@@ -235,25 +270,29 @@ class HistoryApp(App[None]):
     def action_focus_search(self) -> None:
         self.query_one("#search", Input).focus()
 
-    def action_reload(self) -> None:
-        self.reload()
+    async def action_reload(self) -> None:
+        await self.reload()
 
-    def action_next_page(self) -> None:
+    async def action_next_page(self) -> None:
         if self.query.offset + PAGE_SIZE < self.total:
             self.query.offset += PAGE_SIZE
-            self.reload()
+            await self.reload()
 
-    def action_previous_page(self) -> None:
+    async def action_previous_page(self) -> None:
         if self.query.offset:
             self.query.offset = max(0, self.query.offset - PAGE_SIZE)
-            self.reload()
+            await self.reload()
 
-    def action_export(self) -> None:
+    async def action_export(self) -> None:
         """Export the rows currently on screen, filters included."""
         if not self.entries:
             self.status.update(Text(_("No turns match"), style="dim"))
             return
-        path = export_jsonl(self.entries, default_export_path(self.settings))
+        path = await asyncio.to_thread(
+            export_jsonl,
+            self.entries,
+            default_export_path(self.settings),
+        )
         self.status.update(
             Text(
                 _("Exported {count} turns to {path}", count=len(self.entries), path=path),

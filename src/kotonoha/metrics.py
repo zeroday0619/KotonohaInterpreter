@@ -9,6 +9,7 @@ relative to EOU.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 import uuid
@@ -16,7 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .config import BudgetCfg
+from kotonoha.config import LatencyBudgetConfig
 
 MARKS = ("eou", "asr_done", "first_clause", "first_audio", "queue_drained")
 
@@ -27,7 +28,7 @@ class TurnMetrics:
     wall_start: float = field(default_factory=time.time)
 
     # The five marks, as monotonic perf_counter values.
-    t: dict[str, float] = field(default_factory=dict)
+    timestamps: dict[str, float] = field(default_factory=dict)
 
     # Everything else §11 asks to record alongside them.
     lang_detected: str | None = None
@@ -54,22 +55,22 @@ class TurnMetrics:
     # -- marking ---------------------------------------------------------
     def mark(self, name: str) -> float:
         now = time.perf_counter()
-        self.t.setdefault(name, now)
+        self.timestamps.setdefault(name, now)
         return now
 
     def has(self, name: str) -> bool:
-        return name in self.t
+        return name in self.timestamps
 
     def rel_ms(self, name: str) -> float | None:
         """Milliseconds since EOU."""
-        if name not in self.t or "eou" not in self.t:
+        if name not in self.timestamps or "eou" not in self.timestamps:
             return None
-        return round((self.t[name] - self.t["eou"]) * 1000, 1)
+        return round((self.timestamps[name] - self.timestamps["eou"]) * 1000, 1)
 
-    def span_ms(self, a: str, b: str) -> float | None:
-        if a not in self.t or b not in self.t:
+    def span_ms(self, start: str, end: str) -> float | None:
+        if start not in self.timestamps or end not in self.timestamps:
             return None
-        return round((self.t[b] - self.t[a]) * 1000, 1)
+        return round((self.timestamps[end] - self.timestamps[start]) * 1000, 1)
 
     # -- budget comparison (§6) ------------------------------------------
     def stage_ms(self) -> dict[str, float | None]:
@@ -81,8 +82,8 @@ class TurnMetrics:
             "playback": self.span_ms("first_audio", "queue_drained"),
         }
 
-    def over_budget(self, budget: BudgetCfg) -> dict[str, float]:
-        """Stages that blew the budget, and by how many ms. Empty means we fit."""
+    def over_budget(self, budget: LatencyBudgetConfig) -> dict[str, float]:
+        """Return the stages that exceeded their latency budget."""
         stages = self.stage_ms()
         limits = {
             "asr": budget.asr + budget.verify,
@@ -90,19 +91,23 @@ class TurnMetrics:
             "tts_first_packet": budget.tts_first_packet,
             "total_to_first_audio": budget.total - budget.silence,
         }
-        out: dict[str, float] = {}
-        for k, lim in limits.items():
-            v = stages.get(k)
-            if v is not None and v > lim:
-                out[k] = round(v - lim, 1)
-        return out
+        exceeded: dict[str, float] = {}
+        for stage, limit in limits.items():
+            duration = stages.get(stage)
+            if duration is not None and duration > limit:
+                exceeded[stage] = round(duration - limit, 1)
+        return exceeded
 
     # -- serialisation ---------------------------------------------------
-    def to_dict(self, budget: BudgetCfg | None = None) -> dict[str, Any]:
-        d: dict[str, Any] = {
+    def to_dict(self, budget: LatencyBudgetConfig | None = None) -> dict[str, Any]:
+        record: dict[str, Any] = {
             "turn_id": self.turn_id,
             "wall_start": self.wall_start,
-            "marks_ms": {m: self.rel_ms(m) for m in MARKS if m in self.t},
+            "marks_ms": {
+                mark: self.rel_ms(mark)
+                for mark in MARKS
+                if mark in self.timestamps
+            },
             "stages_ms": self.stage_ms(),
             "lang_detected": self.lang_detected,
             "lang_source": self.lang_source,
@@ -122,29 +127,37 @@ class TurnMetrics:
             "outcome": self.outcome,
         }
         if budget is not None:
-            ob = self.over_budget(budget)
-            d["over_budget_ms"] = ob
-            d["within_budget"] = not ob
+            exceeded = self.over_budget(budget)
+            record["over_budget_ms"] = exceeded
+            record["within_budget"] = not exceeded
         if self.notes:
-            d["notes"] = self.notes
-        return d
+            record["notes"] = self.notes
+        return record
 
 
 class TurnLog:
     """Appends one JSONL line per turn."""
 
-    def __init__(self, path: Path, budget: BudgetCfg):
+    path: Path
+    budget: LatencyBudgetConfig
+
+    def __init__(self, path: Path, budget: LatencyBudgetConfig):
         self.path = path
         self.budget = budget
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
-    def write(self, m: TurnMetrics) -> dict[str, Any]:
+    async def write(self, metrics: TurnMetrics) -> dict[str, Any]:
         """Write one JSONL line and hand the record back for reuse.
 
         The file gets an "event" key; the returned record does not, because it
-        would collide with structlog's own key in `log.info("turn", **rec)`.
+        would collide with structlog's own key in `log.info("turn", **record)`.
         """
-        rec = m.to_dict(self.budget)
-        with self.path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps({"event": "turn", **rec}, ensure_ascii=False) + "\n")
-        return rec
+        record = metrics.to_dict(self.budget)
+        await asyncio.to_thread(self._append, record)
+        return record
+
+    def _append(self, record: dict[str, Any]) -> None:
+        with self.path.open("a", encoding="utf-8") as stream:
+            stream.write(
+                json.dumps({"event": "turn", **record}, ensure_ascii=False) + "\n"
+            )

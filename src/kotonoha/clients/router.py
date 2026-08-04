@@ -1,13 +1,12 @@
 """Routing a role to the A6000 or to the on-board service, with failover.
 
-§10 says an interpreter that stops is worse than one that is wrong. Adding a
-network hop adds a whole new way to stop, so every remote role keeps its
-on-board counterpart loaded and falls back to it.
+Every remote role keeps its on-board counterpart loaded. Transport failures
+activate the on-board fallback so the current turn can complete.
 
 The policy:
 
   · A transport failure (timeout, connection refused, 5xx) counts. Application
-    errors do not — a 400 means we sent something wrong and retrying elsewhere
+    errors do not — a 400 indicates an invalid request and retrying elsewhere
     would fail identically.
   · The failing call itself is retried once on the fallback, so the current turn
     survives rather than being lost to the failover.
@@ -27,9 +26,9 @@ import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
-from ..config import RemoteCfg
-from ..logging_setup import get_logger
-from .base import BaseClient, ServiceError, ServiceTimeout
+from kotonoha.clients.base import BaseClient, ServiceError, ServiceTimeout
+from kotonoha.config import RemoteConfig
+from kotonoha.logging_setup import get_logger
 
 log = get_logger(__name__)
 
@@ -41,24 +40,35 @@ class AllEndpointsFailed(ServiceError):
 class FailoverClient:
     """One role: a preferred client and, when the preferred is remote, a local fallback."""
 
+    role: str
+    preferred: BaseClient
+    fallback: BaseClient | None
+    config: RemoteConfig
+    failover_count: int
+    _on_change: Callable[[str, str, str], None] | None
+    _failure_count: int
+    _degraded: bool
+    _healthy_since: float | None
+    _probe_task: asyncio.Task[None] | None
+
     def __init__(
         self,
         role: str,
         preferred: BaseClient,
         fallback: BaseClient | None,
-        cfg: RemoteCfg,
+        config: RemoteConfig,
         on_change: Callable[[str, str, str], None] | None = None,
     ):
         self.role = role
         self.preferred = preferred
         self.fallback = fallback
-        self.cfg = cfg
+        self.config = config
         self._on_change = on_change
 
-        self._fails = 0
+        self._failure_count = 0
         self._degraded = False
         self._healthy_since: float | None = None
-        self._probe: asyncio.Task | None = None
+        self._probe_task = None
         self.failover_count = 0
 
     # -- state -------------------------------------------------------------
@@ -90,45 +100,57 @@ class FailoverClient:
         }
 
     # -- invocation --------------------------------------------------------
-    async def run(self, make_coro: Callable[[BaseClient], Awaitable[Any]]) -> Any:
+    async def run(self, request_factory: Callable[[BaseClient], Awaitable[Any]]) -> Any:
         """Await a one-shot call, retrying once on the fallback."""
         client = self.active
         try:
-            out = await make_coro(client)
+            output = await request_factory(client)
             self._note_success(client)
-            return out
-        except (ServiceTimeout, ServiceError) as e:
-            self._note_failure(client, e)
-            other = self._other(client)
-            if other is None:
+            return output
+        except (ServiceTimeout, ServiceError) as error:
+            self._note_failure(client, error)
+            alternate = self._other(client)
+            if alternate is None:
                 raise
-            log.warning("route.retry", role=self.role, frm=client.side, to=other.side)
+            log.warning(
+                "route.retry",
+                role=self.role,
+                from_side=client.side,
+                to_side=alternate.side,
+            )
             try:
-                out = await make_coro(other)
-            except (ServiceTimeout, ServiceError) as e2:
-                raise AllEndpointsFailed(f"{self.role}: {e!r} then {e2!r}") from e2
+                output = await request_factory(alternate)
+            except (ServiceTimeout, ServiceError) as alternate_error:
+                raise AllEndpointsFailed(
+                    f"{self.role}: {error!r} then {alternate_error!r}"
+                ) from alternate_error
             self.failover_count += 1
-            return out
+            return output
 
     async def stream(
-        self, make_agen: Callable[[BaseClient], AsyncIterator[Any]]
+        self, stream_factory: Callable[[BaseClient], AsyncIterator[Any]]
     ) -> AsyncIterator[Any]:
         """Iterate a stream, failing over only before the first chunk arrives."""
         client = self.active
         started = False
         try:
-            async for item in make_agen(client):
+            async for item in stream_factory(client):
                 started = True
                 yield item
             self._note_success(client)
             return
-        except (ServiceTimeout, ServiceError) as e:
-            self._note_failure(client, e)
-            other = self._other(client)
-            if started or other is None:
+        except (ServiceTimeout, ServiceError) as error:
+            self._note_failure(client, error)
+            alternate = self._other(client)
+            if started or alternate is None:
                 raise
-            log.warning("route.retry_stream", role=self.role, frm=client.side, to=other.side)
-            async for item in make_agen(other):
+            log.warning(
+                "route.retry_stream",
+                role=self.role,
+                from_side=client.side,
+                to_side=alternate.side,
+            )
+            async for item in stream_factory(alternate):
                 yield item
             self.failover_count += 1
 
@@ -140,17 +162,21 @@ class FailoverClient:
     # -- health ------------------------------------------------------------
     def _note_success(self, client: BaseClient) -> None:
         if client is self.preferred:
-            self._fails = 0
+            self._failure_count = 0
 
     def _note_failure(self, client: BaseClient, exc: Exception) -> None:
         if client is not self.preferred:
             return
-        self._fails += 1
+        self._failure_count += 1
         log.warning(
-            "route.failure", role=self.role, side=client.side, n=self._fails, error=repr(exc)
+            "route.failure",
+            role=self.role,
+            side=client.side,
+            failure_count=self._failure_count,
+            error=repr(exc),
         )
-        if not self._degraded and self._fails >= self.cfg.failover_after:
-            self._set_degraded(True, f"{self._fails} consecutive failures")
+        if not self._degraded and self._failure_count >= self.config.failover_after:
+            self._set_degraded(True, f"{self._failure_count} consecutive failures")
 
     def _set_degraded(self, value: bool, reason: str) -> None:
         if self._degraded == value:
@@ -164,33 +190,39 @@ class FailoverClient:
     async def _probe_loop(self) -> None:
         """Watch a degraded remote and restore it once it stays healthy."""
         while True:
-            await asyncio.sleep(self.cfg.health_interval_s)
+            await asyncio.sleep(self.config.health_interval_s)
             if not self._degraded:
                 self._healthy_since = None
                 continue
-            h = await self.preferred.health()
-            if not h.get("ok"):
+            health = await self.preferred.health()
+            if not health.get("ok"):
                 self._healthy_since = None
                 continue
             now = time.monotonic()
             if self._healthy_since is None:
                 self._healthy_since = now
-            elif now - self._healthy_since >= self.cfg.recover_after_s:
-                self._fails = 0
-                self._set_degraded(False, f"healthy for {self.cfg.recover_after_s:.0f}s")
+            elif now - self._healthy_since >= self.config.recover_after_s:
+                self._failure_count = 0
+                self._set_degraded(
+                    False,
+                    f"healthy for {self.config.recover_after_s:.0f}s",
+                )
 
     def start_probe(self) -> None:
-        if self.fallback is not None and self._probe is None:
-            self._probe = asyncio.create_task(self._probe_loop(), name=f"probe-{self.role}")
+        if self.fallback is not None and self._probe_task is None:
+            self._probe_task = asyncio.create_task(
+                self._probe_loop(),
+                name=f"probe-{self.role}",
+            )
 
     async def aclose(self) -> None:
-        if self._probe is not None:
-            self._probe.cancel()
+        if self._probe_task is not None:
+            self._probe_task.cancel()
             try:
-                await self._probe
+                await self._probe_task
             except asyncio.CancelledError:
                 pass
-            self._probe = None
+            self._probe_task = None
         await self.preferred.aclose()
         if self.fallback is not None:
             await self.fallback.aclose()

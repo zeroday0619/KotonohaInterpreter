@@ -55,8 +55,8 @@ LOCALE_NAMES: dict[str, str] = {
     "zh-TW": "繁體中文",
 }
 
-# Our language codes are the interpreter's own (zh-TW). gettext directories use
-# the POSIX form, so the two are mapped rather than conflated.
+# Application language codes use `zh-TW`. Gettext directories use the POSIX form,
+# so the two forms are mapped explicitly.
 GETTEXT_NAMES: dict[str, str] = {"en": "en", "ko": "ko", "ja": "ja", "zh-TW": "zh_TW"}
 
 # Accepts the forms found in LANG and in configuration files.
@@ -96,7 +96,7 @@ def normalize_locale(raw: str | None) -> str | None:
 def _from_config() -> str | None:
     """Read ui.language without letting a broken configuration break --help."""
     try:
-        from .config import load_settings
+        from kotonoha.config import load_settings
 
         value = load_settings().ui.language
     except Exception:  # noqa: BLE001
@@ -158,7 +158,7 @@ def translation(locale: str) -> _gettext.NullTranslations:
         return _gettext.NullTranslations()
 
 
-def _(message: str, /, **fmt: object) -> str:
+def _(message: str, /, **format_arguments: object) -> str:
     """Translate, then apply str.format when arguments are given.
 
     gettext itself takes only the message id; formatting is a convenience so call
@@ -169,10 +169,10 @@ def _(message: str, /, **fmt: object) -> str:
     raising: a turn must not fail because a translation dropped a placeholder.
     """
     text = translation(current_locale()).gettext(message)
-    if not fmt:
+    if not format_arguments:
         return text
     try:
-        return text.format(**fmt)
+        return text.format(**format_arguments)
     except (KeyError, IndexError, ValueError):
         return text
 
@@ -187,47 +187,23 @@ def N_(message: str) -> str:
     return message
 
 
-def pgettext(context: str, message: str, /, **fmt: object) -> str:
+def pgettext(context: str, message: str, /, **format_arguments: object) -> str:
     """Disambiguate one English string that needs different translations."""
     text = translation(current_locale()).pgettext(context, message)
-    if not fmt:
+    if not format_arguments:
         return text
     try:
-        return text.format(**fmt)
+        return text.format(**format_arguments)
     except (KeyError, IndexError, ValueError):
         return text
 
 
-def translate_to(locale: str, message: str, /, **fmt: object) -> str:
+def translate_to(locale: str, message: str, /, **format_arguments: object) -> str:
     """Translate into a named locale, independent of the active one. Used by tests."""
     text = translation(locale).gettext(message)
-    if not fmt:
+    if not format_arguments:
         return text
     try:
-        return text.format(**fmt)
+        return text.format(**format_arguments)
     except (KeyError, IndexError, ValueError):
         return text
-
-
-# Retained so existing call sites keep working; `_` is the name to use in new code.
-t = _
-
-__all__ = [
-    "DEFAULT_LOCALE",
-    "N_",
-    "DOMAIN",
-    "GETTEXT_NAMES",
-    "LOCALE_DIR",
-    "LOCALE_NAMES",
-    "available_locales",
-    "current_locale",
-    "mo_path",
-    "normalize_locale",
-    "pgettext",
-    "po_path",
-    "set_locale",
-    "t",
-    "translate_to",
-    "translation",
-    "_",
-]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -15,8 +16,8 @@ from textual.binding import Binding, BindingsMap
 from textual.containers import VerticalScroll
 from textual.widgets import DataTable, Footer, Header, Static, TabbedContent, TabPane
 
-from ..config import REPO_ROOT
-from ..i18n import _
+from kotonoha.config import REPO_ROOT
+from kotonoha.i18n import _
 
 PROJECT_DISTRIBUTION = "kotonoha-interpreter"
 REQUIREMENT_NAME = re.compile(r"^([A-Za-z0-9_.-]+)")
@@ -106,6 +107,13 @@ def installed_direct_dependencies() -> tuple[PackageLicense, ...]:
 class LicenseApp(App[None]):
     """Display legal information without requiring a browser or network access."""
 
+    version: str
+    license_text: str | None
+    dependencies: tuple[PackageLicense, ...]
+    title: str
+    sub_title: str
+    _bindings: BindingsMap
+
     CSS = """
     Screen { layout: vertical; }
     #license-tabs { height: 1fr; }
@@ -124,9 +132,9 @@ class LicenseApp(App[None]):
 
     def __init__(self) -> None:
         super().__init__()
-        self.version = project_version()
-        self.license_text = project_license_text()
-        self.dependencies = installed_direct_dependencies()
+        self.version = "0.1.0"
+        self.license_text = None
+        self.dependencies = ()
         self._bindings = BindingsMap(
             [
                 Binding("p", "project", _("Project")),
@@ -175,9 +183,19 @@ class LicenseApp(App[None]):
         summary.append("MIT")
         return summary
 
-    def on_mount(self) -> None:
+    async def on_mount(self) -> None:
         self.title = _("License information")
         self.sub_title = _("Project and installed dependencies")
+        self.version, self.license_text, self.dependencies = await asyncio.gather(
+            asyncio.to_thread(project_version),
+            asyncio.to_thread(project_license_text),
+            asyncio.to_thread(installed_direct_dependencies),
+        )
+        self.query_one("#project-summary", Static).update(self._project_summary())
+        self.query_one("#license-text", Static).update(
+            self.license_text
+            or _("The project license text is unavailable in this installation.")
+        )
         table = self.query_one("#dependency-table", DataTable)
         table.add_columns(
             _("Package"),

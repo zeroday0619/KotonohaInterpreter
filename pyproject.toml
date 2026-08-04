@@ -4,8 +4,8 @@ version = "0.1.0"
 description = "Consecutive (non-simultaneous) 4-language offline speech interpreter for Jetson AGX Orin"
 readme = "README.md"
 license = { file = "LICENSE" }
-# Jetson JetPack 6.2 컨테이너의 시스템 파이썬은 3.10이다.
-# 개발용 macOS에서 3.12 등을 쓰더라도 문법은 3.10 호환을 유지한다.
+# JetPack 6.2 containers provide Python 3.10. Development workstations can use
+# newer interpreters, but source syntax must remain compatible with Python 3.10.
 requires-python = ">=3.10"
 
 dependencies = [
@@ -28,12 +28,12 @@ dependencies = [
   "uvloop>=0.22.1,<0.23",
 ]
 
-# --- Jetson 실기 전용 ---
-# aarch64 wheel 존재 여부는 Phase 0에서 실측 확인한다. macOS에서 설치하지 말 것.
+# Device-only dependencies. Phase 0 verifies aarch64 wheel availability on the
+# Jetson. Do not install this extra on macOS.
 #
-# 그룹이 아니라 extra 로 둔 이유: 실기 컨테이너에서는 uv sync 로 venv 를 만들지 않고
-# 베이스 이미지의 시스템 파이썬에 `uv pip install --system -e ".[device]"` 로 얹는다.
-# 그래야 컨테이너에 이미 들어 있는 torch/CUDA 빌드를 그대로 쓴다.
+# This is an extra because device containers install it into the system Python
+# with `uv pip install --system -e ".[device]"`. That preserves the Torch and
+# CUDA builds supplied by the base image.
 [project.optional-dependencies]
 device = [
   "onnxruntime>=1.18",          # silero-vad
@@ -44,9 +44,8 @@ device = [
   "soundfile>=0.12",
 ]
 
-# --- 개발 PC 전용 도구 (PEP 735 dependency-groups) ---
-# 런타임 기능이 아니라 작업 도구이므로 extra 가 아니라 그룹이다.
-# 배포 아티팩트에 새어 들어가지 않는다.
+# Development-only tools use a PEP 735 dependency group so they do not enter
+# deployment artifacts.
 [dependency-groups]
 dev = [
   "pytest>=8.2",
@@ -55,7 +54,7 @@ dev = [
   "jiwer>=3.0",
   "babel>=2.14",
 ]
-# 평가는 개발 PC에서만. COMET 을 Orin 에 올리지 않는다(§11).
+# Evaluation runs on the development workstation. COMET does not run on the Orin.
 eval = [
   "jiwer>=3.0",
   "unbabel-comet>=2.2",
@@ -78,7 +77,7 @@ packages = ["src/kotonoha"]
 path = "hatch_build.py"
 
 [tool.uv]
-# uv sync 는 기본으로 dev 만 넣는다. 평가 도구는 필요할 때 --group eval.
+# `uv sync` installs development tools by default. Add `--group eval` for evaluation.
 default-groups = ["dev"]
 # Keep the lock scoped to the development workstation and both deployment architectures.
 environments = [
@@ -92,8 +91,11 @@ line-length = 100
 target-version = "py310"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B"]
+select = ["E", "F", "I", "UP", "B", "TID252"]
 ignore = ["B008"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

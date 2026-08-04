@@ -10,6 +10,7 @@ import yaml
 
 from kotonoha import i18n
 from kotonoha.config import REPO_ROOT, load_settings
+from kotonoha.config_store import apply_changes, get_path, set_path, validate_candidate
 from kotonoha.i18n import (
     DEFAULT_LOCALE,
     _,
@@ -27,12 +28,8 @@ from kotonoha.tui.config_app import (
     SECTION_LABELS,
     SECTIONS,
     VALUE_KIND_DESCRIPTIONS,
-    apply_changes,
     effective_value,
     field_description,
-    get_path,
-    set_path,
-    validate_candidate,
 )
 
 # Babel is a development dependency, so catalog checks skip where it is absent.

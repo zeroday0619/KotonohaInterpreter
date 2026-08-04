@@ -15,9 +15,8 @@ Layout (little endian, float32 mono):
 
 Single producer (the orchestrator), multiple consumers (ASR and the verifier).
 A consumer re-checks the descriptor's seq after reading to detect an overwrite
-mid-read. With slots * 30 s of capacity that is far longer than a consecutive
-turn takes, so it should never happen in practice — but if it does, we fail with
-StaleSlot instead of quietly transcribing the wrong audio.
+mid-read. An overwrite raises `StaleSlotError` instead of returning audio from a
+different utterance.
 """
 
 from __future__ import annotations
@@ -65,31 +64,38 @@ class AudioRef:
         }
 
     @classmethod
-    def from_json(cls, d: dict) -> AudioRef:
+    def from_json(cls, data: dict) -> AudioRef:
         return cls(
-            name=d["name"],
-            slot=int(d["slot"]),
-            seq=int(d["seq"]),
-            frames=int(d["frames"]),
-            sample_rate=int(d["sample_rate"]),
+            name=data["name"],
+            slot=int(data["slot"]),
+            seq=int(data["seq"]),
+            frames=int(data["frames"]),
+            sample_rate=int(data["sample_rate"]),
         )
 
 
 class AudioRing:
-    def __init__(self, shm: shared_memory.SharedMemory, owner: bool):
-        self._shm = shm
+    slots: int
+    slot_frames: int
+    sample_rate: int
+    _shared_memory: shared_memory.SharedMemory
+    _owner: bool
+    _data_offset: int
+
+    def __init__(self, memory: shared_memory.SharedMemory, owner: bool):
+        self._shared_memory = memory
         self._owner = owner
-        magic, ver, slots, slot_frames, sr, _wseq, _pad = struct.unpack_from(
-            HEADER_FMT, shm.buf, 0
+        magic, version, slots, slot_frames, sample_rate, _sequence, _padding = (
+            struct.unpack_from(HEADER_FMT, memory.buf, 0)
         )
         if magic != MAGIC:
             raise ValueError(f"not a kotonoha audio ring: magic={magic!r}")
-        if ver != VERSION:
-            raise ValueError(f"ring version mismatch: {ver} != {VERSION}")
+        if version != VERSION:
+            raise ValueError(f"ring version mismatch: {version} != {VERSION}")
         self.slots = slots
         self.slot_frames = slot_frames
-        self.sample_rate = sr
-        self._data_off = HEADER_SIZE + DESC_SIZE * slots
+        self.sample_rate = sample_rate
+        self._data_offset = HEADER_SIZE + DESC_SIZE * slots
 
     # -- create / attach -------------------------------------------------
     @staticmethod
@@ -109,22 +115,31 @@ class AudioRing:
         size = cls._size(slots, slot_frames)
         if force:
             try:
-                old = shared_memory.SharedMemory(name=name)
-                old.close()
-                old.unlink()
+                existing = shared_memory.SharedMemory(name=name)
+                existing.close()
+                existing.unlink()
             except FileNotFoundError:
                 pass
-        shm = shared_memory.SharedMemory(name=name, create=True, size=size)
-        shm.buf[:size] = b"\x00" * size
+        memory = shared_memory.SharedMemory(name=name, create=True, size=size)
+        memory.buf[:size] = b"\x00" * size
         struct.pack_into(
-            HEADER_FMT, shm.buf, 0, MAGIC, VERSION, slots, slot_frames, sample_rate, 0, 0
+            HEADER_FMT,
+            memory.buf,
+            0,
+            MAGIC,
+            VERSION,
+            slots,
+            slot_frames,
+            sample_rate,
+            0,
+            0,
         )
-        return cls(shm, owner=True)
+        return cls(memory, owner=True)
 
     @classmethod
     def attach(cls, name: str) -> AudioRing:
-        shm = shared_memory.SharedMemory(name=name)
-        return cls(shm, owner=False)
+        memory = shared_memory.SharedMemory(name=name)
+        return cls(memory, owner=False)
 
     # -- writing (orchestrator only) -------------------------------------
     def publish(self, pcm: np.ndarray) -> AudioRef:
@@ -132,66 +147,91 @@ class AudioRing:
             pcm = pcm.reshape(-1)
         if pcm.dtype != DTYPE:
             pcm = pcm.astype(DTYPE, copy=False)
-        n = int(pcm.shape[0])
-        if n > self.slot_frames:
+        frame_count = int(pcm.shape[0])
+        if frame_count > self.slot_frames:
             # max_utterance_ms (§4) already caps this upstream; drop the tail
             # defensively rather than corrupting the next slot.
-            n = self.slot_frames
-            pcm = pcm[:n]
+            frame_count = self.slot_frames
+            pcm = pcm[:frame_count]
 
-        wseq = self._write_seq() + 1
-        slot = (wseq - 1) % self.slots
+        write_sequence = self._write_sequence() + 1
+        slot = (write_sequence - 1) % self.slots
 
         # Write the data first, then the descriptor, so a consumer never sees half.
-        self._slot_view(slot)[:n] = pcm
-        struct.pack_into(DESC_FMT, self._shm.buf, self._desc_off(slot), wseq, n, 0)
-        self._set_write_seq(wseq)
+        self._slot_view(slot)[:frame_count] = pcm
+        struct.pack_into(
+            DESC_FMT,
+            self._shared_memory.buf,
+            self._descriptor_offset(slot),
+            write_sequence,
+            frame_count,
+            0,
+        )
+        self._set_write_sequence(write_sequence)
 
         return AudioRef(
-            name=self._shm.name,
+            name=self._shared_memory.name,
             slot=slot,
-            seq=wseq,
-            frames=n,
+            seq=write_sequence,
+            frames=frame_count,
             sample_rate=self.sample_rate,
         )
 
     # -- reading (services) ----------------------------------------------
-    def read(self, ref: AudioRef) -> np.ndarray:
-        if not (0 <= ref.slot < self.slots):
-            raise ValueError(f"slot out of range: {ref.slot}")
-        seq0, n, _flags = struct.unpack_from(DESC_FMT, self._shm.buf, self._desc_off(ref.slot))
-        if seq0 != ref.seq:
-            raise StaleSlotError(f"slot {ref.slot}: have seq {seq0}, want {ref.seq}")
-        out = np.array(self._slot_view(ref.slot)[: min(n, ref.frames)], copy=True)
-        seq1, _, _ = struct.unpack_from(DESC_FMT, self._shm.buf, self._desc_off(ref.slot))
-        if seq1 != ref.seq:
-            raise StaleSlotError(f"slot {ref.slot} overwritten during read")
-        return out
+    def read(self, reference: AudioRef) -> np.ndarray:
+        if not (0 <= reference.slot < self.slots):
+            raise ValueError(f"slot out of range: {reference.slot}")
+        sequence_before, frame_count, _flags = struct.unpack_from(
+            DESC_FMT,
+            self._shared_memory.buf,
+            self._descriptor_offset(reference.slot),
+        )
+        if sequence_before != reference.seq:
+            raise StaleSlotError(
+                f"slot {reference.slot}: have seq {sequence_before}, want {reference.seq}"
+            )
+        output = np.array(
+            self._slot_view(reference.slot)[: min(frame_count, reference.frames)],
+            copy=True,
+        )
+        sequence_after, _, _ = struct.unpack_from(
+            DESC_FMT,
+            self._shared_memory.buf,
+            self._descriptor_offset(reference.slot),
+        )
+        if sequence_after != reference.seq:
+            raise StaleSlotError(f"slot {reference.slot} overwritten during read")
+        return output
 
     # -- internals -------------------------------------------------------
-    def _desc_off(self, slot: int) -> int:
+    def _descriptor_offset(self, slot: int) -> int:
         return HEADER_SIZE + DESC_SIZE * slot
 
     def _slot_view(self, slot: int) -> np.ndarray:
-        # np.frombuffer hands back a read-only array; we need to write, so use
+        # np.frombuffer returns a read-only array, so a writable ndarray view is required.
         # ndarray(buffer=) instead.
-        start = self._data_off + slot * self.slot_frames * 4
-        return np.ndarray((self.slot_frames,), dtype=DTYPE, buffer=self._shm.buf, offset=start)
+        start = self._data_offset + slot * self.slot_frames * 4
+        return np.ndarray(
+            (self.slot_frames,),
+            dtype=DTYPE,
+            buffer=self._shared_memory.buf,
+            offset=start,
+        )
 
-    def _write_seq(self) -> int:
-        return struct.unpack_from("<Q", self._shm.buf, 20)[0]
+    def _write_sequence(self) -> int:
+        return struct.unpack_from("<Q", self._shared_memory.buf, 20)[0]
 
-    def _set_write_seq(self, v: int) -> None:
-        struct.pack_into("<Q", self._shm.buf, 20, v)
+    def _set_write_sequence(self, value: int) -> None:
+        struct.pack_into("<Q", self._shared_memory.buf, 20, value)
 
     # -- teardown --------------------------------------------------------
     def close(self) -> None:
         try:
-            self._shm.close()
+            self._shared_memory.close()
         finally:
             if self._owner:
                 try:
-                    self._shm.unlink()
+                    self._shared_memory.unlink()
                 except FileNotFoundError:
                     pass
 

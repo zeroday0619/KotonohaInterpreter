@@ -115,7 +115,7 @@ Identifiers confirmed as of 2026-08:
 |---|---|
 | Compatibility | Python 3.10 syntax and APIs |
 | Line length | 100 |
-| Ruff rules | `E`, `F`, `I`, `UP`, `B` |
+| Ruff rules | `E`, `F`, `I`, `UP`, `B`, `TID252` |
 | Module preamble | `from __future__ import annotations` |
 | I/O | Async-first; use `async` and `await` for I/O |
 | Imports | Use absolute imports; do not add parent-relative imports |

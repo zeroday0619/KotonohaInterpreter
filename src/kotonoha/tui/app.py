@@ -26,11 +26,14 @@ from textual.containers import Container, Horizontal
 from textual.reactive import reactive
 from textual.widgets import Footer, Header, Input, RichLog, Static
 
-from ..core.events import UiEvent
-from ..i18n import _
-from ..logging_setup import drain_terminal_interface_logs
-from .log_panel import format_json_log
-from .rendering import FrameAccumulator
+from kotonoha.config import LatencyBudgetConfig
+from kotonoha.core.events import UiEvent
+from kotonoha.core.orchestrator import Orchestrator
+from kotonoha.i18n import _
+from kotonoha.logging_setup import drain_terminal_interface_logs
+from kotonoha.store.db import HistoryEntry
+from kotonoha.tui.log_panel import format_json_log
+from kotonoha.tui.rendering import FrameAccumulator
 
 STATE_STYLE = {
     "IDLE": "dim white",
@@ -59,10 +62,13 @@ def level_meter_text(units: int) -> str:
 
 
 class StatusBar(Static):
+    level: float
+    _meter_units: int
+
     state = reactive("IDLE")
     mode = reactive("push_to_talk")
     routing = reactive("pair")
-    lang = reactive("—")
+    language = reactive("—")
     lang_source = reactive("")
     mic = reactive(True)
     perf = reactive("onboard")
@@ -81,34 +87,41 @@ class StatusBar(Static):
             self.refresh()
 
     def render(self) -> Text:
-        t = Text()
-        t.append(" ● ", style=STATE_STYLE.get(self.state, "white"))
-        t.append(f"{self.state:<11}", style=STATE_STYLE.get(self.state, "white"))
-        t.append("│ mic ", style="dim")
+        text = Text()
+        text.append(" ● ", style=STATE_STYLE.get(self.state, "white"))
+        text.append(f"{self.state:<11}", style=STATE_STYLE.get(self.state, "white"))
+        text.append("│ mic ", style="dim")
         label = _("OPEN") if self.mic else _("SHUT")
-        t.append(f"{label} ", style="green" if self.mic else "red bold")
-        t.append(level_meter_text(self._meter_units), style="cyan")
-        t.append(" │ ", style="dim")
-        t.append(f"{self.mode}", style="magenta")
-        t.append(" / ", style="dim")
-        t.append(f"{self.routing}", style="magenta")
-        t.append(" │ lang ", style="dim")
-        t.append(self.lang, style="bold")
+        text.append(f"{label} ", style="green" if self.mic else "red bold")
+        text.append(level_meter_text(self._meter_units), style="cyan")
+        text.append(" │ ", style="dim")
+        text.append(f"{self.mode}", style="magenta")
+        text.append(" / ", style="dim")
+        text.append(f"{self.routing}", style="magenta")
+        text.append(" │ lang ", style="dim")
+        text.append(self.language, style="bold")
         if self.lang_source and self.lang_source != "lid":
-            t.append(f" ({self.lang_source})", style="yellow bold")
-        t.append(" │ ", style="dim")
-        t.append(self.perf, style="bold blue" if self.perf != "onboard" else "dim")
+            text.append(f" ({self.lang_source})", style="yellow bold")
+        text.append(" │ ", style="dim")
+        text.append(
+            self.perf,
+            style="bold blue" if self.perf != "onboard" else "dim",
+        )
         if self.offbox_audio:
-            # The operator should never have to guess whether audio is leaving.
-            t.append(" ⇗" + _(" audio off-box"), style="yellow bold")
-        return t
+            # Audio placement must remain visible while remote mode is active.
+            text.append(" ⇗" + _(" audio off-box"), style="yellow bold")
+        return text
 
 
 class Pane(Static):
     """Plain text panel for the active interpretation turn."""
 
-    def __init__(self, title: str, style: str = "white", **kw):
-        super().__init__(**kw)
+    _title: str
+    _style: str
+    _lines: list[str]
+
+    def __init__(self, title: str, style: str = "white", **widget_options):
+        super().__init__(**widget_options)
         self._title = title
         self._style = style
         self._lines: list[str] = []
@@ -131,11 +144,11 @@ class Pane(Static):
             self.refresh()
 
     def render(self) -> Text:
-        t = Text()
-        t.append(f"{self._title}\n", style="bold underline")
-        for ln in self._lines:
-            t.append(ln + "\n", style=self._style)
-        return t
+        text = Text()
+        text.append(f"{self._title}\n", style="bold underline")
+        for line in self._lines:
+            text.append(line + "\n", style=self._style)
+        return text
 
 
 class HistoryPane(Static):
@@ -147,23 +160,46 @@ class HistoryPane(Static):
     the context the operator is working in.
     """
 
-    def __init__(self, title: str, limit: int, **kw):
-        super().__init__(**kw)
+    _title: str
+    _limit: int
+    _entries: list[tuple[float, str, str, str, str]]
+
+    def __init__(self, title: str, limit: int, **widget_options):
+        super().__init__(**widget_options)
         self._title = title
         self._limit = max(1, limit)
         self._entries: list[tuple[float, str, str, str, str]] = []
 
-    def load(self, entries) -> None:
+    def load(self, entries: list[HistoryEntry]) -> None:
         self._entries = [
-            (e.ts, e.src_lang or "?", e.tgt_lang or "?", e.source_text or "", e.translation or "")
-            for e in entries
+            (
+                entry.ts,
+                entry.src_lang or "?",
+                entry.tgt_lang or "?",
+                entry.source_text or "",
+                entry.translation or "",
+            )
+            for entry in entries
         ][-self._limit :]
         self.refresh()
 
     def append(
-        self, ts: float, src_lang: str | None, tgt_lang: str | None, source: str, translation: str
+        self,
+        timestamp: float,
+        source_language: str | None,
+        target_language: str | None,
+        source: str,
+        translation: str,
     ) -> None:
-        self._entries.append((ts, src_lang or "?", tgt_lang or "?", source, translation))
+        self._entries.append(
+            (
+                timestamp,
+                source_language or "?",
+                target_language or "?",
+                source,
+                translation,
+            )
+        )
         self._entries = self._entries[-self._limit :]
         self.refresh()
 
@@ -172,80 +208,114 @@ class HistoryPane(Static):
         self.refresh()
 
     def render(self) -> Text:
-        t = Text()
-        t.append(f"{self._title}\n", style="bold underline")
+        text = Text()
+        text.append(f"{self._title}\n", style="bold underline")
         if not self._entries:
-            t.append(_("No past turns") + "\n", style="dim")
-            return t
+            text.append(_("No past turns") + "\n", style="dim")
+            return text
         # Newest last, so the eye lands on the most recent exchange at the bottom.
-        for ts, src, tgt, source, translation in self._entries:
-            t.append(datetime.fromtimestamp(ts).strftime("%H:%M:%S "), style="dim")
-            t.append(f"{src}→{tgt}\n", style="magenta")
+        for timestamp, source_language, target_language, source, translation in self._entries:
+            text.append(
+                datetime.fromtimestamp(timestamp).strftime("%H:%M:%S "),
+                style="dim",
+            )
+            text.append(f"{source_language}→{target_language}\n", style="magenta")
             if source:
-                t.append(f"  {source}\n", style="white")
+                text.append(f"  {source}\n", style="white")
             if translation:
-                t.append(f"  {translation}\n", style="cyan")
-        return t
+                text.append(f"  {translation}\n", style="cyan")
+        return text
 
 
 class LatencyPanel(Static):
     """§6 budget comparison and the five §11 marks."""
 
-    def __init__(self, budget, **kw):
-        super().__init__(**kw)
+    budget: LatencyBudgetConfig
+    marks: dict
+    stages: dict
+    over: dict
+    extra: dict
+
+    def __init__(self, budget: LatencyBudgetConfig, **widget_options):
+        super().__init__(**widget_options)
         self.budget = budget
         self.marks: dict = {}
         self.stages: dict = {}
         self.over: dict = {}
         self.extra: dict = {}
 
-    def update_turn(self, rec: dict) -> None:
-        self.marks = rec.get("marks_ms") or {}
-        self.stages = rec.get("stages_ms") or {}
-        self.over = rec.get("over_budget_ms") or {}
+    def update_turn(self, record: dict) -> None:
+        self.marks = record.get("marks_ms") or {}
+        self.stages = record.get("stages_ms") or {}
+        self.over = record.get("over_budget_ms") or {}
         self.extra = {
-            "logprob": rec.get("asr_avg_logprob"),
-            "verify": rec.get("cross_verify_fired"),
-            "tok/s": rec.get("tok_per_s"),
-            "audio_s": rec.get("audio_seconds"),
-            "out_tok": rec.get("output_tokens"),
-            "outcome": rec.get("outcome"),
+            "logprob": record.get("asr_avg_logprob"),
+            "verify": record.get("cross_verify_fired"),
+            "tok/s": record.get("tok_per_s"),
+            "audio_s": record.get("audio_seconds"),
+            "out_tok": record.get("output_tokens"),
+            "outcome": record.get("outcome"),
         }
         self.refresh()
 
     def render(self) -> Text:
-        b = self.budget
+        budget = self.budget
         rows = [
-            (_("ASR (+verify)"), self.stages.get("asr"), b.asr + b.verify),
-            (_("LLM first clause"), self.stages.get("llm_first_clause"), b.llm_first_clause),
-            (_("TTS first packet"), self.stages.get("tts_first_packet"), b.tts_first_packet),
-            (_("EOU to audio"), self.stages.get("total_to_first_audio"), b.total - b.silence),
+            (
+                _("ASR (+verify)"),
+                self.stages.get("asr"),
+                budget.asr + budget.verify,
+            ),
+            (
+                _("LLM first clause"),
+                self.stages.get("llm_first_clause"),
+                budget.llm_first_clause,
+            ),
+            (
+                _("TTS first packet"),
+                self.stages.get("tts_first_packet"),
+                budget.tts_first_packet,
+            ),
+            (
+                _("EOU to audio"),
+                self.stages.get("total_to_first_audio"),
+                budget.total - budget.silence,
+            ),
         ]
-        t = Text()
-        t.append(_("Latency (ms)        measured / budget") + "\n", style="bold underline")
-        for name, v, lim in rows:
-            t.append(f"{name:<16}")
-            if v is None:
-                t.append("     —\n", style="dim")
+        text = Text()
+        text.append(
+            _("Latency (ms)        measured / budget") + "\n",
+            style="bold underline",
+        )
+        for name, measured, limit in rows:
+            text.append(f"{name:<16}")
+            if measured is None:
+                text.append("     —\n", style="dim")
                 continue
-            style = "red bold" if v > lim else "green"
-            t.append(f"{v:>8.0f}", style=style)
-            t.append(f" / {lim:<6}\n", style="dim")
+            style = "red bold" if measured > limit else "green"
+            text.append(f"{measured:>8.0f}", style=style)
+            text.append(f" / {limit:<6}\n", style="dim")
         if self.over:
-            over = ", ".join(f"{k} +{v:.0f}ms" for k, v in self.over.items())
-            t.append(_("Over: ") + over + "\n", style="red bold")
+            exceeded = ", ".join(
+                f"{stage} +{duration:.0f}ms"
+                for stage, duration in self.over.items()
+            )
+            text.append(_("Over: ") + exceeded + "\n", style="red bold")
         if self.extra:
-            t.append("\n")
-            for k, v in self.extra.items():
-                if v is None:
+            text.append("\n")
+            for key, value in self.extra.items():
+                if value is None:
                     continue
-                t.append(f"{k}={v}  ", style="dim")
-        return t
+                text.append(f"{key}={value}  ", style="dim")
+        return text
 
 
 class ServicePanel(Static):
-    def __init__(self, **kw):
-        super().__init__(**kw)
+    services: dict[str, dict]
+    errors: list[str]
+
+    def __init__(self, **widget_options):
+        super().__init__(**widget_options)
         self.services: dict[str, dict] = {}
         self.errors: list[str] = []
 
@@ -260,34 +330,56 @@ class ServicePanel(Static):
         self.refresh()
 
     def render(self) -> Text:
-        t = Text()
-        t.append(_("Services") + "\n", style="bold underline")
+        text = Text()
+        text.append(_("Services") + "\n", style="bold underline")
         for name in ("asr", "asr-verify", "llm", "tts"):
-            s = self.services.get(name)
-            if s is None:
-                t.append(f"  {name:<11} ? \n", style="dim")
+            service = self.services.get(name)
+            if service is None:
+                text.append(f"  {name:<11} ? \n", style="dim")
                 continue
-            t.append(f"  {name:<11}")
-            t.append("UP  " if s["ok"] else "DOWN", style="green" if s["ok"] else "red bold")
-            side = s.get("side", "local")
-            if s.get("degraded"):
+            text.append(f"  {name:<11}")
+            text.append(
+                "UP  " if service["ok"] else "DOWN",
+                style="green" if service["ok"] else "red bold",
+            )
+            side = service.get("side", "local")
+            if service.get("degraded"):
                 side_style = "yellow bold"  # fell back off the A6000
             else:
                 side_style = "blue" if side == "remote" else "dim"
-            t.append(f" {side:<6}", style=side_style)
-            d = s["detail"] or {}
-            tag = d.get("backend") or d.get("error")
+            text.append(f" {side:<6}", style=side_style)
+            detail = service["detail"] or {}
+            tag = detail.get("backend") or detail.get("error")
             if tag:
-                t.append(f" {str(tag)[:26]}", style="dim")
-            t.append("\n")
+                text.append(f" {str(tag)[:26]}", style="dim")
+            text.append("\n")
         if self.errors:
-            t.append("\n" + _("Recent errors") + "\n", style="bold underline red")
-            for e in self.errors:
-                t.append(f"  {e[:60]}\n", style="red")
-        return t
+            text.append(
+                "\n" + _("Recent errors") + "\n",
+                style="bold underline red",
+            )
+            for error in self.errors:
+                text.append(f"  {error[:60]}\n", style="red")
+        return text
 
 
 class KotonohaApp(App):
+    orchestrator: Orchestrator
+    status: StatusBar
+    source_pane: Pane
+    translation_pane: Pane
+    history_pane: HistoryPane
+    latency_panel: LatencyPanel
+    service_panel: ServicePanel
+    text_input: Input
+    log_output: RichLog
+    title: str
+    sub_title: str
+    _talking: bool
+    _voice_mode: str
+    _frame_accumulator: FrameAccumulator
+    _bindings: BindingsMap
+
     CSS = """
     Screen { layout: vertical; }
     StatusBar { height: 1; background: $panel; }
@@ -315,13 +407,17 @@ class KotonohaApp(App):
         ("q", "quit", ""),
     ]
 
-    def __init__(self, orch):
+    def __init__(self, orchestrator: Orchestrator):
         super().__init__()
-        self.orch = orch
+        self.orchestrator = orchestrator
         self._talking = False
         # Restored when text mode is left, so `t` is a round trip rather than a
         # one-way switch out of whatever the operator had configured.
-        self._voice_mode = orch.s.session.mode if orch.s.session.mode != "text" else "push_to_talk"
+        self._voice_mode = (
+            orchestrator.settings.session.mode
+            if orchestrator.settings.session.mode != "text"
+            else "push_to_talk"
+        )
         self._frame_accumulator = FrameAccumulator()
         # Replace the map rather than calling bind() on it: Textual builds the map
         # from the class attribute, so mutating it would leak one instance's locale
@@ -352,19 +448,19 @@ class KotonohaApp(App):
         self.status = StatusBar()
         yield self.status
         with Horizontal(id="panes"):
-            self.src = Pane(_("Source (ASR)"), "white", id="src")
-            self.tgt = Pane(_("Translation"), "bold cyan", id="tgt")
-            self.hist = HistoryPane(
-                _("History"), max(1, self.orch.s.ui.history_turns), id="hist"
+            self.source_pane = Pane(_("Source (ASR)"), "white", id="src")
+            self.translation_pane = Pane(_("Translation"), "bold cyan", id="tgt")
+            self.history_pane = HistoryPane(
+                _("History"), max(1, self.orchestrator.settings.ui.history_turns), id="hist"
             )
-            yield self.src
-            yield self.tgt
-            yield self.hist
+            yield self.source_pane
+            yield self.translation_pane
+            yield self.history_pane
         with Horizontal(id="bottom"):
-            self.lat = LatencyPanel(self.orch.s.budget_ms, id="lat")
-            self.svc = ServicePanel(id="svc")
-            yield self.lat
-            yield self.svc
+            self.latency_panel = LatencyPanel(self.orchestrator.settings.budget_ms, id="lat")
+            self.service_panel = ServicePanel(id="svc")
+            yield self.latency_panel
+            yield self.service_panel
         self.text_input = Input(
             placeholder=_("Type an utterance and press Enter. Press t to return to voice."),
             id="text-input",
@@ -383,39 +479,43 @@ class KotonohaApp(App):
 
     async def on_mount(self) -> None:
         self.title = _("Kotonoha Interpreter")
-        self.sub_title = _("session {session}", session=self.orch.session_id)
-        self.status.mode = self.orch.s.session.mode
-        self.status.routing = self.orch.s.session.routing
-        self._show_text_input(self.orch.s.session.mode == "text")
-        self.status.perf = self.orch.s.perf_mode
-        self.status.offbox_audio = self.orch.s.audio_leaves_device
-        if not self.orch.s.logging.console:
+        self.sub_title = _("session {session}", session=self.orchestrator.session_id)
+        self.status.mode = self.orchestrator.settings.session.mode
+        self.status.routing = self.orchestrator.settings.session.routing
+        self._show_text_input(self.orchestrator.settings.session.mode == "text")
+        self.status.perf = self.orchestrator.settings.perf_mode
+        self.status.offbox_audio = self.orchestrator.settings.audio_leaves_device
+        if not self.orchestrator.settings.logging.console:
             self.log_output.write(
                 Text(_("TUI logging is disabled by logging.console=false"), style="dim")
             )
-        history_turns = self.orch.s.ui.history_turns
-        self.hist.display = history_turns > 0
+        history_turns = self.orchestrator.settings.ui.history_turns
+        self.history_pane.display = history_turns > 0
         if history_turns > 0:
-            self.hist.load(self.orch.store.recent_history(history_turns))
-        await self.orch.start()
+            entries = await asyncio.to_thread(
+                self.orchestrator.store.recent_history,
+                history_turns,
+            )
+            self.history_pane.load(entries)
+        await self.orchestrator.start()
         self.run_worker(self._drain(), exclusive=False)
         self.set_interval(
-            1.0 / self.orch.s.ui.refresh_hz,
+            1.0 / self.orchestrator.settings.ui.refresh_hz,
             self._render_frame,
             name="display-frame",
         )
 
     async def on_unmount(self) -> None:
-        await self.orch.stop()
+        await self.orchestrator.stop()
 
     # -- event consumption -------------------------------------------------
     async def _drain(self) -> None:
         while True:
             try:
-                first_event: UiEvent = await self.orch.bus.get()
+                first_event: UiEvent = await self.orchestrator.event_bus.get()
             except asyncio.CancelledError:
                 return
-            events = [first_event, *self.orch.bus.drain_nowait()]
+            events = [first_event, *self.orchestrator.event_bus.drain_nowait()]
             with self.batch_update():
                 for event in events:
                     self._apply(event)
@@ -426,126 +526,127 @@ class KotonohaApp(App):
         with self.batch_update():
             self.status.set_level(update.level)
             if update.translation_changed:
-                self.tgt.replace_last(update.translation or "")
-            if self.orch.s.logging.console:
+                self.translation_pane.replace_last(update.translation or "")
+            if self.orchestrator.settings.logging.console:
                 for raw_message in drain_terminal_interface_logs(LOG_RECORDS_PER_FRAME):
                     self.log_output.write(format_json_log(raw_message))
 
-    def _apply(self, ev: UiEvent) -> None:
-        p = ev.payload
-        if ev.kind == "state":
-            self.status.state = p["state"]
-            self.status.mic = p["state"] != "SPEAKING"
-            if p["state"] == "LISTENING":
+    def _apply(self, event: UiEvent) -> None:
+        payload = event.payload
+        if event.kind == "state":
+            self.status.state = payload["state"]
+            self.status.mic = payload["state"] != "SPEAKING"
+            if payload["state"] == "LISTENING":
                 self._clear_transcripts()
-            elif p["state"] == "IDLE":
+            elif payload["state"] == "IDLE":
                 self._talking = False
-        elif ev.kind == "level":
-            self._frame_accumulator.push_level(p.get("rms", 0.0))
-        elif ev.kind == "lang":
-            self.status.lang = p.get("lang") or "—"
-            self.status.lang_source = p.get("source") or ""
-            if p.get("note"):
-                self.svc.push_error("lid", p["note"])
-        elif ev.kind == "eou":
-            self.src.push(
+        elif event.kind == "level":
+            self._frame_accumulator.push_level(payload.get("rms", 0.0))
+        elif event.kind == "lang":
+            self.status.language = payload.get("lang") or "—"
+            self.status.lang_source = payload.get("source") or ""
+            if payload.get("note"):
+                self.service_panel.push_error("lid", payload["note"])
+        elif event.kind == "eou":
+            self.source_pane.push(
                 _("[{seconds}s, preroll {preroll}ms, {reason}]",
-                    seconds=p["seconds"],
-                    preroll=p["preroll_ms"],
-                    reason=p["ended_by"],
+                    seconds=payload["seconds"],
+                    preroll=payload["preroll_ms"],
+                    reason=payload["ended_by"],
                 )
             )
-        elif ev.kind == "text_submitted":
+        elif event.kind == "text_submitted":
             self._clear_transcripts()
-        elif ev.kind == "asr":
-            if p.get("empty"):
-                self.src.replace_last(_("(silence, returning without playback)"))
+        elif event.kind == "asr":
+            if payload.get("empty"):
+                self.source_pane.replace_last(_("(silence, returning without playback)"))
             else:
-                self.src.replace_last(p.get("text", ""))
-        elif ev.kind == "verify":
-            if p.get("state") == "done":
-                mark = "≠" if p.get("divergent") else "≈"
-                self.src.push(f"  {mark} whisper: {p.get('text', '')[:70]}")
-            elif p.get("state") == "running":
-                self.src.push("  … " + _("verifying ({reason})", reason=p.get("reason", "")))
-        elif ev.kind == "translation_delta":
-            self._frame_accumulator.push_translation(p.get("text", ""))
-        elif ev.kind == "clause":
+                self.source_pane.replace_last(payload.get("text", ""))
+        elif event.kind == "verify":
+            if payload.get("state") == "done":
+                mark = "≠" if payload.get("divergent") else "≈"
+                self.source_pane.push(f"  {mark} whisper: {payload.get('text', '')[:70]}")
+            elif payload.get("state") == "running":
+                message = _("verifying ({reason})", reason=payload.get("reason", ""))
+                self.source_pane.push("  … " + message)
+        elif event.kind == "translation_delta":
+            self._frame_accumulator.push_translation(payload.get("text", ""))
+        elif event.kind == "clause":
             pass
-        elif ev.kind == "translation":
+        elif event.kind == "translation":
             self._frame_accumulator.discard_translation()
-            if p.get("timeout"):
-                self.tgt.replace_last(_("(LLM timeout, transcript only, TTS skipped)"))
+            if payload.get("timeout"):
+                self.translation_pane.replace_last(_("(LLM timeout, transcript only, TTS skipped)"))
             else:
-                self.tgt.replace_last(p.get("text") or "")
-                self.tgt.push("")
-        elif ev.kind == "history":
-            self.hist.append(
-                p["ts"],
-                p.get("src_lang"),
-                p.get("tgt_lang"),
-                p.get("source_text") or "",
-                p.get("translation") or "",
+                self.translation_pane.replace_last(payload.get("text") or "")
+                self.translation_pane.push("")
+        elif event.kind == "history":
+            self.history_pane.append(
+                payload["ts"],
+                payload.get("src_lang"),
+                payload.get("tgt_lang"),
+                payload.get("source_text") or "",
+                payload.get("translation") or "",
             )
-        elif ev.kind == "turn":
-            self.lat.update_turn(p)
-        elif ev.kind == "service":
-            self.svc.set_service(
-                p["name"],
-                p["ok"],
-                p.get("detail", {}),
-                side=p.get("side", "local"),
-                degraded=bool(p.get("degraded")),
+        elif event.kind == "turn":
+            self.latency_panel.update_turn(payload)
+        elif event.kind == "service":
+            self.service_panel.set_service(
+                payload["name"],
+                payload["ok"],
+                payload.get("detail", {}),
+                side=payload.get("side", "local"),
+                degraded=bool(payload.get("degraded")),
             )
-        elif ev.kind == "placement":
+        elif event.kind == "placement":
             # A role moved between the A6000 and the on-board service.
-            self.svc.push_error(
+            self.service_panel.push_error(
                 "placement",
                 _(
                     "{role} to {side} ({reason})",
-                    role=p["role"],
-                    side=p["side"],
-                    reason=p["reason"],
+                    role=payload["role"],
+                    side=payload["side"],
+                    reason=payload["reason"],
                 ),
             )
-            self.status.offbox_audio = self.orch.s.audio_leaves_device
-        elif ev.kind == "privacy":
-            self.status.offbox_audio = bool(p.get("audio_leaves_device"))
-        elif ev.kind == "error":
-            self.svc.push_error(p.get("where", "?"), p.get("message", ""))
+            self.status.offbox_audio = self.orchestrator.settings.audio_leaves_device
+        elif event.kind == "privacy":
+            self.status.offbox_audio = bool(payload.get("audio_leaves_device"))
+        elif event.kind == "error":
+            self.service_panel.push_error(payload.get("where", "?"), payload.get("message", ""))
 
     # -- keys ----------------------------------------------------------------
     def action_talk(self) -> None:
-        if self.orch.s.session.mode != "push_to_talk":
+        if self.orchestrator.settings.session.mode != "push_to_talk":
             return
         if self._talking:
             self._talking = False
-            self.orch.ptt_up()
+            self.orchestrator.ptt_up()
         else:
             self._talking = True
-            self.orch.ptt_down()
+            self.orchestrator.ptt_down()
 
     def action_toggle_mode(self) -> None:
         """Cycle push_to_talk, auto and text."""
         order = ["push_to_talk", "auto", "text"]
-        current = self.orch.s.session.mode
+        current = self.orchestrator.settings.session.mode
         self._set_mode(order[(order.index(current) + 1) % len(order)])
 
     def action_text_mode(self) -> None:
         """Enter typed input, or leave it when the field does not hold focus."""
-        leaving = self.orch.s.session.mode == "text"
+        leaving = self.orchestrator.settings.session.mode == "text"
         self._set_mode(self._voice_mode if leaving else "text")
 
     def action_exit_text_mode(self) -> None:
         """Leave typed input. Bound to escape so it works from the focused field."""
-        if self.orch.s.session.mode == "text":
+        if self.orchestrator.settings.session.mode == "text":
             self._set_mode(self._voice_mode)
 
     def _set_mode(self, mode: str) -> None:
         if mode != "text":
             self._voice_mode = mode
-        self.orch.set_text_mode(mode == "text", previous=self._voice_mode)
-        self.status.mode = self.orch.s.session.mode
+        self.orchestrator.set_text_mode(mode == "text", previous=self._voice_mode)
+        self.status.mode = self.orchestrator.settings.session.mode
         self._show_text_input(mode == "text")
         if mode == "text":
             self.text_input.focus()
@@ -571,22 +672,22 @@ class KotonohaApp(App):
             return
         self.text_input.value = ""
         # submit_text runs the whole turn, so it cannot block the input handler.
-        self.run_worker(self.orch.submit_text(text), exclusive=False)
+        self.run_worker(self.orchestrator.submit_text(text), exclusive=False)
 
     def action_cycle_routing(self) -> None:
-        s = self.orch.s.session
+        session = self.orchestrator.settings.session
         order = ["pair", "fixed", "broadcast"]
-        s.routing = order[(order.index(s.routing) + 1) % len(order)]
-        self.status.routing = s.routing
+        session.routing = order[(order.index(session.routing) + 1) % len(order)]
+        self.status.routing = session.routing
 
     def action_clear(self) -> None:
         self._clear_transcripts()
 
     def action_toggle_history(self) -> None:
         """Reclaim the column when the live panes need the width."""
-        self.hist.display = not self.hist.display
+        self.history_pane.display = not self.history_pane.display
 
     def _clear_transcripts(self) -> None:
         self._frame_accumulator.discard_translation()
-        self.src.clear()
-        self.tgt.clear()
+        self.source_pane.clear()
+        self.translation_pane.clear()

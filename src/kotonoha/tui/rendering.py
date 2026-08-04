@@ -23,6 +23,13 @@ class FrameUpdate:
 class FrameAccumulator:
     """Retain only the latest high-frequency values between display frames."""
 
+    target_level: float
+    visual_level: float
+    last_level_at: float
+    last_frame_at: float
+    pending_translation: str | None
+    translation_changed: bool
+
     def __init__(self, now: float | None = None) -> None:
         current_time = time.monotonic() if now is None else now
         self.target_level = 0.0

@@ -16,9 +16,9 @@ def test_publish_and_read_across_attach():
 
         # A service receiving only the reference and attaching to the segment.
         consumer = AudioRing.attach(NAME)
-        got = consumer.read(AudioRef.from_json(ref.to_json()))
-        assert got.shape == pcm.shape
-        assert np.allclose(got, pcm)
+        output = consumer.read(AudioRef.from_json(ref.to_json()))
+        assert output.shape == pcm.shape
+        assert np.allclose(output, pcm)
         assert ref.seconds == pytest.approx(0.5)
     finally:
         ring.close()

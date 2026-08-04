@@ -55,10 +55,10 @@ services:
 # --- High-performance mode: the external RTX A6000 -------------------------
 #
 #   onboard  everything on the Orin. The original design.
-#   hybrid   only the LLM goes to the A6000. Biggest single latency win, and it
-#            is text-only, so no audio ever leaves the device.
-#   remote   ASR, verification and TTS move too. Fastest when the link is good,
-#            but utterance audio now crosses the network.
+#   hybrid   only the LLM goes to the A6000. It is text-only, so audio remains
+#            on the device.
+#   remote   ASR, verification and TTS also move to the external server.
+#            Utterance audio crosses the network.
 #
 # Run `kotonoha netcheck` before trusting any of this: the link adds RTT to
 # every stage, and §6 has no slack for a bad one.
@@ -103,8 +103,8 @@ asr:
 
 asr_verify:
   enabled: true
-  # §5.5 makes this conditional because it costs 0.8 s on the Orin. On the A6000
-  # it is cheap enough to run every turn, which is strictly more accurate.
+  # §5.5 makes this conditional because it costs 0.8 s on the Orin. Remote
+  # deployments can select always after measuring the external service.
   mode: conditional # conditional | always
   backend: faster_whisper # faster_whisper | whisper_cpp
   model_id: large-v3
@@ -136,7 +136,7 @@ llm:
   max_tokens: 512
   stream: true
   timeout_s: 3.0 # §10: on timeout, show the transcript only and skip TTS
-  # §5.4 precondition for clause streaming. Below this we log a warning.
+  # §5.4 precondition for clause streaming. Lower rates produce a warning.
   min_tok_per_s: 5.0
 
 tts:

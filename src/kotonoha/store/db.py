@@ -1,8 +1,7 @@
 """SQLite store — glossary, six-turn history, Traditional Chinese rules.
 
-Read only when a translation request is assembled. sqlite3 is synchronous, but
-every call here is a few-millisecond indexed lookup, so it does not stall the
-asyncio loop. If measurement ever says otherwise, move these to to_thread.
+The store exposes synchronous operations. Async callers execute them through
+`asyncio.to_thread` so SQLite and filesystem access cannot block the event loop.
 """
 
 from __future__ import annotations
@@ -112,16 +111,19 @@ def _like(term: str) -> str:
 
 
 class Store:
+    path: Path
+    connection: sqlite3.Connection
+
     def __init__(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
         self.path = path
-        self.conn = sqlite3.connect(str(path), check_same_thread=False)
-        self.conn.row_factory = sqlite3.Row
-        self.conn.executescript(SCHEMA.read_text(encoding="utf-8"))
-        self.conn.commit()
+        self.connection = sqlite3.connect(str(path), check_same_thread=False)
+        self.connection.row_factory = sqlite3.Row
+        self.connection.executescript(SCHEMA.read_text(encoding="utf-8"))
+        self.connection.commit()
 
     def close(self) -> None:
-        self.conn.close()
+        self.connection.close()
 
     # -- glossary --------------------------------------------------------
     def upsert_glossary(self, entries: list[GlossaryEntry]) -> int:
@@ -135,12 +137,20 @@ class Store:
             priority = excluded.priority,
             enabled  = 1
         """
-        with self.conn:
-            self.conn.executemany(
+        with self.connection:
+            self.connection.executemany(
                 sql,
                 [
-                    (e.src_lang, e.src_term, e.tgt_lang, e.tgt_term, e.kind, e.note, e.priority)
-                    for e in entries
+                    (
+                        entry.src_lang,
+                        entry.src_term,
+                        entry.tgt_lang,
+                        entry.tgt_term,
+                        entry.kind,
+                        entry.note,
+                        entry.priority,
+                    )
+                    for entry in entries
                 ],
             )
         return len(entries)
@@ -153,7 +163,7 @@ class Store:
         Pasting the whole glossary into the prompt eats the 2048-token context
         fast, and unrelated terms contaminate the translation. Only matches go in.
         """
-        rows = self.conn.execute(
+        rows = self.connection.execute(
             """
             SELECT src_lang, src_term, tgt_lang, tgt_term, kind, note, priority
             FROM glossary
@@ -164,19 +174,19 @@ class Store:
         ).fetchall()
 
         hits: list[GlossaryEntry] = []
-        for r in rows:
-            if r["src_term"] and r["src_term"] in text:
-                hits.append(GlossaryEntry(**dict(r)))
+        for row in rows:
+            if row["src_term"] and row["src_term"] in text:
+                hits.append(GlossaryEntry(**dict(row)))
                 if len(hits) >= limit:
                     break
         return hits
 
     def all_glossary(self) -> list[GlossaryEntry]:
-        rows = self.conn.execute(
+        rows = self.connection.execute(
             "SELECT src_lang, src_term, tgt_lang, tgt_term, kind, note, priority "
             "FROM glossary WHERE enabled = 1 ORDER BY priority, src_term"
         ).fetchall()
-        return [GlossaryEntry(**dict(r)) for r in rows]
+        return [GlossaryEntry(**dict(row)) for row in rows]
 
     # -- history ---------------------------------------------------------
     def add_turn(
@@ -199,9 +209,9 @@ class Store:
         The caller emits the same value to the interface, so the panel and the
         database agree instead of drifting by a round trip.
         """
-        ts = time.time()
-        with self.conn:
-            self.conn.execute(
+        timestamp = time.time()
+        with self.connection:
+            self.connection.execute(
                 """
                 INSERT OR REPLACE INTO turns
                     (turn_id, ts, session_id, src_lang, tgt_lang, source_text, translation,
@@ -211,7 +221,7 @@ class Store:
                 """,
                 (
                     turn_id,
-                    ts,
+                    timestamp,
                     session_id,
                     src_lang,
                     tgt_lang,
@@ -225,23 +235,23 @@ class Store:
                     outcome,
                 ),
             )
-        return ts
+        return timestamp
 
-    def recent_turns(self, session_id: str, n: int = 6) -> list[TurnRecord]:
-        rows = self.conn.execute(
+    def recent_turns(self, session_id: str, limit: int = 6) -> list[TurnRecord]:
+        rows = self.connection.execute(
             """
             SELECT turn_id, ts, src_lang, tgt_lang, source_text, translation
             FROM turns
             WHERE session_id = ? AND outcome = 'ok' AND source_text IS NOT NULL
             ORDER BY ts DESC LIMIT ?
             """,
-            (session_id, n),
+            (session_id, limit),
         ).fetchall()
-        return [TurnRecord(**dict(r)) for r in reversed(rows)]
+        return [TurnRecord(**dict(row)) for row in reversed(rows)]
 
     def last_language(self, session_id: str) -> str | None:
         """§5 short-utterance LID fallback — inherit the previous verdict."""
-        row = self.conn.execute(
+        row = self.connection.execute(
             "SELECT src_lang FROM turns WHERE session_id = ? AND src_lang IS NOT NULL "
             "ORDER BY ts DESC LIMIT 1",
             (session_id,),
@@ -298,11 +308,11 @@ class Store:
     ) -> list[HistoryEntry]:
         """Newest first, for the history browser."""
         where, params = self._history_where(query, src_lang, tgt_lang, session_id, outcome, since)
-        rows = self.conn.execute(
+        rows = self.connection.execute(
             f"SELECT {HISTORY_COLUMNS} FROM turns{where} ORDER BY ts DESC LIMIT ? OFFSET ?",
             [*params, limit, offset],
         ).fetchall()
-        return [_entry(r) for r in rows]
+        return [_entry(row) for row in rows]
 
     def count_turns(
         self,
@@ -314,38 +324,45 @@ class Store:
         since: float | None = None,
     ) -> int:
         where, params = self._history_where(query, src_lang, tgt_lang, session_id, outcome, since)
-        row = self.conn.execute(f"SELECT COUNT(*) AS n FROM turns{where}", params).fetchone()
+        row = self.connection.execute(
+            f"SELECT COUNT(*) AS n FROM turns{where}",
+            params,
+        ).fetchone()
         return int(row["n"])
 
-    def recent_history(self, n: int = 20, session_id: str | None = None) -> list[HistoryEntry]:
+    def recent_history(
+        self,
+        limit: int = 20,
+        session_id: str | None = None,
+    ) -> list[HistoryEntry]:
         """Oldest first, for the panel inside the interpreter.
 
         Sessions are not filtered by default: after a restart the operator still
         wants the preceding exchanges on screen.
         """
-        rows = self.conn.execute(
+        rows = self.connection.execute(
             f"SELECT {HISTORY_COLUMNS} FROM turns "
             "WHERE outcome = 'ok' AND translation IS NOT NULL"
             + (" AND session_id = ?" if session_id else "")
             + " ORDER BY ts DESC LIMIT ?",
-            ([session_id, n] if session_id else [n]),
+            ([session_id, limit] if session_id else [limit]),
         ).fetchall()
-        return [_entry(r) for r in reversed(rows)]
+        return [_entry(row) for row in reversed(rows)]
 
     def turn(self, turn_id: str) -> HistoryEntry | None:
-        row = self.conn.execute(
+        row = self.connection.execute(
             f"SELECT {HISTORY_COLUMNS} FROM turns WHERE turn_id = ?", (turn_id,)
         ).fetchone()
         return _entry(row) if row else None
 
     def history_languages(self) -> list[str]:
-        rows = self.conn.execute(
+        rows = self.connection.execute(
             "SELECT DISTINCT src_lang FROM turns WHERE src_lang IS NOT NULL ORDER BY src_lang"
         ).fetchall()
-        return [r["src_lang"] for r in rows]
+        return [row["src_lang"] for row in rows]
 
     def session_summaries(self, limit: int = 50) -> list[SessionSummary]:
-        rows = self.conn.execute(
+        rows = self.connection.execute(
             """
             SELECT s.session_id, s.started_at, s.routing,
                    COUNT(t.id) AS turns, MIN(t.ts) AS first_ts, MAX(t.ts) AS last_ts
@@ -355,19 +372,22 @@ class Store:
             """,
             (limit,),
         ).fetchall()
-        return [SessionSummary(**dict(r)) for r in rows]
+        return [SessionSummary(**dict(row)) for row in rows]
 
     # -- Traditional Chinese rules ----------------------------------------
     def zh_rules(self) -> list[tuple[str, str, bool]]:
-        rows = self.conn.execute(
+        rows = self.connection.execute(
             "SELECT pattern, replacement, is_regex FROM zh_rules WHERE enabled = 1 "
             "ORDER BY length(pattern) DESC"
         ).fetchall()
-        return [(r["pattern"], r["replacement"], bool(r["is_regex"])) for r in rows]
+        return [
+            (row["pattern"], row["replacement"], bool(row["is_regex"]))
+            for row in rows
+        ]
 
     def upsert_zh_rules(self, rules: list[tuple[str, str, bool, str | None]]) -> int:
-        with self.conn:
-            self.conn.executemany(
+        with self.connection:
+            self.connection.executemany(
                 """
                 INSERT INTO zh_rules (pattern, replacement, is_regex, note)
                 VALUES (?,?,?,?)
@@ -377,14 +397,17 @@ class Store:
                     note        = excluded.note,
                     enabled     = 1
                 """,
-                [(p, r, 1 if rx else 0, n) for p, r, rx, n in rules],
+                [
+                    (pattern, replacement, 1 if is_regex else 0, note)
+                    for pattern, replacement, is_regex, note in rules
+                ],
             )
         return len(rules)
 
     # -- sessions ----------------------------------------------------------
     def start_session(self, session_id: str, routing: str, config: dict) -> None:
-        with self.conn:
-            self.conn.execute(
+        with self.connection:
+            self.connection.execute(
                 "INSERT OR REPLACE INTO sessions (session_id, started_at, routing, config) "
                 "VALUES (?,?,?,?)",
                 (session_id, time.time(), routing, json.dumps(config, ensure_ascii=False)),

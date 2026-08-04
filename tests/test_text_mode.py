@@ -64,29 +64,29 @@ def test_mixed_script_reports_a_partial_share():
 # -- language decision ------------------------------------------------------
 def test_explicit_setting_overrides_the_script():
     decision = decide_typed_language("Hello", "ja", None, ALLOWED)
-    assert decision.lang == "ja" and decision.source == "forced"
+    assert decision.language == "ja" and decision.source == "forced"
 
 
 def test_script_decides_when_the_setting_is_auto():
     decision = decide_typed_language("資料を共有します", "auto", "ko", ALLOWED)
-    assert decision.lang == "ja" and decision.source == "script"
+    assert decision.language == "ja" and decision.source == "script"
 
 
 def test_undecidable_text_inherits_the_previous_language():
     """Same rule §5 applies to a short spoken utterance."""
     decision = decide_typed_language("...", "auto", "zh-TW", ALLOWED)
-    assert decision.lang == "zh-TW" and decision.source == "inherited"
+    assert decision.language == "zh-TW" and decision.source == "inherited"
 
 
 def test_weak_script_share_inherits():
     decision = decide_typed_language("ok 확인", "auto", "en", ALLOWED, min_confidence=0.9)
     assert decision.source == "inherited"
-    assert decision.lang == "en"
+    assert decision.language == "en"
 
 
 def test_unusable_setting_falls_back_to_the_first_allowed_language():
     decision = decide_typed_language("Hello", "de", None, ALLOWED)
-    assert decision.lang == "ko" and decision.source == "inherited"
+    assert decision.language == "ko" and decision.source == "inherited"
 
 
 # -- state machine ----------------------------------------------------------
@@ -143,7 +143,7 @@ def interpreter(wav_path, tmp_path, monkeypatch):
 
     from kotonoha.cli import _build
 
-    return _build(load_settings(), wav=wav_path)
+    return _build(load_settings(), wave_path=wav_path)
 
 
 async def test_input_bar_is_hidden_until_text_mode(interpreter):
@@ -155,7 +155,7 @@ async def test_input_bar_is_hidden_until_text_mode(interpreter):
         app.action_text_mode()
         await pilot.pause()
         assert app.text_input.display
-        assert interpreter.s.session.mode == "text"
+        assert interpreter.settings.session.mode == "text"
         assert app.status.mode == "text"
 
 
@@ -171,7 +171,7 @@ async def test_the_t_key_enters_text_mode(interpreter):
         assert app.focused is not app.text_input
         await pilot.press("t")
         await pilot.pause()
-        assert interpreter.s.session.mode == "text"
+        assert interpreter.settings.session.mode == "text"
         assert app.text_input.display
         assert app.focused is app.text_input
 
@@ -183,11 +183,11 @@ async def test_escape_leaves_text_mode_from_the_focused_field(interpreter):
         await pilot.pause()
         await pilot.press("t")
         await pilot.pause()
-        assert interpreter.s.session.mode == "text"
+        assert interpreter.settings.session.mode == "text"
 
         await pilot.press("escape")
         await pilot.pause()
-        assert interpreter.s.session.mode == "push_to_talk"
+        assert interpreter.settings.session.mode == "push_to_talk"
         assert not app.text_input.display
         assert app.focused is not app.text_input
 
@@ -200,12 +200,12 @@ async def test_typing_t_into_the_field_does_not_leave_text_mode(interpreter):
         await pilot.pause()
         await pilot.press("t")
         await pilot.pause()
-        assert interpreter.s.session.mode == "text"
+        assert interpreter.settings.session.mode == "text"
         assert app.text_input.value == "t"
 
 
 async def test_leaving_text_mode_restores_the_previous_voice_mode(interpreter):
-    interpreter.s.session.mode = "auto"
+    interpreter.settings.session.mode = "auto"
     app = KotonohaApp(interpreter)
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -213,7 +213,7 @@ async def test_leaving_text_mode_restores_the_previous_voice_mode(interpreter):
         await pilot.pause()
         app.action_text_mode()
         await pilot.pause()
-        assert interpreter.s.session.mode == "auto"
+        assert interpreter.settings.session.mode == "auto"
         assert not app.text_input.display
 
 
@@ -221,11 +221,11 @@ async def test_mode_key_cycles_through_all_three(interpreter):
     app = KotonohaApp(interpreter)
     async with app.run_test() as pilot:
         await pilot.pause()
-        seen = [interpreter.s.session.mode]
+        seen = [interpreter.settings.session.mode]
         for _step in range(3):
             app.action_toggle_mode()
             await pilot.pause()
-            seen.append(interpreter.s.session.mode)
+            seen.append(interpreter.settings.session.mode)
     assert seen == ["push_to_talk", "auto", "text", "push_to_talk"]
 
 

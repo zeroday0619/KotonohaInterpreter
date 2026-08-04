@@ -25,29 +25,26 @@ remote:
   recover_after_s: 30.0
   audio_encoding: s16le
 
-# The A6000 has 48 GB and roughly 3.5x the memory bandwidth of the Orin, so the
-# choices §2 forced on us do not apply to it. Spike 3's verdict is about the
-# Orin; the remote box gets the MoE regardless.
+# The remote translation profile is configured independently from the Jetson
+# profile. Target-host measurements remain required for deployment acceptance.
 llm:
   profile: moe
   n_ctx: 4096 # room for six turns of history plus the glossary
   max_tokens: 768
 
 asr:
-  # sm_86 is a first-class vLLM target, unlike sm_87. Confirm with Spike 1 run
-  # on the A6000 itself before switching this away from transformers.
+  # Run Spike 1 on the A6000 before switching this away from transformers.
   backend: transformers
   n_best: 5
 
 asr_verify:
-  # Cheap here, so stop gating it. This is the single largest accuracy gain
-  # the external box buys us (§5.5).
+  # Remote mode verifies every turn. Measure the added latency during acceptance.
   mode: always
   compute_type: float16 # int8 was an Orin memory-bandwidth concession
 
 tts:
-  # flash-attn builds for sm_86, so Qwen3-TTS should come up properly here.
-  # /health reports which attention implementation actually loaded.
+  # The remote image build requires flash-attn. The health endpoint reports the
+  # attention implementation loaded by Qwen3-TTS.
   backend: qwen3
 
 # Deliberately unchanged: VAD preroll, the 800 ms EOU wait and the clause

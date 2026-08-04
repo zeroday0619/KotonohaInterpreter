@@ -2,18 +2,23 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from ..config import Settings, load_settings
-from ..logging_setup import setup_logging
-from .app import KotonohaApp
-from .config_app import ConfigApp
-from .history_app import HistoryApp
-from .license_app import LicenseApp
-from .menu_app import TuiMenuApp
-from .tools_app import ToolsApp
+from kotonoha.config import Settings, load_settings, local_config_path, read_yaml
+from kotonoha.logging_setup import setup_logging
+from kotonoha.tui.app import KotonohaApp
+from kotonoha.tui.config_app import ConfigApp
+from kotonoha.tui.history_app import HistoryApp
+from kotonoha.tui.license_app import LicenseApp
+from kotonoha.tui.menu_app import TuiMenuApp
+from kotonoha.tui.tools_app import ToolsApp
+
+
+def _read_optional_yaml(path: Path) -> dict:
+    return read_yaml(path) if path.exists() else {}
 
 
 async def run_unified_tui(
@@ -22,21 +27,29 @@ async def run_unified_tui(
 ) -> None:
     """Run the menu and selected applications on one event loop."""
     while True:
-        settings = load_settings(config_path)
+        settings = await asyncio.to_thread(load_settings, config_path)
         selection = await TuiMenuApp(settings).run_async()
         if selection == "interpreter":
             setup_logging(
                 settings.logging.level,
                 settings.resolve(settings.logging.log_path),
                 settings.logging.console,
-                "orch",
+                "orchestrator",
                 terminal_interface=True,
             )
-            await KotonohaApp(build_orchestrator(settings)).run_async()
+            orchestrator = await asyncio.to_thread(build_orchestrator, settings)
+            await KotonohaApp(orchestrator).run_async()
         elif selection == "configuration":
-            await ConfigApp(config_path=config_path).run_async()
+            local_path = local_config_path()
+            overrides = await asyncio.to_thread(_read_optional_yaml, local_path)
+            await ConfigApp(
+                config_path=config_path,
+                local_path=local_path,
+                settings=settings,
+                overrides=overrides,
+            ).run_async()
         elif selection == "history":
-            await HistoryApp(config_path=config_path).run_async()
+            await HistoryApp(config_path=config_path, settings=settings).run_async()
         elif selection == "tools":
             await ToolsApp(config_path=config_path).run_async()
         elif selection == "license":

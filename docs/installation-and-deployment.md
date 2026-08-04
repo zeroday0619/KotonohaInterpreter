@@ -920,7 +920,7 @@ requests. Treat this as a deployment failure on the A6000.
 | ASR cannot find the model offline | Inspect `asr.model_id` | Set `/models/Qwen3-ASR-1.7B-hf` in the host override |
 | Verification downloads `large-v3` | Inspect `asr_verify.model_id` | Set `/models/faster-whisper-large-v3` |
 | LLM reports `GGUF missing` | Inspect `/models/gguf` and `remote-llm.env` | Correct `MODELS_DIR`, profile, or profile file name; restart `llm` |
-| TTS image cannot build FlashAttention | Inspect the devel image tag, CUDA version, memory, and build log | Restore the matching `REMOTE_BASE` and `REMOTE_TTS_BUILD_BASE`; do not suppress the build failure |
+| TTS image cannot build FlashAttention | Inspect the devel image tag, CUDA version, memory, and build log | Restore matching build and runtime images; use the SDPA fallback only when the target service loads and Spike 2 records the result |
 | TTS reports `sox: not found` | Run `sox --version` in the TTS container | Rebuild the TTS image; the current image installs `sox` and `libsox-fmt-all` |
 | Remote TTS reports Qwen failure | Inspect TTS health and the orchestrator `failovers` metric | Correct the remote Qwen service; the current turn retries against the Jetson MeloTTS service before the first audio chunk |
 | CUDA is absent in a container | Inspect image build output and `torch.version.cuda` | Restore the pinned CUDA base image; do not install a CPU PyTorch wheel |

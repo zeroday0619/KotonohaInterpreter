@@ -16,28 +16,30 @@ class UiEvent:
 class EventBus:
     """Assumes a single consumer (the TUI). Drops silently when nobody listens."""
 
+    queue: asyncio.Queue[UiEvent]
+
     def __init__(self, maxsize: int = 512):
-        self.q: asyncio.Queue[UiEvent] = asyncio.Queue(maxsize=maxsize)
+        self.queue = asyncio.Queue(maxsize=maxsize)
 
     def emit(self, kind: str, **payload: Any) -> None:
         try:
-            self.q.put_nowait(UiEvent(kind, payload))
+            self.queue.put_nowait(UiEvent(kind, payload))
         except asyncio.QueueFull:
             try:
-                self.q.get_nowait()
-                self.q.put_nowait(UiEvent(kind, payload))
+                self.queue.get_nowait()
+                self.queue.put_nowait(UiEvent(kind, payload))
             except Exception:  # noqa: BLE001
                 pass
 
     async def get(self) -> UiEvent:
-        return await self.q.get()
+        return await self.queue.get()
 
     def drain_nowait(self, maximum: int = 127) -> list[UiEvent]:
         """Remove a bounded burst so the consumer can commit it as one frame."""
         events: list[UiEvent] = []
         for _event_index in range(maximum):
             try:
-                events.append(self.q.get_nowait())
+                events.append(self.queue.get_nowait())
             except asyncio.QueueEmpty:
                 break
         return events

@@ -7,7 +7,7 @@ import json
 import pytest
 
 from kotonoha.i18n import set_locale, translate_to
-from kotonoha.store import HistoryEntry, Store
+from kotonoha.store.db import HistoryEntry, Store
 from kotonoha.tui.app import HistoryPane
 from kotonoha.tui.history_app import HistoryApp, excerpt, export_jsonl
 
@@ -198,7 +198,7 @@ async def test_browser_search_filters_the_table(tmp_path, monkeypatch):
     async with app.run_test() as pilot:
         await pilot.pause()
         app.query.text = "meeting"
-        app.reload()
+        await app.reload()
         assert app.total == 1
         assert app.table.row_count == 1
 
@@ -216,7 +216,7 @@ async def test_browser_export_writes_the_visible_rows(tmp_path, monkeypatch):
     app = HistoryApp(settings=load_settings())
     async with app.run_test() as pilot:
         await pilot.pause()
-        app.action_export()
+        await app.action_export()
         exported = sorted((tmp_path / "data" / "exports").glob("history-*.jsonl"))
         assert len(exported) == 1
         assert json.loads(exported[0].read_text(encoding="utf-8"))["turn_id"] == "t1"

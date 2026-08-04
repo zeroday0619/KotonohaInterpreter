@@ -1,18 +1,17 @@
 """Language-ID normalisation, fallback, and target routing (§5, §10).
 
-The fallback is the important part. No model can tell you the language of a
-single "네 / OK / はい". For utterances under a second, or low-confidence
-verdicts, we inherit the previously detected language and show that on screen —
-better than quietly interpreting from the wrong language.
+No model reliably identifies the language of a single "네 / OK / はい". For
+utterances under one second or low-confidence verdicts, the implementation
+inherits the previously detected language and displays that decision.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..config import LidCfg, SessionCfg
+from kotonoha.config import LanguageIdentificationConfig, SessionConfig
 
-# Normalise the various spellings Qwen3-ASR and whisper emit into our codes.
+# Normalize model-specific language labels into the application's language codes.
 _ALIASES: dict[str, str] = {
     "ko": "ko", "kor": "ko", "korean": "ko", "한국어": "ko",
     "en": "en", "eng": "en", "english": "en",
@@ -27,10 +26,10 @@ _ALIASES: dict[str, str] = {
 # Traditional (§1). Mainland speech is accepted as input, but output is Traditional.
 
 
-def normalize_lang(raw: str | None) -> str | None:
-    if not raw:
+def normalize_language(raw_language: str | None) -> str | None:
+    if not raw_language:
         return None
-    key = raw.strip().lower().replace("_", "-")
+    key = raw_language.strip().lower().replace("_", "-")
     if key in _ALIASES:
         return _ALIASES[key]
     # Forms like "Chinese (Taiwan)".
@@ -41,41 +40,53 @@ def normalize_lang(raw: str | None) -> str | None:
 
 
 @dataclass
-class LangDecision:
-    lang: str
+class LanguageDecision:
+    language: str
     source: str  # lid | inherited | default
     confidence: float | None
     note: str = ""
 
 
 def decide_language(
-    raw_lang: str | None,
+    raw_language: str | None,
     confidence: float | None,
-    duration_s: float,
-    cfg: LidCfg,
-    last_lang: str | None,
-    allowed: list[str],
-) -> LangDecision:
-    norm = normalize_lang(raw_lang)
-    fallback = last_lang if last_lang in allowed else (allowed[0] if allowed else "en")
+    duration_seconds: float,
+    config: LanguageIdentificationConfig,
+    last_language: str | None,
+    allowed_languages: list[str],
+) -> LanguageDecision:
+    normalized = normalize_language(raw_language)
+    fallback = (
+        last_language
+        if last_language in allowed_languages
+        else (allowed_languages[0] if allowed_languages else "en")
+    )
 
-    if duration_s < cfg.min_duration_s:
-        return LangDecision(
+    if duration_seconds < config.min_duration_s:
+        return LanguageDecision(
             fallback,
             "inherited",
             confidence,
-            f"utterance {duration_s:.2f}s < {cfg.min_duration_s}s",
+            f"utterance {duration_seconds:.2f}s < {config.min_duration_s}s",
         )
 
-    if norm is None or norm not in allowed:
-        return LangDecision(fallback, "inherited", confidence, f"unusable LID: {raw_lang!r}")
-
-    if confidence is not None and confidence < cfg.min_confidence:
-        return LangDecision(
-            fallback, "inherited", confidence, f"confidence {confidence:.2f} < {cfg.min_confidence}"
+    if normalized is None or normalized not in allowed_languages:
+        return LanguageDecision(
+            fallback,
+            "inherited",
+            confidence,
+            f"unusable LID: {raw_language!r}",
         )
 
-    return LangDecision(norm, "lid", confidence)
+    if confidence is not None and confidence < config.min_confidence:
+        return LanguageDecision(
+            fallback,
+            "inherited",
+            confidence,
+            f"confidence {confidence:.2f} < {config.min_confidence}",
+        )
+
+    return LanguageDecision(normalized, "lid", confidence)
 
 
 # Typed input has no audio, so there is no acoustic LID to consult. Script is a
@@ -85,12 +96,12 @@ _KANA = ((0x3040, 0x309F), (0x30A0, 0x30FF), (0x31F0, 0x31FF), (0xFF66, 0xFF9D))
 _HAN = ((0x4E00, 0x9FFF), (0x3400, 0x4DBF), (0xF900, 0xFAFF))
 
 
-def _in(code: int, ranges) -> bool:
-    return any(low <= code <= high for low, high in ranges)
+def _codepoint_in_ranges(codepoint: int, ranges) -> bool:
+    return any(low <= codepoint <= high for low, high in ranges)
 
 
 def detect_script(text: str) -> tuple[str | None, float]:
-    """Guess the language of typed text from its script.
+    """Detect the language of typed text from its script.
 
     Returns (language, share of decisive characters) or (None, 0.0).
 
@@ -100,12 +111,12 @@ def detect_script(text: str) -> tuple[str | None, float]:
     """
     hangul = kana = han = latin = 0
     for character in text:
-        code = ord(character)
-        if _in(code, _HANGUL):
+        codepoint = ord(character)
+        if _codepoint_in_ranges(codepoint, _HANGUL):
             hangul += 1
-        elif _in(code, _KANA):
+        elif _codepoint_in_ranges(codepoint, _KANA):
             kana += 1
-        elif _in(code, _HAN):
+        elif _codepoint_in_ranges(codepoint, _HAN):
             han += 1
         elif character.isascii() and character.isalpha():
             latin += 1
@@ -126,44 +137,56 @@ def detect_script(text: str) -> tuple[str | None, float]:
 def decide_typed_language(
     text: str,
     configured: str,
-    last_lang: str | None,
-    allowed: list[str],
+    last_language: str | None,
+    allowed_languages: list[str],
     min_confidence: float = 0.5,
-) -> LangDecision:
+) -> LanguageDecision:
     """Language for a typed utterance.
 
     An explicit setting wins. Otherwise the script decides, and when the script is
     inconclusive the previous language is inherited, exactly as §5 does for a short
     spoken utterance.
     """
-    fallback = last_lang if last_lang in allowed else (allowed[0] if allowed else "en")
+    fallback = (
+        last_language
+        if last_language in allowed_languages
+        else (allowed_languages[0] if allowed_languages else "en")
+    )
 
     if configured != "auto":
-        if configured in allowed:
-            return LangDecision(configured, "forced", None)
-        return LangDecision(fallback, "inherited", None, f"unusable setting: {configured!r}")
+        if configured in allowed_languages:
+            return LanguageDecision(configured, "forced", None)
+        return LanguageDecision(fallback, "inherited", None, f"unusable setting: {configured!r}")
 
-    lang, confidence = detect_script(text)
-    if lang is None or lang not in allowed:
-        return LangDecision(fallback, "inherited", confidence, "no decisive script")
+    language, confidence = detect_script(text)
+    if language is None or language not in allowed_languages:
+        return LanguageDecision(fallback, "inherited", confidence, "no decisive script")
     if confidence < min_confidence:
-        return LangDecision(
+        return LanguageDecision(
             fallback, "inherited", confidence, f"script share {confidence:.2f} < {min_confidence}"
         )
-    return LangDecision(lang, "script", confidence)
+    return LanguageDecision(language, "script", confidence)
 
 
-def route_targets(src_lang: str, cfg: SessionCfg) -> list[str]:
+def route_targets(source_language: str, config: SessionConfig) -> list[str]:
     """The three target-routing modes (§9, Phase 4)."""
-    if cfg.routing == "pair":
-        a, b = cfg.pair
-        if src_lang == a:
-            return [b]
-        if src_lang == b:
-            return [a]
+    if config.routing == "pair":
+        first_language, second_language = config.pair
+        if source_language == first_language:
+            return [second_language]
+        if source_language == second_language:
+            return [first_language]
         # A language outside the pair goes to the pair's first language.
-        return [a]
-    if cfg.routing == "fixed":
-        return [] if src_lang == cfg.fixed_target else [cfg.fixed_target]
+        return [first_language]
+    if config.routing == "fixed":
+        return (
+            []
+            if source_language == config.fixed_target
+            else [config.fixed_target]
+        )
     # broadcast
-    return [t for t in cfg.broadcast_targets if t != src_lang]
+    return [
+        target
+        for target in config.broadcast_targets
+        if target != source_language
+    ]

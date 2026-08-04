@@ -27,8 +27,17 @@ async def test_unified_workflow_returns_to_menu_and_reloads_settings(monkeypatch
             return next(selections)
 
     class ConfigApplication:
-        def __init__(self, config_path: Path | None) -> None:
+        def __init__(
+            self,
+            config_path: Path | None,
+            local_path: Path,
+            settings,
+            overrides: dict,
+        ) -> None:
             assert config_path == Path("device.yaml")
+            assert local_path.name == "local.yaml"
+            assert settings is not None
+            assert isinstance(overrides, dict)
 
         async def run_async(self) -> None:
             events.append("configuration")

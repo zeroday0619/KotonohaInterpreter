@@ -1,7 +1,7 @@
 """Cross-verification ASR client (faster-whisper large-v3).
 
-Called conditionally on the Orin, per §5.5, because it costs 0.8 s there.
-On the A6000 it is cheap enough to run every turn — see asr_verify.mode.
+Called conditionally on the Orin, per §5.5, because it costs 0.8 s there. Remote
+deployments can select `asr_verify.mode: always` after measuring the added latency.
 """
 
 from __future__ import annotations
@@ -9,9 +9,9 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-from ..config import AsrVerifyCfg
-from ..transport import AudioPayload, Encoding
-from .base import BaseClient, ServiceError
+from kotonoha.clients.base import BaseClient, ServiceError
+from kotonoha.config import AsrVerificationConfig
+from kotonoha.transport import AudioPayload, Encoding
 
 
 @dataclass
@@ -23,31 +23,37 @@ class VerifyResult:
 
 
 class AsrVerifyClient(BaseClient):
+    config: AsrVerificationConfig
+    encoding: Encoding
+
     def __init__(
         self,
         base_url: str,
-        cfg: AsrVerifyCfg,
+        config: AsrVerificationConfig,
         *,
         side: str = "local",
         encoding: Encoding = "s16le",
         **transport,
     ):
-        super().__init__(base_url, cfg.timeout_s, "asr-verify", side=side, **transport)
-        self.cfg = cfg
+        super().__init__(base_url, config.timeout_s, "asr-verify", side=side, **transport)
+        self.config = config
         self.encoding = encoding
 
     async def transcribe(self, payload: AudioPayload, language: str | None = None) -> VerifyResult:
         params = {
-            "language": _to_whisper_lang(language),
-            "beam_size": self.cfg.beam_size,
+            "language": _to_whisper_language(language),
+            "beam_size": self.config.beam_size,
         }
 
         if self.side == "local":
-            if payload.ref is None:
+            if payload.audio_reference is None:
                 raise ServiceError("local verify client requires a shared-memory reference")
-            d = await self._post_json("/transcribe", {"audio": payload.ref.to_json(), **params})
+            result = await self._post_json(
+                "/transcribe",
+                {"audio": payload.audio_reference.to_json(), **params},
+            )
         else:
-            d = await self._post_multipart(
+            result = await self._post_multipart(
                 "/transcribe/upload",
                 files={
                     "audio": ("utt.pcm", payload.encoded(self.encoding), "application/octet-stream")
@@ -64,15 +70,15 @@ class AsrVerifyClient(BaseClient):
             )
 
         return VerifyResult(
-            text=d.get("text", ""),
-            avg_logprob=float(d.get("avg_logprob", -99.0)),
-            language=d.get("language"),
-            infer_ms=float(d.get("infer_ms", 0.0)),
+            text=result.get("text", ""),
+            avg_logprob=float(result.get("avg_logprob", -99.0)),
+            language=result.get("language"),
+            infer_ms=float(result.get("infer_ms", 0.0)),
         )
 
 
-def _to_whisper_lang(lang: str | None) -> str | None:
-    """Our language code to whisper's. zh-TW is handed to whisper as zh."""
-    if lang is None:
+def _to_whisper_language(language: str | None) -> str | None:
+    """Map application language codes to Whisper language identifiers."""
+    if language is None:
         return None
-    return {"ko": "ko", "en": "en", "ja": "ja", "zh-TW": "zh"}.get(lang)
+    return {"ko": "ko", "en": "en", "ja": "ja", "zh-TW": "zh"}.get(language)

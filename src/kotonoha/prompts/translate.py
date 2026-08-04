@@ -14,8 +14,8 @@ the source first would delay the first audio by exactly its length.
 
 from __future__ import annotations
 
-from .. import LANG_NAMES, LANG_NATIVE
-from ..store.db import GlossaryEntry, TurnRecord
+from kotonoha.languages import LANGUAGE_NAMES, LANGUAGE_NATIVE_NAMES
+from kotonoha.store.db import GlossaryEntry, TurnRecord
 
 SRC_MARKER = "⟦SRC⟧"
 
@@ -45,57 +45,64 @@ _TW_RULE = (
 )
 
 
-def _fmt_history(history: list[TurnRecord]) -> str:
+def _format_history(history: list[TurnRecord]) -> str:
     lines = []
-    for h in history:
-        if not h.source_text:
+    for turn in history:
+        if not turn.source_text:
             continue
-        src = LANG_NATIVE.get(h.src_lang or "", h.src_lang or "?")
-        lines.append(f"[{src}] {h.source_text}")
-        if h.translation:
-            tgt = LANG_NATIVE.get(h.tgt_lang or "", h.tgt_lang or "?")
-            lines.append(f"[{tgt}] {h.translation}")
+        source_name = LANGUAGE_NATIVE_NAMES.get(turn.src_lang or "", turn.src_lang or "?")
+        lines.append(f"[{source_name}] {turn.source_text}")
+        if turn.translation:
+            target_name = LANGUAGE_NATIVE_NAMES.get(turn.tgt_lang or "", turn.tgt_lang or "?")
+            lines.append(f"[{target_name}] {turn.translation}")
     return "\n".join(lines)
 
 
-def _fmt_glossary(glossary: list[GlossaryEntry]) -> str:
+def _format_glossary(glossary: list[GlossaryEntry]) -> str:
     return "\n".join(
-        f"- {g.src_term} → {g.tgt_term}" + (f"  ({g.note})" if g.note else "")
-        for g in glossary
+        f"- {entry.src_term} → {entry.tgt_term}"
+        + (f"  ({entry.note})" if entry.note else "")
+        for entry in glossary
     )
 
 
 def build_translate_messages(
-    n_best: list[str],
-    source_lang: str,
-    target_lang: str,
+    hypotheses: list[str],
+    source_language: str,
+    target_language: str,
     history: list[TurnRecord] | None = None,
     glossary: list[GlossaryEntry] | None = None,
     verify_hypothesis: str | None = None,
     verify_divergent: bool = False,
 ) -> list[dict[str, str]]:
     system = SYSTEM.format(
-        source_name=LANG_NAMES.get(source_lang, source_lang),
-        target_name=LANG_NAMES.get(target_lang, target_lang),
-        target_native=LANG_NATIVE.get(target_lang, target_lang),
+        source_name=LANGUAGE_NAMES.get(source_language, source_language),
+        target_name=LANGUAGE_NAMES.get(target_language, target_language),
+        target_native=LANGUAGE_NATIVE_NAMES.get(target_language, target_language),
         marker=SRC_MARKER,
     )
-    if target_lang == "zh-TW":
+    if target_language == "zh-TW":
         system += "\n" + _TW_RULE
 
     blocks: list[str] = []
 
     if history:
-        h = _fmt_history(history)
-        if h:
-            blocks.append("## Conversation so far\n" + h)
+        formatted_history = _format_history(history)
+        if formatted_history:
+            blocks.append("## Conversation so far\n" + formatted_history)
 
     if glossary:
-        blocks.append("## Glossary (apply verbatim)\n" + _fmt_glossary(glossary))
+        blocks.append("## Glossary (apply verbatim)\n" + _format_glossary(glossary))
 
-    hyps = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(n_best) if t.strip())
+    formatted_hypotheses = "\n".join(
+        f"{index + 1}. {text}"
+        for index, text in enumerate(hypotheses)
+        if text.strip()
+    )
     blocks.append(
-        f"## ASR hypotheses ({LANG_NAMES.get(source_lang, source_lang)}), best first\n{hyps}"
+        "## ASR hypotheses "
+        f"({LANGUAGE_NAMES.get(source_language, source_language)}), best first\n"
+        f"{formatted_hypotheses}"
     )
 
     if verify_hypothesis:
@@ -107,7 +114,9 @@ def build_translate_messages(
         )
         blocks.append(f"## Second engine\n{verify_hypothesis}\n\n{note}")
 
-    blocks.append(f"Now output the {LANG_NAMES.get(target_lang, target_lang)} translation.")
+    blocks.append(
+        f"Now output the {LANGUAGE_NAMES.get(target_language, target_language)} translation."
+    )
 
     return [
         {"role": "system", "content": system},
@@ -122,7 +131,7 @@ def parse_llm_output(text: str) -> tuple[str, str | None]:
     """
     if SRC_MARKER not in text:
         return text.strip(), None
-    head, _, tail = text.partition(SRC_MARKER)
-    translation = head.strip()
-    corrected = tail.strip() or None
+    translation_text, _, source_text = text.partition(SRC_MARKER)
+    translation = translation_text.strip()
+    corrected = source_text.strip() or None
     return translation, corrected

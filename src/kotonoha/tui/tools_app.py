@@ -17,7 +17,7 @@ from textual.binding import Binding, BindingsMap
 from textual.containers import Container, Horizontal, VerticalScroll
 from textual.widgets import Button, Footer, Header, Input, Label, RichLog, Select, Static
 
-from ..i18n import N_, _, current_locale
+from kotonoha.i18n import N_, _, current_locale
 
 OPERATIONS = (
     "replay",
@@ -196,6 +196,12 @@ FIELD_PLACEHOLDERS: dict[str, str] = {
 class ToolsApp(App[None]):
     """Expose every non-interactive CLI operation and its options in Textual."""
 
+    config_path: Path | None
+    process: Process | None
+    title: str
+    sub_title: str
+    _bindings: BindingsMap
+
     CSS = """
     Screen { layout: vertical; }
     #tools-workspace { height: 1fr; }
@@ -368,7 +374,12 @@ class ToolsApp(App[None]):
             self._write(_("Select a valid operation."), "red")
             return
         try:
-            command = build_tool_command(str(operation_value), self._values(), self.config_path)
+            command = await asyncio.to_thread(
+                build_tool_command,
+                str(operation_value),
+                self._values(),
+                self.config_path,
+            )
         except ToolInputError as error:
             self._write(str(error), "red")
             return

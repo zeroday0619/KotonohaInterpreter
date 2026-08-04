@@ -7,8 +7,8 @@ from typing import Any
 
 import httpx
 
-from ..config import RemoteCfg
-from .base import ServiceError, ServiceTimeout, remote_transport_kwargs
+from kotonoha.clients.base import ServiceError, ServiceTimeout, remote_transport_kwargs
+from kotonoha.config import RemoteConfig
 
 
 @dataclass(frozen=True)
@@ -21,7 +21,9 @@ class RemoteConfigSnapshot:
 
 
 class RemoteConfigClient:
-    def __init__(self, base_url: str, remote: RemoteCfg):
+    _client: httpx.AsyncClient
+
+    def __init__(self, base_url: str, remote: RemoteConfig):
         transport = remote_transport_kwargs(remote)
         self._client = httpx.AsyncClient(
             base_url=base_url.rstrip("/"),
@@ -53,6 +55,3 @@ class RemoteConfigClient:
             raise ServiceError(f"remote config {error.response.status_code}: {detail}") from error
         except httpx.HTTPError as error:
             raise ServiceError(f"remote config transport error: {error!r}") from error
-
-
-__all__ = ["RemoteConfigClient", "RemoteConfigSnapshot"]

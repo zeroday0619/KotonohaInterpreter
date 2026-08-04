@@ -7,7 +7,7 @@ import pytest
 
 from kotonoha.clients.base import ServiceError, ServiceTimeout, remote_transport_kwargs
 from kotonoha.clients.router import AllEndpointsFailed, FailoverClient
-from kotonoha.config import RemoteCfg, load_settings
+from kotonoha.config import RemoteConfig, load_settings
 from kotonoha.transport import AudioPayload, decode_pcm, encode_pcm, encoded_size
 
 
@@ -98,13 +98,13 @@ def test_s16le_halves_the_bytes_on_the_wire():
 
 def test_payload_carries_both_forms():
     pcm = np.zeros(16000, dtype=np.float32)
-    p = AudioPayload(pcm=pcm, ref=None)
-    assert p.seconds == pytest.approx(1.0)
-    assert len(p.encoded("s16le")) == 32_000
+    payload = AudioPayload(pcm=pcm, audio_reference=None)
+    assert payload.seconds == pytest.approx(1.0)
+    assert len(payload.encoded("s16le")) == 32_000
 
 
 def test_bearer_token_and_tls_flags_reach_httpx():
-    tk = remote_transport_kwargs(RemoteCfg(token="secret", verify_tls=False))
+    tk = remote_transport_kwargs(RemoteConfig(token="secret", verify_tls=False))
     assert tk["headers"]["authorization"] == "Bearer secret"
     assert tk["verify"] is False
 
@@ -138,84 +138,92 @@ class FakeClient:
         return None
 
 
-def _route(remote_fails: bool, **cfg) -> tuple[FailoverClient, FakeClient, FakeClient]:
+def _route(
+    remote_fails: bool,
+    **config_overrides,
+) -> tuple[FailoverClient, FakeClient, FakeClient]:
     remote = FakeClient("remote", fail=remote_fails)
     local = FakeClient("local")
-    fc = FailoverClient("asr", remote, local, RemoteCfg(failover_after=2, **cfg))
-    return fc, remote, local
+    failover_client = FailoverClient(
+        "asr",
+        remote,
+        local,
+        RemoteConfig(failover_after=2, **config_overrides),
+    )
+    return failover_client, remote, local
 
 
 async def test_healthy_remote_is_used():
-    fc, remote, local = _route(remote_fails=False)
-    assert await fc.run(lambda c: c.work()) == "remote"
+    failover_client, remote, local = _route(remote_fails=False)
+    assert await failover_client.run(lambda client: client.work()) == "remote"
     assert local.calls == 0
-    assert not fc.degraded
+    assert not failover_client.degraded
 
 
 async def test_the_failing_turn_still_completes_on_the_fallback():
     """A link failure must cost a retry, not the turn (§10)."""
-    fc, remote, local = _route(remote_fails=True)
-    assert await fc.run(lambda c: c.work()) == "local"
+    failover_client, remote, local = _route(remote_fails=True)
+    assert await failover_client.run(lambda client: client.work()) == "local"
     assert remote.calls == 1 and local.calls == 1
-    assert fc.failover_count == 1
+    assert failover_client.failover_count == 1
 
 
 async def test_role_degrades_only_after_the_configured_streak():
-    fc, remote, _ = _route(remote_fails=True)
-    await fc.run(lambda c: c.work())
-    assert not fc.degraded, "one failure should not move the placement"
-    await fc.run(lambda c: c.work())
-    assert fc.degraded and fc.side == "local"
+    failover_client, remote, _ = _route(remote_fails=True)
+    await failover_client.run(lambda client: client.work())
+    assert not failover_client.degraded, "one failure should not move the placement"
+    await failover_client.run(lambda client: client.work())
+    assert failover_client.degraded and failover_client.side == "local"
 
 
 async def test_a_success_resets_the_streak():
-    fc, remote, _ = _route(remote_fails=True)
-    await fc.run(lambda c: c.work())
+    failover_client, remote, _ = _route(remote_fails=True)
+    await failover_client.run(lambda client: client.work())
     remote.fail = False
-    await fc.run(lambda c: c.work())
+    await failover_client.run(lambda client: client.work())
     remote.fail = True
-    await fc.run(lambda c: c.work())
-    assert not fc.degraded
+    await failover_client.run(lambda client: client.work())
+    assert not failover_client.degraded
 
 
 async def test_both_sides_down_raises_rather_than_hanging():
-    fc, remote, local = _route(remote_fails=True)
+    failover_client, remote, local = _route(remote_fails=True)
     local.fail = True
     with pytest.raises(AllEndpointsFailed):
-        await fc.run(lambda c: c.work())
+        await failover_client.run(lambda client: client.work())
 
 
 async def test_no_fallback_propagates_the_error():
     remote = FakeClient("remote", fail=True)
-    fc = FailoverClient("asr", remote, None, RemoteCfg())
+    failover_client = FailoverClient("asr", remote, None, RemoteConfig())
     with pytest.raises(ServiceTimeout):
-        await fc.run(lambda c: c.work())
+        await failover_client.run(lambda client: client.work())
 
 
 async def test_stream_fails_over_before_the_first_chunk():
-    async def gen(client):
+    async def generate(client):
         if client.fail:
             raise ServiceError("cold failure")
-        for x in ("a", "b"):
-            yield x
+        for item in ("a", "b"):
+            yield item
 
-    fc, remote, local = _route(remote_fails=True)
-    got = [x async for x in fc.stream(gen)]
-    assert got == ["a", "b"]
+    failover_client, remote, local = _route(remote_fails=True)
+    output = [item async for item in failover_client.stream(generate)]
+    assert output == ["a", "b"]
 
 
 async def test_stream_does_not_fail_over_midway():
     """Once audio is playing there is no clean way to rewind, so report it."""
 
-    async def gen(client):
+    async def generate(client):
         yield "a"
         if client.fail:
             raise ServiceError("died mid-stream")
         yield "b"
 
-    fc, remote, local = _route(remote_fails=True)
+    failover_client, remote, local = _route(remote_fails=True)
     with pytest.raises(ServiceError):
-        _ = [x async for x in fc.stream(gen)]
+        _ = [item async for item in failover_client.stream(generate)]
     assert local.calls == 0
 
 
@@ -223,12 +231,12 @@ async def test_placement_change_is_reported():
     seen = []
     remote = FakeClient("remote", fail=True)
     local = FakeClient("local")
-    fc = FailoverClient(
+    failover_client = FailoverClient(
         "asr",
         remote,
         local,
-        RemoteCfg(failover_after=1),
+        RemoteConfig(failover_after=1),
         on_change=lambda role, side, why: seen.append((role, side)),
     )
-    await fc.run(lambda c: c.work())
+    await failover_client.run(lambda client: client.work())
     assert seen == [("asr", "local")]

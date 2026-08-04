@@ -11,6 +11,7 @@ profiles editable without inventing a second schema for the interface.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from pathlib import Path
 from types import UnionType
@@ -25,18 +26,14 @@ from textual.binding import Binding, BindingsMap
 from textual.containers import Container, Horizontal, VerticalScroll
 from textual.widgets import Footer, Header, Input, ListItem, ListView, Select, Static, Switch
 
-from ..clients.base import ServiceError
-from ..clients.config_admin import RemoteConfigClient, RemoteConfigSnapshot
-from ..config import Settings, load_settings, local_config_path
-from ..config_store import (
-    ApplyResult,
+from kotonoha.clients.base import ServiceError
+from kotonoha.clients.config_admin import RemoteConfigClient, RemoteConfigSnapshot
+from kotonoha.config import Settings, load_settings, local_config_path
+from kotonoha.config_store import (
     apply_changes,
     get_path,
-    set_path,
-    validate_candidate,
-    write_local,
 )
-from ..i18n import LOCALE_NAMES, N_, _
+from kotonoha.i18n import LOCALE_NAMES, N_, _
 
 
 @dataclass(frozen=True)
@@ -270,17 +267,17 @@ def _plain_value(value: Any) -> Any:
 class FieldRow(Static):
     """One setting: path, editor, description, and an origin marker."""
 
+    specification: FieldSpec
+    current: Any
+    from_override: bool
+    editor: Select | Switch | Input | None
+
     def __init__(self, specification: FieldSpec, current: Any, from_override: bool, **kwargs):
         super().__init__(**kwargs)
         self.specification = specification
         self.current = current
         self.from_override = from_override
-        self.editor: Select | Switch | Input | None = None
-
-    @property
-    def spec(self) -> FieldSpec:
-        """Compatibility alias used by existing evaluation and TUI tests."""
-        return self.specification
+        self.editor = None
 
     def compose(self) -> ComposeResult:
         yield Static(self._label(), classes="fieldlabel")
@@ -347,6 +344,9 @@ class FieldRow(Static):
 class CategoryItem(ListItem):
     """One category in the navigation menu."""
 
+    section: str
+    modified: int
+
     def __init__(self, section: str, modified: int):
         super().__init__(id=f"category-{section}")
         self.section = section
@@ -367,6 +367,23 @@ class CategoryItem(ListItem):
 
 
 class ConfigApp(App):
+    config_path: Path | None
+    local_path: Path
+    client_settings: Settings
+    settings: Settings
+    overrides: dict[str, Any]
+    target: str
+    remote_path: str | None
+    remote_editable_paths: set[str]
+    remote_client: RemoteConfigClient | None
+    current_section: str
+    status: Static
+    title: str
+    sub_title: str
+    _changing_target: bool
+    _rows: list[FieldRow]
+    _bindings: BindingsMap
+
     CSS = """
     Screen { layout: vertical; }
     #workspace { height: 1fr; }
@@ -409,19 +426,25 @@ class ConfigApp(App):
         ("q", "quit", ""),
     ]
 
-    def __init__(self, config_path: Path | None = None, local_path: Path | None = None):
+    def __init__(
+        self,
+        config_path: Path | None = None,
+        local_path: Path | None = None,
+        settings: Settings | None = None,
+        overrides: dict | None = None,
+    ):
         super().__init__()
         self.config_path = config_path
         self.local_path = local_path or local_config_path()
-        self.client_settings = load_settings(config_path)
+        self.client_settings = settings or load_settings(config_path)
         self.settings = self.client_settings
-        self.overrides = self._read_local_overrides()
+        self.overrides = overrides if overrides is not None else self._read_local_overrides()
         self.target = "local"
-        self.remote_path: str | None = None
-        self.remote_editable_paths: set[str] = set()
-        self.remote_client: RemoteConfigClient | None = None
+        self.remote_path = None
+        self.remote_editable_paths = set()
+        self.remote_client = None
         self._changing_target = False
-        self._rows: list[FieldRow] = []
+        self._rows = []
         self.current_section = SECTIONS[0]
         self._bindings = BindingsMap(
             [
@@ -432,17 +455,8 @@ class ConfigApp(App):
             ]
         )
 
-    @property
-    def local(self) -> dict:
-        """Compatibility alias for the active override mapping."""
-        return self.overrides
-
-    @local.setter
-    def local(self, value: dict) -> None:
-        self.overrides = value
-
     def _read_local_overrides(self) -> dict:
-        from ..config import read_yaml
+        from kotonoha.config import read_yaml
 
         return read_yaml(self.local_path) if self.local_path.exists() else {}
 
@@ -498,7 +512,7 @@ class ConfigApp(App):
         if requested == "remote":
             await self._load_remote()
         else:
-            self._load_local()
+            await self._load_local()
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         if isinstance(event.item, CategoryItem):
@@ -525,11 +539,11 @@ class ConfigApp(App):
         self._apply_remote_snapshot(snapshot)
         self._say(_("Loaded remote configuration from {path}", path=snapshot.path), "green")
 
-    def _load_local(self) -> None:
+    async def _load_local(self) -> None:
         self.target = "local"
         self._set_target_selector("local")
-        self.settings = load_settings(self.config_path)
-        self.overrides = self._read_local_overrides()
+        self.settings = await asyncio.to_thread(load_settings, self.config_path)
+        self.overrides = await asyncio.to_thread(self._read_local_overrides)
         self._refresh_rows()
         self._update_subtitle()
         self._say(_("Reloaded from disk"), "dim")
@@ -625,14 +639,19 @@ class ConfigApp(App):
             await self._save_remote(changes)
             return
 
-        result = apply_changes(changes, self.config_path, self.local_path)
+        result = await asyncio.to_thread(
+            apply_changes,
+            changes,
+            self.config_path,
+            self.local_path,
+        )
         if not result.written:
             self._say(
                 _("Rejected, configuration would be invalid: {error}", error=result.error), "red"
             )
             return
-        self.settings = load_settings(self.config_path)
-        self.overrides = self._read_local_overrides()
+        self.settings = await asyncio.to_thread(load_settings, self.config_path)
+        self.overrides = await asyncio.to_thread(self._read_local_overrides)
         self._refresh_rows()
         self._say(
             _("Saved {count} settings to {path}", count=len(changes), path=self.local_path)
@@ -666,31 +685,10 @@ class ConfigApp(App):
         if self.target == "remote":
             await self._load_remote()
         else:
-            self._load_local()
+            await self._load_local()
 
     def action_menu(self) -> None:
         self.query_one("#category-list", ListView).focus()
 
     def _say(self, message: str, style: str) -> None:
         self.status.update(Text(message, style=style))
-
-
-# The old names remain imports from this module because the test suite and external
-# maintenance scripts used them before persistence moved into config_store.py.
-HeadlessResult = ApplyResult
-
-
-__all__ = [
-    "FIELDS",
-    "SECTIONS",
-    "ConfigApp",
-    "FieldSpec",
-    "HeadlessResult",
-    "apply_changes",
-    "effective_value",
-    "field_description",
-    "get_path",
-    "set_path",
-    "validate_candidate",
-    "write_local",
-]

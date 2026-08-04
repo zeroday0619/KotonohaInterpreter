@@ -18,28 +18,28 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG = REPO_ROOT / "config" / "default.yaml"
 
-Lang = Literal["ko", "en", "zh-TW", "ja"]
+SupportedLanguage = Literal["ko", "en", "zh-TW", "ja"]
 
 
-class SessionCfg(BaseModel):
+class SessionConfig(BaseModel):
     # text closes the microphone and takes utterances from the keyboard.
     mode: Literal["push_to_talk", "auto", "text"] = "push_to_talk"
     # Source language for typed input. auto reads it from the script.
     text_source_language: Literal["auto", "ko", "en", "zh-TW", "ja"] = "auto"
     routing: Literal["pair", "fixed", "broadcast"] = "pair"
-    pair: list[Lang] = ["ko", "en"]
-    fixed_target: Lang = "en"
-    broadcast_targets: list[Lang] = ["ko", "en", "zh-TW", "ja"]
-    languages: list[Lang] = ["ko", "en", "zh-TW", "ja"]
+    pair: list[SupportedLanguage] = ["ko", "en"]
+    fixed_target: SupportedLanguage = "en"
+    broadcast_targets: list[SupportedLanguage] = ["ko", "en", "zh-TW", "ja"]
+    languages: list[SupportedLanguage] = ["ko", "en", "zh-TW", "ja"]
 
     @model_validator(mode="after")
-    def _check_pair(self) -> SessionCfg:
+    def _check_pair(self) -> SessionConfig:
         if self.routing == "pair" and len(self.pair) != 2:
             raise ValueError("session.pair must contain exactly 2 languages")
         return self
 
 
-class AudioCfg(BaseModel):
+class AudioConfig(BaseModel):
     input_device: int | str | None = None
     output_device: int | str | None = None
     capture_sample_rate: int = 48000
@@ -53,13 +53,13 @@ class AudioCfg(BaseModel):
         return int(self.capture_sample_rate * self.capture_block_ms / 1000)
 
 
-class DenoiseCfg(BaseModel):
+class DenoiseConfig(BaseModel):
     enabled: bool = True
     backend: Literal["deepfilternet3", "none"] = "deepfilternet3"
     post_filter_beta: float = 0.02
 
 
-class VadCfg(BaseModel):
+class VadConfig(BaseModel):
     # "energy" is a development-machine fallback only; the device uses silero_onnx.
     backend: Literal["silero_onnx", "energy"] = "silero_onnx"
     model_path: Path = Path("./models/silero_vad.onnx")
@@ -72,19 +72,19 @@ class VadCfg(BaseModel):
     frame_ms: int = 32
 
 
-class FrontendCfg(BaseModel):
-    denoise: DenoiseCfg = DenoiseCfg()
-    vad: VadCfg = VadCfg()
+class FrontendConfig(BaseModel):
+    denoise: DenoiseConfig = DenoiseConfig()
+    vad: VadConfig = VadConfig()
 
 
-class ShmCfg(BaseModel):
+class SharedMemoryConfig(BaseModel):
     name: str = "kotonoha_audio"
     slots: int = 8
     slot_seconds: int = 30
     sample_rate: int = 16000
 
 
-class ServicesCfg(BaseModel):
+class ServiceEndpointsConfig(BaseModel):
     asr: str = "http://127.0.0.1:8001"
     asr_verify: str = "http://127.0.0.1:8002"
     llm: str = "http://127.0.0.1:8003"
@@ -97,10 +97,10 @@ Placement = Literal["local", "remote"]
 # Which side runs each role, per performance mode.
 #
 #   onboard  everything on the Orin. The original design.
-#   hybrid   only the LLM goes to the A6000. It is the single biggest latency
-#            win and it is text-only, so no audio ever leaves the device.
-#   remote   ASR, verification and TTS move too. Fastest when the link is good,
-#            but utterance audio now crosses the network.
+#   hybrid   only the LLM goes to the A6000. It is text-only, so audio remains
+#            on the device.
+#   remote   ASR, verification and TTS also move to the external server.
+#            Utterance audio crosses the network.
 PERF_PLACEMENT: dict[str, dict[str, Placement]] = {
     "onboard": {"asr": "local", "asr_verify": "local", "llm": "local", "tts": "local"},
     "hybrid": {"asr": "local", "asr_verify": "local", "llm": "remote", "tts": "local"},
@@ -108,16 +108,16 @@ PERF_PLACEMENT: dict[str, dict[str, Placement]] = {
 }
 
 
-class RemoteCfg(BaseModel):
+class RemoteConfig(BaseModel):
     """The external RTX A6000 box.
 
-    This is our own machine on our own network, not a cloud API, so §12 still
-    holds. But in `remote` mode the utterance audio does leave the device —
-    that is a deliberate trade, and `hybrid` exists for when it is not acceptable.
+    This server is private infrastructure rather than a cloud API, so §12 still
+    applies. In `remote` mode, utterance audio leaves the device. The `hybrid`
+    mode keeps audio processing on the device.
     """
 
     enabled: bool = False
-    services: ServicesCfg = ServicesCfg(
+    services: ServiceEndpointsConfig = ServiceEndpointsConfig(
         asr="http://a6000.lan:8001",
         asr_verify="http://a6000.lan:8002",
         llm="http://a6000.lan:8003",
@@ -140,12 +140,12 @@ class RemoteCfg(BaseModel):
     audio_encoding: Literal["s16le", "f32le"] = "s16le"
 
 
-class LidCfg(BaseModel):
+class LanguageIdentificationConfig(BaseModel):
     min_confidence: float = 0.60
     min_duration_s: float = 1.0
 
 
-class AsrCfg(BaseModel):
+class AsrConfig(BaseModel):
     backend: Literal["transformers", "vllm"] = "transformers"
     model_id: str = "Qwen/Qwen3-ASR-1.7B-hf"
     vllm_model_id: str = "Qwen/Qwen3-ASR-1.7B"
@@ -155,14 +155,13 @@ class AsrCfg(BaseModel):
     max_new_tokens: int = 256
     timeout_s: float = 4.0
     avg_logprob_threshold: float = -0.55
-    lid: LidCfg = LidCfg()
+    lid: LanguageIdentificationConfig = LanguageIdentificationConfig()
 
 
-class AsrVerifyCfg(BaseModel):
+class AsrVerificationConfig(BaseModel):
     enabled: bool = True
     # §5.5 makes verification conditional because it costs 0.8 s on the Orin.
-    # On the A6000 it is cheap enough to run every turn, which strictly improves
-    # accuracy — so the policy is configurable rather than hard-coded.
+    # The policy remains configurable for measured remote deployments.
     mode: Literal["conditional", "always"] = "conditional"
     backend: Literal["faster_whisper", "whisper_cpp"] = "faster_whisper"
     model_id: str = "large-v3"
@@ -173,15 +172,15 @@ class AsrVerifyCfg(BaseModel):
     divergence_cer: float = 0.25
 
 
-class LlmProfile(BaseModel):
+class LanguageModelProfile(BaseModel):
     repo: str
     file: str
     n_gpu_layers: int = -1
 
 
-class LlmCfg(BaseModel):
+class LanguageModelConfig(BaseModel):
     profile: Literal["moe", "dense"] = "dense"
-    profiles: dict[str, LlmProfile]
+    profiles: dict[str, LanguageModelProfile]
     models_dir: Path = Path("./models/gguf")
     n_ctx: int = 2048
     n_batch: int = 512
@@ -194,7 +193,7 @@ class LlmCfg(BaseModel):
     min_tok_per_s: float = 5.0
 
     @property
-    def active(self) -> LlmProfile:
+    def active(self) -> LanguageModelProfile:
         return self.profiles[self.profile]
 
     @property
@@ -202,7 +201,7 @@ class LlmCfg(BaseModel):
         return self.models_dir / self.active.file
 
 
-class TtsCfg(BaseModel):
+class TextToSpeechConfig(BaseModel):
     backend: Literal["qwen3", "melo"] = "melo"
     model_id: str = "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"
     sample_rate: int = 24000
@@ -213,17 +212,17 @@ class TtsCfg(BaseModel):
     melo_speakers: dict[str, str] = {}
 
 
-class ZhCfg(BaseModel):
+class TraditionalChineseConfig(BaseModel):
     opencc_config: str = "s2twp"
     apply_to: list[Literal["asr", "translation"]] = ["asr", "translation"]
 
 
-class ContextCfg(BaseModel):
+class ContextConfig(BaseModel):
     history_turns: int = 6
     glossary_max_terms: int = 64
 
 
-class UiCfg(BaseModel):
+class UserInterfaceConfig(BaseModel):
     # auto follows KOTONOHA_LANG, then the system locale, then English.
     language: Literal["auto", "en", "ko", "ja", "zh-TW"] = "auto"
     refresh_hz: int = Field(60, ge=15, le=60)
@@ -231,11 +230,11 @@ class UiCfg(BaseModel):
     history_turns: int = Field(20, ge=0, le=200)
 
 
-class StoreCfg(BaseModel):
+class StoreConfig(BaseModel):
     path: Path = Path("./data/kotonoha.db")
 
 
-class LoggingCfg(BaseModel):
+class LoggingConfig(BaseModel):
     level: str = "INFO"
     # Application logs and turn metrics go to separate files. Mixed together, the
     # turn log (§11) can no longer be parsed as-is and every reader needs a filter.
@@ -244,7 +243,7 @@ class LoggingCfg(BaseModel):
     console: bool = True
 
 
-class BudgetCfg(BaseModel):
+class LatencyBudgetConfig(BaseModel):
     """Latency budget in milliseconds (§6)."""
 
     silence: int = 800
@@ -268,28 +267,28 @@ class Settings(BaseSettings):
     # Explicit per-role override. Anything omitted follows perf_mode.
     placement: dict[str, Placement] = {}
 
-    session: SessionCfg = SessionCfg()
-    audio: AudioCfg = AudioCfg()
-    frontend: FrontendCfg = FrontendCfg()
-    shm: ShmCfg = ShmCfg()
-    services: ServicesCfg = ServicesCfg()
-    remote: RemoteCfg = RemoteCfg()
-    asr: AsrCfg = AsrCfg()
-    asr_verify: AsrVerifyCfg = AsrVerifyCfg()
-    llm: LlmCfg
-    tts: TtsCfg = TtsCfg()
-    zh: ZhCfg = ZhCfg()
-    context: ContextCfg = ContextCfg()
-    ui: UiCfg = UiCfg()
-    store: StoreCfg = StoreCfg()
-    logging: LoggingCfg = LoggingCfg()
-    budget_ms: BudgetCfg = BudgetCfg()
+    session: SessionConfig = SessionConfig()
+    audio: AudioConfig = AudioConfig()
+    frontend: FrontendConfig = FrontendConfig()
+    shm: SharedMemoryConfig = SharedMemoryConfig()
+    services: ServiceEndpointsConfig = ServiceEndpointsConfig()
+    remote: RemoteConfig = RemoteConfig()
+    asr: AsrConfig = AsrConfig()
+    asr_verify: AsrVerificationConfig = AsrVerificationConfig()
+    llm: LanguageModelConfig
+    tts: TextToSpeechConfig = TextToSpeechConfig()
+    zh: TraditionalChineseConfig = TraditionalChineseConfig()
+    context: ContextConfig = ContextConfig()
+    ui: UserInterfaceConfig = UserInterfaceConfig()
+    store: StoreConfig = StoreConfig()
+    logging: LoggingConfig = LoggingConfig()
+    budget_ms: LatencyBudgetConfig = LatencyBudgetConfig()
 
     # Kept so relative paths can be resolved against the repository root.
     root: Path = REPO_ROOT
 
-    def resolve(self, p: Path) -> Path:
-        return p if p.is_absolute() else (self.root / p).resolve()
+    def resolve(self, path: Path) -> Path:
+        return path if path.is_absolute() else (self.root / path).resolve()
 
     # -- role placement ----------------------------------------------------
     def resolved_placement(self) -> dict[str, Placement]:
@@ -299,28 +298,33 @@ class Settings(BaseSettings):
         perf_mode says. A mode that silently points at an unreachable box would
         just turn into a per-turn timeout.
         """
-        base = dict(PERF_PLACEMENT[self.perf_mode])
+        resolved = dict(PERF_PLACEMENT[self.perf_mode])
         for role, side in self.placement.items():
             if role not in ROLES:
                 raise ValueError(f"unknown role in placement: {role}")
-            base[role] = side
+            resolved[role] = side
         if not self.remote.enabled:
             return dict.fromkeys(ROLES, "local")
-        return base
+        return resolved
 
     def url_for(self, role: str, side: Placement) -> str:
-        svc = self.remote.services if side == "remote" else self.services
-        return getattr(svc, role)
+        services = self.remote.services if side == "remote" else self.services
+        return getattr(services, role)
 
     @property
     def audio_leaves_device(self) -> bool:
         """True when utterance audio is sent off the box. Surfaced in the TUI."""
-        p = self.resolved_placement()
-        return p["asr"] == "remote" or p["asr_verify"] == "remote"
+        placement = self.resolved_placement()
+        return placement["asr"] == "remote" or placement["asr_verify"] == "remote"
 
     @classmethod
     def settings_customise_sources(
-        cls, settings_cls, init_settings, env_settings, dotenv_settings, file_secret_settings
+        cls,
+        settings_cls,
+        init_settings,
+        env_settings,
+        dotenv_settings,
+        file_secret_settings,
     ):
         """Environment variables beat the YAML file.
 
@@ -331,18 +335,18 @@ class Settings(BaseSettings):
         return (env_settings, dotenv_settings, init_settings, file_secret_settings)
 
 
-def deep_merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:
-    out = dict(base)
-    for k, v in over.items():
-        if isinstance(v, dict) and isinstance(out.get(k), dict):
-            out[k] = deep_merge(out[k], v)
+def deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in overlay.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = deep_merge(merged[key], value)
         else:
-            out[k] = v
-    return out
+            merged[key] = value
+    return merged
 
 
-def read_yaml(p: Path) -> dict[str, Any]:
-    return yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+def read_yaml(path: Path) -> dict[str, Any]:
+    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 
 
 def load_settings(path: str | Path | None = None) -> Settings:
@@ -418,18 +422,3 @@ def local_config_path() -> Path:
     when both trees are mounted from the same development checkout.
     """
     return Path(os.environ.get("KOTONOHA_LOCAL_CONFIG", LOCAL_CONFIG))
-
-__all__ = [
-    "Settings",
-    "load_settings",
-    "config_layers",
-    "deep_merge",
-    "read_yaml",
-    "Lang",
-    "Placement",
-    "ROLES",
-    "REPO_ROOT",
-    "DEFAULT_CONFIG",
-    "LOCAL_CONFIG",
-    "local_config_path",
-]

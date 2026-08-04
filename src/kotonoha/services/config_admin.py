@@ -15,8 +15,8 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from ..config import Settings, load_settings, local_config_path, read_yaml
-from ..config_store import apply_changes
+from kotonoha.config import Settings, load_settings, local_config_path, read_yaml
+from kotonoha.config_store import apply_changes
 
 router = APIRouter(prefix="/admin", tags=["administration"])
 
@@ -107,6 +107,3 @@ def put_config(update: ConfigUpdate) -> dict[str, Any]:
     settings = load_settings(_base_config_path())
     _write_llm_environment(settings)
     return snapshot()
-
-
-__all__ = ["REMOTE_EDITABLE_PATHS", "router", "snapshot"]

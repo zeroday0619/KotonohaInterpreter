@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from kotonoha.config import BudgetCfg
+from kotonoha.config import LatencyBudgetConfig
 from kotonoha.core.state import IllegalTransition, Machine, State
 from kotonoha.metrics import TurnMetrics
 
@@ -49,7 +49,7 @@ def test_force_idle_from_any_state():
 def test_metrics_five_marks_and_budget():
     m = TurnMetrics()
     base = 1000.0
-    m.t.update(
+    m.timestamps.update(
         {
             "eou": base,
             "asr_done": base + 0.85,
@@ -64,15 +64,21 @@ def test_metrics_five_marks_and_budget():
     assert s["tts_first_packet"] == pytest.approx(250.0, abs=1)
     assert s["total_to_first_audio"] == pytest.approx(1650.0, abs=1)
 
-    assert m.over_budget(BudgetCfg()) == {}  # inside the 2.9 s budget
+    assert m.over_budget(LatencyBudgetConfig()) == {}  # inside the 2.9 s budget
 
 
 def test_metrics_reports_which_stage_blew_the_budget():
     m = TurnMetrics()
     base = 0.0
-    m.t.update({"eou": base, "asr_done": base + 2.0, "first_clause": base + 3.0,
-                "first_audio": base + 3.5})
-    over = m.over_budget(BudgetCfg())
+    m.timestamps.update(
+        {
+            "eou": base,
+            "asr_done": base + 2.0,
+            "first_clause": base + 3.0,
+            "first_audio": base + 3.5,
+        }
+    )
+    over = m.over_budget(LatencyBudgetConfig())
     assert "asr" in over and "total_to_first_audio" in over
     assert over["asr"] == pytest.approx(1000.0, abs=1)
 
@@ -86,7 +92,7 @@ def test_turn_dict_carries_required_fields():
     m.cross_verify_fired = True
     m.audio_seconds = 3.2
     m.output_tokens = 41
-    d = m.to_dict(BudgetCfg())
+    d = m.to_dict(LatencyBudgetConfig())
     for k in (
         "lang_detected", "lang_source", "lid_confidence", "asr_avg_logprob",
         "cross_verify_fired", "audio_seconds", "output_tokens",

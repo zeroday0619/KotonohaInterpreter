@@ -173,7 +173,7 @@ async def test_config_editor_composes_one_row_per_field(tmp_path):
     async with app.run_test() as pilot:
         await pilot.pause()
         assert len(app._rows) == len(FIELDS)
-        assert {r.spec.path for r in app._rows} == {f.path for f in FIELDS}
+        assert {r.specification.path for r in app._rows} == {f.path for f in FIELDS}
 
 
 async def test_config_editor_titles_follow_the_locale(tmp_path):
@@ -213,7 +213,7 @@ async def test_category_switch_preserves_unsaved_input(tmp_path):
     async with app.run_test() as pilot:
         await pilot.pause()
         app._show_section("remote")
-        row = next(r for r in app._rows if r.spec.path == "remote.services.llm")
+        row = next(r for r in app._rows if r.specification.path == "remote.services.llm")
         row.editor.value = "http://a6000.internal:8003"
 
         app._show_section("interface")
@@ -249,7 +249,7 @@ async def test_editing_a_field_persists_it(tmp_path):
     app = ConfigApp(local_path=target)
     async with app.run_test() as pilot:
         await pilot.pause()
-        row = next(r for r in app._rows if r.spec.path == "perf_mode")
+        row = next(r for r in app._rows if r.specification.path == "perf_mode")
         row.editor.value = "hybrid"
         app._say = lambda message, style: None  # noqa: ARG005
         await app.action_save()
@@ -261,7 +261,7 @@ async def test_reload_restores_the_stored_values(tmp_path):
     app = ConfigApp(local_path=tmp_path / "local.yaml")
     async with app.run_test() as pilot:
         await pilot.pause()
-        row = next(r for r in app._rows if r.spec.path == "perf_mode")
+        row = next(r for r in app._rows if r.specification.path == "perf_mode")
         original = row.editor.value
         row.editor.value = "remote"
         await app.action_reload()
@@ -311,7 +311,7 @@ async def test_remote_target_loads_and_saves_through_the_admin_client(tmp_path):
         assert app.query_one("#category-asr").display
         assert not app.query_one("#category-session").display
 
-        row = next(row for row in app._rows if row.spec.path == "llm.n_ctx")
+        row = next(row for row in app._rows if row.specification.path == "llm.n_ctx")
         row.editor.value = "8192"
         await app.action_save()
 
@@ -324,7 +324,7 @@ async def test_collection_fields_accept_yaml_flow_values(tmp_path):
     app = ConfigApp(local_path=tmp_path / "local.yaml")
     async with app.run_test() as pilot:
         await pilot.pause()
-        row = next(row for row in app._rows if row.spec.path == "session.pair")
+        row = next(row for row in app._rows if row.specification.path == "session.pair")
         row.editor.value = "[ja, zh-TW]"
         await app.action_save()
     written = yaml.safe_load((tmp_path / "local.yaml").read_text(encoding="utf-8"))
@@ -353,16 +353,16 @@ async def test_main_interface_composes_with_localized_labels(wav_path, tmp_path,
         settings.logging.level,
         settings.resolve(settings.logging.log_path),
         settings.logging.console,
-        "orch",
+        "orchestrator",
         terminal_interface=True,
     )
-    orch = _build(settings, wav=wav_path)
-    app = KotonohaApp(orch)
+    orchestrator = _build(settings, wave_path=wav_path)
+    app = KotonohaApp(orchestrator)
     async with app.run_test() as pilot:
         await pilot.pause()
         assert app.title == translate_to("ko", "Kotonoha Interpreter")
-        assert app.src._title == translate_to("ko", "Source (ASR)")
-        assert app.tgt._title == translate_to("ko", "Translation")
+        assert app.source_pane._title == translate_to("ko", "Source (ASR)")
+        assert app.translation_pane._title == translate_to("ko", "Translation")
         assert str(app.query_one("#log-title").render()) == translate_to("ko", "Application logs")
         get_logger().info("tui.test", readable=True)
         await pilot.pause(0.2)
@@ -379,12 +379,12 @@ async def test_main_interface_composes_with_localized_labels(wav_path, tmp_path,
             translate_to("ko", "Leave text input"),
             translate_to("ko", "Quit"),
         ]
-        app.src.push("previous source")
-        app.tgt.push("previous translation")
+        app.source_pane.push("previous source")
+        app.translation_pane.push("previous translation")
         app._frame_accumulator.push_translation("stale pending translation")
         app._apply(UiEvent("state", {"state": "LISTENING"}))
-        assert app.src._lines == []
-        assert app.tgt._lines == []
+        assert app.source_pane._lines == []
+        assert app.translation_pane._lines == []
         assert not app._frame_accumulator.advance().translation_changed
     setup_logging()
     reset_terminal_interface_logs()

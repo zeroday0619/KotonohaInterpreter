@@ -6,14 +6,14 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from ..config import ROLES, Settings
-from ..logging_setup import get_logger
-from .asr import AsrClient
-from .asr_verify import AsrVerifyClient
-from .base import remote_transport_kwargs
-from .llm import LlmClient
-from .router import FailoverClient
-from .tts import TtsClient
+from kotonoha.clients.asr import AsrClient
+from kotonoha.clients.asr_verify import AsrVerifyClient
+from kotonoha.clients.base import remote_transport_kwargs
+from kotonoha.clients.llm import LanguageModelClient
+from kotonoha.clients.router import FailoverClient
+from kotonoha.clients.tts import TextToSpeechClient
+from kotonoha.config import ROLES, Settings
+from kotonoha.logging_setup import get_logger
 
 log = get_logger(__name__)
 
@@ -29,54 +29,77 @@ class ServiceGroup:
         return [self.asr, self.asr_verify, self.llm, self.tts]
 
     def start_probes(self) -> None:
-        for c in self.all():
-            c.start_probe()
+        for client in self.all():
+            client.start_probe()
 
     def status(self) -> dict[str, Any]:
-        return {c.role: c.status() for c in self.all()}
+        return {client.role: client.status() for client in self.all()}
 
     @property
     def placement(self) -> dict[str, str]:
-        return {c.role: c.side for c in self.all()}
+        return {client.role: client.side for client in self.all()}
 
     async def aclose(self) -> None:
-        for c in self.all():
-            await c.aclose()
+        for client in self.all():
+            await client.aclose()
 
 
 _FACTORY = {
-    "asr": lambda s, url, side, tk: AsrClient(
-        url, s.asr, side=side, encoding=s.remote.audio_encoding, **tk
+    "asr": lambda settings, url, side, transport: AsrClient(
+        url,
+        settings.asr,
+        side=side,
+        encoding=settings.remote.audio_encoding,
+        **transport,
     ),
-    "asr_verify": lambda s, url, side, tk: AsrVerifyClient(
-        url, s.asr_verify, side=side, encoding=s.remote.audio_encoding, **tk
+    "asr_verify": lambda settings, url, side, transport: AsrVerifyClient(
+        url,
+        settings.asr_verify,
+        side=side,
+        encoding=settings.remote.audio_encoding,
+        **transport,
     ),
-    "llm": lambda s, url, side, tk: LlmClient(url, s.llm, side=side, **tk),
-    "tts": lambda s, url, side, tk: TtsClient(url, s.tts, side=side, **tk),
+    "llm": lambda settings, url, side, transport: LanguageModelClient(
+        url,
+        settings.llm,
+        side=side,
+        **transport,
+    ),
+    "tts": lambda settings, url, side, transport: TextToSpeechClient(
+        url,
+        settings.tts,
+        side=side,
+        **transport,
+    ),
 }
 
 
 def build_service_group(
-    s: Settings, on_change: Callable[[str, str, str], None] | None = None
+    settings: Settings,
+    on_change: Callable[[str, str, str], None] | None = None,
 ) -> ServiceGroup:
-    placement = s.resolved_placement()
-    remote_kwargs = remote_transport_kwargs(s.remote)
+    placement = settings.resolved_placement()
+    remote_options = remote_transport_kwargs(settings.remote)
 
     built = {}
     for role in ROLES:
         side = placement[role]
-        make = _FACTORY[role]
-        tk = remote_kwargs if side == "remote" else {}
-        preferred = make(s, s.url_for(role, side), side, tk)
+        factory = _FACTORY[role]
+        transport = remote_options if side == "remote" else {}
+        preferred = factory(settings, settings.url_for(role, side), side, transport)
         # A remote role keeps its on-board twin ready so a link failure costs a
         # retry rather than the turn (§10).
-        fallback = make(s, s.url_for(role, "local"), "local", {}) if side == "remote" else None
-        built[role] = FailoverClient(role, preferred, fallback, s.remote, on_change)
+        fallback = (
+            factory(settings, settings.url_for(role, "local"), "local", {})
+            if side == "remote"
+            else None
+        )
+        built[role] = FailoverClient(role, preferred, fallback, settings.remote, on_change)
 
     log.info(
         "services.built",
-        perf_mode=s.perf_mode,
+        perf_mode=settings.perf_mode,
         placement=placement,
-        audio_leaves_device=s.audio_leaves_device,
+        audio_leaves_device=settings.audio_leaves_device,
     )
     return ServiceGroup(**built)

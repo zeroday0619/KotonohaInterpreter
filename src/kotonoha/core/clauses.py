@@ -16,13 +16,22 @@ TTS. That includes the case where the marker arrives split across stream deltas.
 
 from __future__ import annotations
 
-from ..prompts.translate import SRC_MARKER
+from kotonoha.prompts.translate import SRC_MARKER
 
 HARD_TERMINATORS = "。．.!?！？…‥\n"
 SOFT_TERMINATORS = "、，,;；:：）)】」』"
 
 
 class ClauseStreamer:
+    first_min_chars: int
+    min_chars: int
+    max_chars: int
+    marker: str
+    _all: str
+    _emitted: int
+    _count: int
+    _stopped: bool
+
     def __init__(
         self,
         first_min_chars: int = 6,
@@ -50,8 +59,8 @@ class ClauseStreamer:
 
     @property
     def translation(self) -> str:
-        idx = self._all.find(self.marker)
-        return (self._all if idx < 0 else self._all[:idx]).strip()
+        marker_index = self._all.find(self.marker)
+        return (self._all if marker_index < 0 else self._all[:marker_index]).strip()
 
     @property
     def clause_count(self) -> int:
@@ -63,22 +72,22 @@ class ClauseStreamer:
         if self._stopped:
             return []
 
-        idx = self._all.find(self.marker)
-        if idx >= 0:
+        marker_index = self._all.find(self.marker)
+        if marker_index >= 0:
             self._stopped = True
-            avail = self._all[:idx]
-            out = self._cut(avail, final=True)
-            return out
+            available = self._all[:marker_index]
+            clauses = self._cut(available, final=True)
+            return clauses
 
         hold = self._partial_marker_len(self._all)
-        avail = self._all[: len(self._all) - hold] if hold else self._all
-        return self._cut(avail, final=False)
+        available = self._all[: len(self._all) - hold] if hold else self._all
+        return self._cut(available, final=False)
 
     def flush(self) -> list[str]:
-        idx = self._all.find(self.marker)
-        avail = self._all if idx < 0 else self._all[:idx]
+        marker_index = self._all.find(self.marker)
+        available = self._all if marker_index < 0 else self._all[:marker_index]
         self._stopped = True
-        return self._cut(avail, final=True)
+        return self._cut(available, final=True)
 
     # -- internals -------------------------------------------------------
     def _partial_marker_len(self, text: str) -> int:
@@ -91,41 +100,41 @@ class ClauseStreamer:
     def _threshold(self) -> int:
         return self.first_min_chars if self._count == 0 else self.min_chars
 
-    def _cut(self, avail: str, final: bool) -> list[str]:
-        region = avail[self._emitted :]
+    def _cut(self, available: str, final: bool) -> list[str]:
+        region = available[self._emitted :]
         if not region:
             return []
 
-        out: list[str] = []
+        clauses: list[str] = []
         start = 0
-        for i, ch in enumerate(region):
-            seg_len = i - start + 1
-            if ch in HARD_TERMINATORS:
-                seg = region[start : i + 1].strip()
-                if seg:
-                    out.append(seg)
+        for index, character in enumerate(region):
+            segment_length = index - start + 1
+            if character in HARD_TERMINATORS:
+                segment = region[start : index + 1].strip()
+                if segment:
+                    clauses.append(segment)
                     self._count += 1
-                start = i + 1
-            elif ch in SOFT_TERMINATORS and seg_len >= self._threshold():
-                seg = region[start : i + 1].strip()
-                if seg:
-                    out.append(seg)
+                start = index + 1
+            elif character in SOFT_TERMINATORS and segment_length >= self._threshold():
+                segment = region[start : index + 1].strip()
+                if segment:
+                    clauses.append(segment)
                     self._count += 1
-                start = i + 1
-            elif seg_len >= self.max_chars and ch in " 　":
-                seg = region[start : i + 1].strip()
-                if seg:
-                    out.append(seg)
+                start = index + 1
+            elif segment_length >= self.max_chars and character in " 　":
+                segment = region[start : index + 1].strip()
+                if segment:
+                    clauses.append(segment)
                     self._count += 1
-                start = i + 1
+                start = index + 1
 
         self._emitted += start
 
         if final:
-            rest = avail[self._emitted :].strip()
+            rest = available[self._emitted :].strip()
             if rest:
-                out.append(rest)
+                clauses.append(rest)
                 self._count += 1
-                self._emitted = len(avail)
+                self._emitted = len(available)
 
-        return [s for s in out if s]
+        return [clause for clause in clauses if clause]
