@@ -30,6 +30,13 @@ from kotonoha._call_compatibility import keyword_compatible
 from kotonoha._config import Settings, load_settings
 from kotonoha._i18n import _, available_locales, set_locale
 from kotonoha._logging_setup import setup_logging
+from kotonoha._typer_i18n import (
+    LocalizedTyperCommand,
+    LocalizedTyperGroup,
+    configure_typer_chrome,
+)
+
+configure_typer_chrome()
 
 
 # -- shared wiring --------------------------------------------------------
@@ -159,15 +166,24 @@ SERVICE_TARGETS = {
 
 app = typer.Typer(
     name="kotonoha",
+    cls=LocalizedTyperGroup,
     help=_("Consecutive four-language offline speech interpreter"),
     no_args_is_help=True,
     add_completion=True,
     context_settings={"help_option_names": ["-h", "--help"]},
 )
-glossary_app = typer.Typer(name="glossary", help=_("Manage the glossary"), no_args_is_help=True)
+glossary_app = typer.Typer(
+    name="glossary",
+    cls=LocalizedTyperGroup,
+    help=_("Manage the glossary"),
+    no_args_is_help=True,
+)
 app.add_typer(glossary_app)
 history_app = typer.Typer(
-    name="history", help=_("Browse past interpretation turns"), no_args_is_help=True
+    name="history",
+    cls=LocalizedTyperGroup,
+    help=_("Browse past interpretation turns"),
+    no_args_is_help=True,
 )
 app.add_typer(history_app)
 
@@ -211,7 +227,7 @@ def _settings(
 
 
 # -- commands -------------------------------------------------------------
-@app.command(help=_("Start the terminal interface"))
+@app.command(cls=LocalizedTyperCommand, help=_("Start the terminal interface"))
 @keyword_compatible
 def run(
     context: typer.Context,
@@ -230,7 +246,7 @@ def run(
     run_async(KotonohaApp(_build(settings)).run_async())
 
 
-@app.command(help=_("Start the integrated terminal interface"))
+@app.command(cls=LocalizedTyperCommand, help=_("Start the integrated terminal interface"))
 @keyword_compatible
 def tui(
     context: typer.Context,
@@ -241,7 +257,10 @@ def tui(
     run_async(run_unified_tui(context.obj.config, _build))
 
 
-@app.command(help=_("Run the pipeline from a WAV file, without a microphone"))
+@app.command(
+    cls=LocalizedTyperCommand,
+    help=_("Run the pipeline from a WAV file, without a microphone"),
+)
 @keyword_compatible
 def replay(
     context: typer.Context,
@@ -274,7 +293,11 @@ def replay(
     print(_("Turn log: {path}", path=settings.resolve(settings.logging.turn_log_path)))
 
 
-@app.command("text", help=_("Interpret typed text without a microphone"))
+@app.command(
+    "text",
+    cls=LocalizedTyperCommand,
+    help=_("Interpret typed text without a microphone"),
+)
 @keyword_compatible
 def text_command(
     context: typer.Context,
@@ -282,7 +305,10 @@ def text_command(
     message: Annotated[str, typer.Argument(help=_("Text to interpret"))],
     source: Annotated[
         str | None,
-        typer.Option("--from", help=_("Source language; omit to read it from the script")),
+        typer.Option(
+            "--from",
+            help=_("Source language; omit to detect it from the writing system"),
+        ),
     ] = None,
     speak: Annotated[
         bool, typer.Option("--speak/--no-speak", help=_("Play the synthesized translation"))
@@ -319,7 +345,7 @@ def text_command(
 
     result = run_async(execute())
     if result is None:
-        print(_("The turn was refused: empty input, or another turn is running"))
+        print(_("The turn cannot start because the input is empty or another turn is running"))
         raise typer.Exit(code=1)
     print(_("[{lang}] {text}", lang=result.get("src_lang"), text=result.get("source_text") or ""))
     print(
@@ -327,7 +353,7 @@ def text_command(
     )
 
 
-@app.command(help=_("List audio devices"))
+@app.command(cls=LocalizedTyperCommand, help=_("List audio devices"))
 @keyword_compatible
 def devices() -> None:
     import sounddevice
@@ -336,7 +362,7 @@ def devices() -> None:
     print("\n" + _("Default input/output:"), sounddevice.default.device)
 
 
-@app.command(help=_("Start a model service"))
+@app.command(cls=LocalizedTyperCommand, help=_("Start a model service"))
 @keyword_compatible
 def serve(
     service: Annotated[ServiceName, typer.Argument(help=_("Service to start"))],
@@ -359,7 +385,11 @@ def serve(
     )
 
 
-@glossary_app.command("import", help=_("Load glossary and Traditional Chinese rules from YAML"))
+@glossary_app.command(
+    "import",
+    cls=LocalizedTyperCommand,
+    help=_("Load glossary and Traditional Chinese rules from YAML"),
+)
 @keyword_compatible
 def glossary_import(
     context: typer.Context,
@@ -400,7 +430,11 @@ def glossary_import(
     )
 
 
-@glossary_app.command("list", help=_("List registered terms"))
+@glossary_app.command(
+    "list",
+    cls=LocalizedTyperCommand,
+    help=_("List registered terms"),
+)
 @keyword_compatible
 def glossary_list(
     context: typer.Context,
@@ -420,7 +454,10 @@ def glossary_list(
         store.close()
 
 
-@app.command(help=_("Report environment, role placement and service health"))
+@app.command(
+    cls=LocalizedTyperCommand,
+    help=_("Report environment, role placement and service health"),
+)
 @keyword_compatible
 def doctor(
     context: typer.Context,
@@ -507,7 +544,10 @@ def doctor(
     run_async(probe())
 
 
-@app.command(help=_("Measure latency and throughput to the external server"))
+@app.command(
+    cls=LocalizedTyperCommand,
+    help=_("Measure latency and throughput to the external server"),
+)
 @keyword_compatible
 def netcheck(
     context: typer.Context,
@@ -629,7 +669,7 @@ def netcheck(
             print(
                 "\n"
                 + _(
-                    "Connection failed: {roles}. These roles fall back on-board.",
+                    "Connection failed: {roles}. These roles will use onboard fallback services.",
                     roles=", ".join(failed_roles),
                 )
             )
@@ -657,7 +697,10 @@ def netcheck(
         raise typer.Exit(code=1)
 
 
-@app.command(help=_("Edit the configuration in a terminal interface"))
+@app.command(
+    cls=LocalizedTyperCommand,
+    help=_("Edit the configuration in a terminal interface"),
+)
 @keyword_compatible
 def config(
     context: typer.Context,
@@ -690,7 +733,11 @@ def _open_store(
     return Store(settings.resolve(settings.store.path))
 
 
-@history_app.command("browse", help=_("Open the history browser"))
+@history_app.command(
+    "browse",
+    cls=LocalizedTyperCommand,
+    help=_("Open the history browser"),
+)
 @keyword_compatible
 def history_browse(
     context: typer.Context,
@@ -701,7 +748,11 @@ def history_browse(
     run_async(HistoryApp(config_path=context.obj.config).run_async())
 
 
-@history_app.command("list", help=_("Print past turns to standard output"))
+@history_app.command(
+    "list",
+    cls=LocalizedTyperCommand,
+    help=_("Print past turns to standard output"),
+)
 @keyword_compatible
 def history_list(
     context: typer.Context,
@@ -746,7 +797,11 @@ def history_list(
     print(_("{shown} of {total} turns", shown=len(entries), total=total))
 
 
-@history_app.command("export", help=_("Export past turns as JSONL"))
+@history_app.command(
+    "export",
+    cls=LocalizedTyperCommand,
+    help=_("Export past turns as JSONL"),
+)
 @keyword_compatible
 def history_export(
     context: typer.Context,

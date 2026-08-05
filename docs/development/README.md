@@ -23,6 +23,10 @@ uv run python scripts/i18n.py check
 Repository-specific coding, localization, test, and commit rules are defined in
 [AGENTS.md](../../AGENTS.md).
 
+English source-string requirements, locale-specific style, terminology, protected
+content, and the catalog workflow are defined in the
+[Localization Guide](localization.md).
+
 ## Evaluation Data
 
 Record evaluation data with the production microphone in the production room. The target

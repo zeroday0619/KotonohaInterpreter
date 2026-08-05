@@ -195,7 +195,9 @@ VALUE_KIND_DESCRIPTIONS: dict[str, str] = {
 FIELD_DESCRIPTIONS: dict[str, str] = {
     "asr.backend": N_("vLLM is the default; Transformers is the fallback."),
     "asr.n_best": N_("Hypotheses returned per utterance. The correction pass consumes all."),
-    "asr_verify.mode": N_("conditional gates on confidence; always runs every turn."),
+    "asr_verify.mode": N_(
+            "conditional verifies only low-confidence turns; always verifies every turn."
+    ),
     "audio.input_device": N_("Microphone index or name. Empty selects the system default."),
     "audio.output_device": N_("Speaker index or name. Empty selects the system default."),
     "frontend.denoise.enabled": N_("DeepFilterNet3 noise suppression."),
@@ -205,7 +207,9 @@ FIELD_DESCRIPTIONS: dict[str, str] = {
     ),
     "frontend.vad.silence_ms": N_("Silence required before end-of-utterance."),
     "frontend.vad.threshold": N_("Speech onset probability, 0 to 1."),
-    "llm.profile": N_("moe is the 30B mixture; dense is the 14B."),
+    "llm.profile": N_(
+            "moe selects the 30B mixture-of-experts model; dense selects the 14B model."
+    ),
     "logging.console": N_(
             "Show structured application logs in the TUI. Model services emit JSON to their "
             "console."
@@ -215,7 +219,9 @@ FIELD_DESCRIPTIONS: dict[str, str] = {
             "device. remote moves every model."
     ),
     "remote.audio_encoding": N_("s16le halves the bytes on the wire against f32le."),
-    "remote.enabled": N_("When false every role runs locally, whatever perf_mode says."),
+    "remote.enabled": N_(
+            "When false, every role runs locally regardless of perf_mode."
+    ),
     "remote.failover_after": N_("Consecutive transport failures before a role falls back."),
     "remote.services.asr": N_("ASR service URL on the external server."),
     "remote.services.asr_verify": N_("Verification service URL on the external server."),
@@ -225,11 +231,15 @@ FIELD_DESCRIPTIONS: dict[str, str] = {
             "push_to_talk requires a key press, auto segments on the VAD, and text closes the "
             "microphone and takes utterances from the keyboard."
     ),
-    "session.routing": N_("pair swaps between two languages; fixed always targets one."),
+    "session.routing": N_(
+            "pair alternates between two languages; fixed always uses one target language."
+    ),
     "session.text_source_language": N_(
             "Source language for typed input. auto reads it from the script."
     ),
-    "tts.backend": N_("qwen3 depends on the Spike 2 result; melo is the fallback."),
+    "tts.backend": N_(
+            "qwen3 requires successful Spike 2 validation; melo is the fallback."
+    ),
     "ui.language": N_("Interface language. auto follows the system locale."),
     "ui.refresh_hz": N_(
             "Maximum TUI frame scheduler rate. Idle frames do not repaint the terminal."
@@ -771,7 +781,11 @@ class ConfigApp(App):
             changes = self._collect_changes()
         except ValueError as error:
             self._say(
-                _("Rejected, configuration would be invalid: {error}", error=str(error)), "red"
+                _(
+                    "Rejected because the configuration would be invalid: {error}",
+                    error=str(error),
+                ),
+                "red",
             )
             return
         if not changes:
@@ -790,7 +804,11 @@ class ConfigApp(App):
         )
         if not result.written:
             self._say(
-                _("Rejected, configuration would be invalid: {error}", error=result.error), "red"
+                _(
+                    "Rejected because the configuration would be invalid: {error}",
+                    error=result.error,
+                ),
+                "red",
             )
             return
         self.settings = await asyncio.to_thread(load_settings, self.config_path)

@@ -67,7 +67,7 @@ uv run ruff check .
 uv run pytest -q
 ```
 
-Current baseline: 221 tests and zero lint findings.
+Current baseline: 227 tests and zero lint findings.
 
 ## Non-negotiable constraints
 
@@ -289,10 +289,13 @@ take effect after service restart. vLLM translation settings are mirrored to
 
 Operator-facing CLI and TUI text uses gettext with English source strings as message ids.
 Supported locales are `en`, `ko`, `ja`, and `zh-TW`.
+`docs/development/localization.md` defines English source style, locale tone, terminology,
+protected content, and the catalog review workflow.
 
 | Path | Purpose |
 |---|---|
 | `src/kotonoha/_i18n.py` | Locale resolution and `_`, `N_`, `pgettext` |
+| `src/kotonoha/_typer_i18n.py` | Localized Typer help chrome and command classes |
 | `src/kotonoha/locale/kotonoha.pot` | Generated extraction template |
 | `src/kotonoha/locale/<lang>/LC_MESSAGES/kotonoha.po` | Translation source |
 | `src/kotonoha/locale/<lang>/LC_MESSAGES/kotonoha.mo` | Generated, gitignored catalog |

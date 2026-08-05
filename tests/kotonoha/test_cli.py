@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any, ClassVar, Final
 
@@ -107,3 +110,43 @@ def test_integrated_tui_command_is_registered() -> None:
 
     assert result.exit_code == 0, result.exception
     assert "kotonoha tui" in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("locale", "usage", "options", "commands", "completion", "help_text"),
+    (
+        ("ko", "사용법: ", "옵션", "명령", "현재 셸에 자동 완성을 설치합니다.", "이 도움말"),
+        ("ja", "使用法： ", "オプション", "コマンド", "現在のシェルに補完", "このヘルプ"),
+        ("zh-TW", "用法： ", "選項", "命令", "在目前命令殼層安裝", "顯示此說明"),
+    ),
+)
+def test_framework_help_text_uses_the_import_time_locale(
+    _positional_only: object | None = None,
+    /,
+    *,
+    locale: str,
+    usage: str,
+    options: str,
+    commands: str,
+    completion: str,
+    help_text: str,
+) -> None:
+    environment = os.environ.copy()
+    environment["KOTONOHA_LANG"] = locale
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from kotonoha._cli import main; main()",
+            "--help",
+        ],
+        cwd=PROJECT_ROOT,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    for expected in (usage, options, commands, completion, help_text):
+        assert expected in completed.stdout

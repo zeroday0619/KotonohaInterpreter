@@ -131,7 +131,8 @@ class StatusBar(Static):
         )
         if self.offbox_audio:
             # Audio placement must remain visible while remote mode is active.
-            text.append(" ⇗" + _(" audio off-box"), style="yellow bold")
+            # i18n: Preserve the leading space because this is appended to an icon.
+            text.append(" ⇗" + _(" audio sent remotely"), style="yellow bold")
         return text
 
 

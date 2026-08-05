@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import string
+from collections import Counter
 from typing import Any
 
 import pytest
@@ -55,19 +56,24 @@ def read_catalog(
 
 
 @pytest.fixture(scope="module")
-def template() -> Any:
-    """Message ids rebuilt by running the extractor, not read from the .pot.
-
-    Reading the committed template would only prove it agrees with itself. Running
-    extraction makes these tests fail when source strings change and the catalogs
-    were not updated.
-    """
+def i18n_tool() -> Any:
     spec = importlib.util.spec_from_file_location(
         "kotonoha_i18n_tool", REPO_ROOT / "scripts" / "i18n.py"
     )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.build_template()
+    return module
+
+
+@pytest.fixture(scope="module")
+def template(
+    _positional_only: object | None = None,
+    /,
+    *,
+    i18n_tool: Any,
+) -> Any:
+    """Rebuild message ids so a stale committed template cannot hide source drift."""
+    return i18n_tool.build_template()
 
 
 # -- catalog integrity ------------------------------------------------------
@@ -110,14 +116,43 @@ def test_format_placeholders_match_the_message_id(
     *,
     locale: Any,
 ) -> None:
-    """A translation that drops or renames a placeholder would format incorrectly."""
+    """Names, repetition, conversions, and format specifications must remain exact."""
     parse = string.Formatter().parse
     for entry in read_catalog(po_path(locale)):
         if not entry.id or not entry.string:
             continue
-        expected = {name for _t, name, _s, _c in parse(entry.id) if name}
-        actual = {name for _t, name, _s, _c in parse(entry.string) if name}
+        expected = Counter(
+            (name, specification, conversion)
+            for _text, name, specification, conversion in parse(entry.id)
+            if name is not None
+        )
+        actual = Counter(
+            (name, specification, conversion)
+            for _text, name, specification, conversion in parse(entry.string)
+            if name is not None
+        )
         assert actual == expected, f"{locale}: {entry.id!r} has {actual}, expected {expected}"
+
+
+@pytest.mark.parametrize("locale", TRANSLATED_LOCALES)
+def test_catalog_preserves_runtime_sensitive_text(
+    _positional_only: object | None = None,
+    /,
+    *,
+    locale: Any,
+    i18n_tool: Any,
+) -> None:
+    violations = [
+        (entry.id, violation)
+        for entry in read_catalog(po_path(locale))
+        if entry.id and isinstance(entry.id, str) and isinstance(entry.string, str)
+        for violation in i18n_tool.translation_violations(
+            entry.id,
+            entry.string,
+            locale=locale,
+        )
+    ]
+    assert not violations, f"{locale}: {violations[:5]}"
 
 
 @pytest.mark.parametrize("locale", TRANSLATED_LOCALES)

@@ -13,9 +13,12 @@ gettext. English is the source language and has no catalog.
 from __future__ import annotations
 
 import argparse
+import re
+import string
 import sys
+from collections import Counter
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 from babel.messages.catalog import Catalog
 from babel.messages.extract import extract_from_dir
@@ -45,6 +48,45 @@ METHOD_MAP = [("**.py", "python")]
 OPTIONS_MAP = {"**.py": {}}
 
 TRANSLATOR_LANGUAGES = [code for code in LOCALE_NAMES if code != DEFAULT_LOCALE]
+
+# These tokens name products, protocols, formats, identifiers, keys, or keyboard
+# controls. Translating one would make the interface disagree with configuration,
+# commands, or the runtime component it describes.
+PROTECTED_TOKENS: Final = (
+    "A6000",
+    "ASR",
+    "DeepFilterNet3",
+    "Enter",
+    "EOU",
+    "JSON",
+    "JSONL",
+    "Kotonoha",
+    "LLM",
+    "MIT",
+    "PCM",
+    "PTT",
+    "Spike 2",
+    "TTS",
+    "Transformers",
+    "VAD",
+    "WAV",
+    "YAML",
+    "f32le",
+    "logging.console=false",
+    "perf_mode",
+    "push_to_talk",
+    "qwen3",
+    "remote.enabled",
+    "s16le",
+    "silero_onnx",
+    "vLLM",
+)
+CONTROL_CHARACTERS: Final = ("\n", "\r", "\t")
+FORBIDDEN_TERMS_BY_LOCALE: Final = {
+    "zh-TW": ("信息", "日誌", "服務器", "網絡", "視頻", "軟件", "默認", "鼠標"),
+}
+HTML_TAG_PATTERN: Final = re.compile(r"</?[^>]+>")
+RICH_TAG_PATTERN: Final = re.compile(r"\[[^\]]+\]")
 
 
 def build_template() -> Catalog:
@@ -80,6 +122,88 @@ def _has_placeholder(
 ) -> bool:
     text = message if isinstance(message, str) else (message[0] if message else "")
     return "{" in text and "}" in text
+
+
+def _format_placeholders(
+    message: str,
+    /,
+) -> Counter[tuple[str, str, str | None]]:
+    placeholders: Counter[tuple[str, str, str | None]] = Counter()
+    try:
+        parsed = string.Formatter().parse(message)
+        for _literal, name, specification, conversion in parsed:
+            if name is not None:
+                placeholders[(name, specification, conversion)] += 1
+    except ValueError:
+        # An invalid source format belongs to the source checker. Returning an
+        # impossible marker ensures the translated entry still fails validation.
+        placeholders[("<invalid>", "", None)] += 1
+    return placeholders
+
+
+def _edge_whitespace(
+    message: str,
+    /,
+) -> tuple[str, str]:
+    leading_match = re.match(r"^\s*", message)
+    trailing_match = re.search(r"\s*$", message)
+    leading = leading_match.group(0) if leading_match else ""
+    trailing = trailing_match.group(0) if trailing_match else ""
+    return leading, trailing
+
+
+def _token_occurrences(
+    message: str,
+    token: str,
+    /,
+) -> int:
+    boundary = r"[A-Za-z0-9_]"
+    pattern = rf"(?<!{boundary}){re.escape(token)}(?!{boundary})"
+    return len(re.findall(pattern, message))
+
+
+def _markup_tokens(
+    message: str,
+    /,
+) -> Counter[str]:
+    tokens = Counter(HTML_TAG_PATTERN.findall(message))
+    if "[/]" in message:
+        tokens.update(RICH_TAG_PATTERN.findall(message))
+    return tokens
+
+
+def translation_violations(
+    source: str,
+    translated: str,
+    /,
+    *,
+    locale: str | None = None,
+) -> tuple[str, ...]:
+    """Return catalog defects that can alter formatting or technical meaning."""
+    violations: list[str] = []
+    source_placeholders = _format_placeholders(source)
+    translated_placeholders = _format_placeholders(translated)
+    if translated_placeholders != source_placeholders:
+        violations.append("format placeholders or specifications differ")
+
+    if _edge_whitespace(translated) != _edge_whitespace(source):
+        violations.append("leading or trailing whitespace differs")
+
+    if _markup_tokens(translated) != _markup_tokens(source):
+        violations.append("markup tags differ")
+
+    for character in CONTROL_CHARACTERS:
+        if translated.count(character) != source.count(character):
+            violations.append(f"{character!r} count differs")
+
+    for token in PROTECTED_TOKENS:
+        source_count = _token_occurrences(source, token)
+        if source_count and _token_occurrences(translated, token) != source_count:
+            violations.append(f"protected token differs: {token}")
+    for term in FORBIDDEN_TERMS_BY_LOCALE.get(locale or "", ()):
+        if term in translated:
+            violations.append(f"locale-prohibited term: {term}")
+    return tuple(violations)
 
 
 def cmd_extract(
@@ -157,6 +281,12 @@ def cmd_check(
         obsolete = sorted(text for _context, text in catalog_ids - template_ids)
         untranslated = sorted(entry.id for entry in catalog if entry.id and not entry.string)
         fuzzy = sorted(entry.id for entry in catalog if entry.id and entry.fuzzy)
+        safety_violations = [
+            (entry.id, violation)
+            for entry in catalog
+            if entry.id and isinstance(entry.id, str) and isinstance(entry.string, str)
+            for violation in translation_violations(entry.id, entry.string, locale=locale)
+        ]
 
         for label, entries in (
             ("absent from catalog", missing),
@@ -169,6 +299,12 @@ def cmd_check(
                 print(f"{locale}: {len(entries)} {label}")
                 for text in entries[:5]:
                     print(f"    {text[:76]}")
+
+        if safety_violations:
+            problems += len(safety_violations)
+            print(f"{locale}: {len(safety_violations)} translation safety violations")
+            for message, violation in safety_violations[:5]:
+                print(f"    {violation}: {message[:60]}")
 
         if not mo_path(locale).exists():
             print(f"{locale}: .mo not compiled", file=sys.stderr)
