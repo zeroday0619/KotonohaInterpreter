@@ -174,12 +174,19 @@ def test_asr_images_use_vllm_runtimes_with_qwen3_support_checks() -> None:
         remote_dockerfile
     )
     assert "uv sync --active --frozen --no-dev" in remote_dockerfile
-    assert remote_dockerfile.count("--no-install-package numpy") == 2
+    assert "--no-install-package numpy" not in remote_dockerfile
     assert "uv pip install --system" not in remote_dockerfile
+    final_sync = remote_dockerfile.rindex("uv sync --active")
+    numpy_override = remote_dockerfile.index(
+        '--reinstall-package numpy "numpy>=2,<2.3"'
+    )
+    dependency_check = remote_dockerfile.index('uv pip check --python "$UV_PYTHON"')
+    assert final_sync < numpy_override < dependency_check
     assert 'uv pip check --python "$UV_PYTHON"' in remote_dockerfile
     assert "import kotonoha, numpy, scipy, sklearn, soxr" in remote_dockerfile
     assert "from transformers import GenerationMixin" in remote_dockerfile
-    assert "not Path(numpy.__file__).is_relative_to('/opt/kotonoha-venv')" in (
+    assert "(2, 0) <= numpy_release < (2, 3)" in remote_dockerfile
+    assert "Path(numpy.__file__).is_relative_to('/opt/kotonoha-venv')" in (
         remote_dockerfile
     )
     deploy_script = DEPLOY_SCRIPT.read_text(encoding="utf-8")
@@ -193,6 +200,7 @@ def test_asr_images_use_vllm_runtimes_with_qwen3_support_checks() -> None:
     assert "SPIKE_TRANSFORMERS_PYTHON=/opt/transformers-fallback/bin/python" in (
         jetson_dockerfile
     )
+    assert jetson_dockerfile.count("env -u UV_CONSTRAINT uv pip install") == 2
     fallback_install = jetson_dockerfile.index(
         '"transformers==${TRANSFORMERS_FALLBACK_VERSION}" librosa soundfile'
     )

@@ -27,11 +27,15 @@ RUN uv pip install --python "$UV_PYTHON" --no-cache --no-deps -e .
 # while the vendor vLLM runtime owns its Transformers 4.x installation. Keep
 # the fallback isolated and inherit only the vendor CUDA/PyTorch packages.
 # Install the fallback packages before exposing the vendor site-packages;
-# otherwise uv sees the vendor Transformers distribution and rejects 5.13.
+# otherwise the fallback imports the vendor Transformers distribution. The
+# image-wide uv constraint pins Transformers 4.57.3, so disable that constraint
+# only while populating the isolated fallback environment.
 RUN uv venv --python "$UV_PYTHON" /opt/transformers-fallback \
- && uv pip install --python /opt/transformers-fallback/bin/python --no-cache \
+ && env -u UV_CONSTRAINT uv pip install \
+      --python /opt/transformers-fallback/bin/python --no-cache \
       "transformers==${TRANSFORMERS_FALLBACK_VERSION}" librosa soundfile \
- && uv pip install --python /opt/transformers-fallback/bin/python --no-cache --no-deps \
+ && env -u UV_CONSTRAINT uv pip install \
+      --python /opt/transformers-fallback/bin/python --no-cache --no-deps \
       accelerate==1.12.0 \
  && /opt/transformers-fallback/bin/python -c \
  "from pathlib import Path; import site; vendor = next(Path('/opt/venv/lib').glob('python*/site-packages')); Path(site.getsitepackages()[0], 'vendor-vllm.pth').write_text(f'{vendor}\n', encoding='utf-8')" \

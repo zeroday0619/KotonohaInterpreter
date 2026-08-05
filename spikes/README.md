@@ -52,10 +52,11 @@ and vLLM environments for the default root runtime user. Jetson probes invoke
 `/opt/venv/bin/python` explicitly instead of falling back to the Ubuntu system Python.
 The prepared A6000 ASR image creates `/opt/kotonoha-venv` with access to the NGC system
 packages, then uses `uv sync --frozen` to install the locked project dependencies without
-modifying the externally managed system Python. It excludes the lock's NumPy wheel so
-the NGC image's mutually compatible NumPy, SciPy, scikit-learn, Transformers, and vLLM
-stack remains intact. Other A6000 probes use the Python executable supplied by their
-image. The container entrypoint returns result files and
+modifying the externally managed system Python. It then replaces the locked NumPy 1.x
+wheel inside that child environment with the NGC SciPy-compatible `>=2,<2.3` range.
+This target-only ABI overlay does not modify the workstation or Jetson environments.
+Other A6000 probes use the Python executable supplied by their image. The container
+entrypoint returns result files and
 their output directory to the invoking user's UID and GID before it exits. Image build
 failure stops the runner before any probe is started.
 
@@ -68,9 +69,11 @@ failure stops the runner before any probe is started.
 
 The default ASR image derives from the target vLLM image and adds the locked application
 runtime dependencies required by the probe, including `soxr`. The native Hugging Face
-ASR fallback remains isolated because it requires Transformers 5.13 or newer. The TTS
-image derives from `vllm/vllm-omni:v0.26.0`, installs the locked FastAPI application into
-a uv environment with access to the base system packages, and runs the same
+ASR fallback remains isolated because it requires Transformers 5.13 or newer. Its install
+clears the Jetson image's `UV_CONSTRAINT` only for that child environment; the vendor
+vLLM environment retains its Transformers 4.57.3 constraint. The TTS image derives from
+`vllm/vllm-omni:v0.26.0`, installs the locked FastAPI application into a uv environment
+with access to the base system packages, and runs the same
 `kotonoha.services._tts_server` path used by deployment. That service wraps the
 vLLM-Omni engine and speech-serving objects in-process; it does not start an internal
 HTTP server. No second TTS runtime enters the project lock.
