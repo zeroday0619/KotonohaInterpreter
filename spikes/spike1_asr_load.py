@@ -8,9 +8,9 @@ What this decides:
   · if it fails, how long the transformers path takes instead (needed to
     recompute the latency budget)
 
-Run this probe through ``bash spikes/run_all.sh <target>``. The host wrapper selects the
-target vLLM image, mounts model snapshots read-only, and executes this script inside the
-container.
+Run this probe through ``bash scripts/manage.sh benchmark <target>``. The management
+entry point delegates to the Docker harness, which selects the target vLLM image, mounts
+model snapshots read-only, and executes this script inside the container.
 """
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Merge hardware spike results into a host-specific report and settings patch.
 
-    bash spikes/run_all.sh jetson
+    bash scripts/manage.sh benchmark jetson
 
 Jetson results produce a local device overlay. A6000 results produce a remote service
 overlay. Host-specific measurements remain separate.

@@ -48,7 +48,7 @@ reallocation.
 Install the development environment:
 
 ```bash
-uv sync
+bash scripts/manage.sh setup workstation
 ```
 
 Open the integrated terminal interface:
@@ -60,16 +60,18 @@ uv run kotonoha tui
 Run the workstation quality gates:
 
 ```bash
-uv run ruff check .
-uv run pytest -q
+bash scripts/manage.sh check
 ```
 
 Deploy model services:
 
 ```bash
-bash scripts/deploy.sh jetson
-bash scripts/deploy.sh a6000
+bash scripts/manage.sh deploy jetson
+bash scripts/manage.sh deploy a6000
 ```
+
+The [management script reference](docs/operations/management.md) defines model staging,
+target setup, benchmarking, deployment, and dry-run commands.
 
 ## Documentation
 

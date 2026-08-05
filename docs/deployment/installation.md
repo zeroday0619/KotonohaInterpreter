@@ -160,13 +160,13 @@ starts resident model services, and waits for health checks.
 On the Jetson:
 
 ```bash
-bash scripts/deploy.sh jetson
+bash scripts/manage.sh deploy jetson
 ```
 
 On the A6000:
 
 ```bash
-bash scripts/deploy.sh a6000
+bash scripts/manage.sh deploy a6000
 ```
 
 The first A6000 run creates a protected `.env` file with a random 32-byte service token
@@ -181,6 +181,7 @@ Available options:
 --health-timeout SEC  Change the model startup timeout from 600 seconds
 --no-build            Start already-built images
 --skip-power-setup    Do not set Jetson MAXN mode or lock clocks
+--prepare-only        Validate the host and create configuration without deployment
 --reallocate-gpus     Stop A6000 services and recalculate GPU placement from free memory
 --remove-images       Remove project-built images during uninstall
 ```
@@ -205,17 +206,17 @@ Remove project containers and the Compose network:
 
 ```bash
 # Jetson
-bash scripts/deploy.sh uninstall jetson
+bash scripts/manage.sh uninstall jetson
 
 # A6000
-bash scripts/deploy.sh uninstall a6000
+bash scripts/manage.sh uninstall a6000
 ```
 
 Also remove images built by this project:
 
 ```bash
-bash scripts/deploy.sh uninstall jetson --remove-images
-bash scripts/deploy.sh uninstall a6000 --remove-images
+bash scripts/manage.sh uninstall jetson --remove-images
+bash scripts/manage.sh uninstall a6000 --remove-images
 ```
 
 Uninstall never removes model artifacts, logs, SQLite data, `.env`,
@@ -268,7 +269,7 @@ startup instead of changing the event-loop implementation silently.
 Run on a host with model-repository access:
 
 ```bash
-bash scripts/fetch_models.sh
+bash scripts/manage.sh models fetch
 du -sh models/*
 ```
 

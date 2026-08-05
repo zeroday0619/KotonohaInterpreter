@@ -41,7 +41,7 @@ does not verify Jetson behavior.
 
 | Task | Command |
 |---|---|
-| Install | `uv sync` |
+| Install | `bash scripts/manage.sh setup workstation` |
 | Test | `uv run pytest -q` |
 | Lint | `uv run ruff check .` |
 | Autofix | `uv run ruff check --fix .` |
@@ -53,13 +53,15 @@ does not verify Jetson behavior.
 | Translation catalog compile | `uv run python scripts/i18n.py compile` |
 | Typed turn | `uv run kotonoha text "<utterance>"` |
 | WAV replay | `uv run kotonoha replay <wav> --seconds 12` |
-| External link measurement | `uv run kotonoha netcheck` |
-| Hardware spikes | `bash spikes/run_all.sh <jetson|a6000>` |
-| Deploy Jetson | `bash scripts/deploy.sh jetson` |
-| Deploy A6000 | `bash scripts/deploy.sh a6000` |
-| Reallocate A6000 GPUs | `bash scripts/deploy.sh a6000 --reallocate-gpus` |
-| Uninstall Jetson | `bash scripts/deploy.sh uninstall jetson` |
-| Uninstall A6000 | `bash scripts/deploy.sh uninstall a6000` |
+| External link measurement | `bash scripts/manage.sh benchmark link` |
+| Hardware spikes | `bash scripts/manage.sh benchmark <jetson|a6000>` |
+| Prepare Jetson | `bash scripts/manage.sh setup jetson` |
+| Prepare A6000 | `bash scripts/manage.sh setup a6000` |
+| Deploy Jetson | `bash scripts/manage.sh deploy jetson` |
+| Deploy A6000 | `bash scripts/manage.sh deploy a6000` |
+| Reallocate A6000 GPUs | `bash scripts/manage.sh deploy a6000 --reallocate-gpus` |
+| Uninstall Jetson | `bash scripts/manage.sh uninstall jetson` |
+| Uninstall A6000 | `bash scripts/manage.sh uninstall a6000` |
 
 Completion requires both commands:
 
@@ -68,7 +70,7 @@ uv run ruff check .
 uv run pytest -q
 ```
 
-Current baseline: 229 tests and zero lint findings.
+Current baseline: 241 tests and zero lint findings.
 
 ## Non-negotiable constraints
 

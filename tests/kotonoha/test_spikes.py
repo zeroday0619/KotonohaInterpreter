@@ -158,4 +158,4 @@ def test_hardware_spikes_use_target_specific_docker_images() -> None:
         "spikes/spike2_flash_attn.py",
     ]
     assert "r38.2.arm64-sbsa-cu130-24.04" in compose_source
-    assert "bash spikes/run_all.sh a6000 --only 1" in performance_document
+    assert "bash scripts/manage.sh benchmark a6000 --only 1" in performance_document

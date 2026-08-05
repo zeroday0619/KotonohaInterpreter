@@ -17,6 +17,7 @@
 | Component | Reference |
 |---|---|
 | Hardware spike scripts | [Hardware Spike Harness](../spikes/README.md) |
+| Setup and benchmark commands | [Management Script](operations/management.md) |
 | Coding-agent policy | [AGENTS.md](../AGENTS.md) |
 
 Documentation states interfaces, operational contracts, and verified procedures. Source

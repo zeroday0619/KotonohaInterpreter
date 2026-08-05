@@ -9,9 +9,9 @@ What this decides:
     first-packet budget in §6
   · if it all fails, the evidence for starting on MeloTTS instead
 
-Run this probe through ``bash spikes/run_all.sh <target>``. Set ``SPIKE_TTS_IMAGE`` to a
-candidate FlashAttention image when validating a build other than the deployment TTS
-image.
+Run this probe through ``bash scripts/manage.sh benchmark <target>``. Set
+``SPIKE_TTS_IMAGE`` to a candidate FlashAttention image when validating a build other
+than the deployment TTS image.
 """
 
 from __future__ import annotations

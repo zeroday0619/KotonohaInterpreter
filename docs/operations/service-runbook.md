@@ -28,7 +28,7 @@ docker compose -f docker/compose.remote.yaml stop
 
 ## Uninstall Service Containers
 
-Use `scripts/deploy.sh uninstall` when the deployment must be removed from a host. The
+Use `scripts/manage.sh uninstall` when the deployment must be removed from a host. The
 command performs `docker compose down --remove-orphans` and remains usable when GPU or
 model preflight checks fail. Add `--remove-images` only when locally built project images
 must also be deleted.
@@ -52,7 +52,7 @@ Routine deployment reuses `config/remote-gpu.env` to preserve stable GPU UUID as
 Recalculate placement after adding, removing, or repurposing an A6000:
 
 ```bash
-bash scripts/deploy.sh a6000 --reallocate-gpus
+bash scripts/manage.sh deploy a6000 --reallocate-gpus
 ```
 
 The command stops all four remote services before reading free memory. It allocates the
@@ -143,7 +143,7 @@ requests. Treat this as a deployment failure on the A6000.
 | Remote TTS reports Qwen failure | Inspect TTS health and orchestrator `failovers` | Correct remote Qwen; the turn retries Jetson MeloTTS before the first audio chunk |
 | CUDA is absent in a container | Inspect image output and `torch.version.cuda` | Restore the pinned CUDA base image; do not install a CPU PyTorch wheel |
 | Docker cannot select the `nvidia` driver | Inspect `docker info --format '{{json .Runtimes}}'` | Install NVIDIA Container Toolkit, configure `nvidia-ctk`, and restart Docker |
-| GPU allocation reports insufficient capacity | Inspect `.env` reservations, `config/remote-gpu.env`, and `nvidia-smi` | Stop competing workloads, correct reservations, then run `bash scripts/deploy.sh a6000 --reallocate-gpus` |
+| GPU allocation reports insufficient capacity | Inspect `.env` reservations, `config/remote-gpu.env`, and `nvidia-smi` | Stop competing workloads, correct reservations, then run `bash scripts/manage.sh deploy a6000 --reallocate-gpus` |
 | Service starts on the wrong GPU | Source `.env` and `config/remote-gpu.env`, then inspect rendered `device_ids` | Restore the generated UUID mapping and recreate the affected service |
 | Shared-memory errors | Inspect `ipc: host` and `/dev/shm` | Restore host IPC for Jetson services; do not use this path across hosts |
 | No capture device | Run `devices`, inspect `/dev/snd`, and check group membership | Set the device and restart the orchestrator login session |

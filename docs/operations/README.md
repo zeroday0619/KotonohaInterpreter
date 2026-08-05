@@ -4,6 +4,7 @@
 
 | Document | Scope |
 |---|---|
+| [Management Script](management.md) | Unified setup, model, benchmark, deployment, and validation commands |
 | [Service Runbook](service-runbook.md) | Status, lifecycle, backup, rollback, security, and troubleshooting |
 | [Observability](observability.md) | Application logs, turn metrics, and latency analysis |
 | [Performance Measurement](../performance/measurement.md) | Hardware acceptance and benchmark evidence |

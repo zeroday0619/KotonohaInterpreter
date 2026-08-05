@@ -5,7 +5,7 @@
 Install dependencies with uv:
 
 ```bash
-uv sync
+bash scripts/manage.sh setup workstation
 ```
 
 JetPack 7.2 containers use Python 3.12. Source syntax remains compatible with Python 3.10
@@ -15,9 +15,7 @@ target hardware, or network access.
 ## Quality Gates
 
 ```bash
-uv run ruff check .
-uv run pytest -q
-uv run python scripts/i18n.py check
+bash scripts/manage.sh check
 ```
 
 Repository-specific coding, localization, test, and commit rules are defined in

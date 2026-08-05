@@ -39,6 +39,7 @@ def test_deploy_script_has_valid_shell_syntax_and_help() -> None:
     assert "scripts/deploy.sh uninstall jetson" in help_result.stdout
     assert "scripts/deploy.sh uninstall a6000" in help_result.stdout
     assert "--reallocate-gpus" in help_result.stdout
+    assert "--prepare-only" in help_result.stdout
     assert os.access(DEPLOY_SCRIPT, os.X_OK)
 
 
@@ -52,6 +53,25 @@ def test_remove_images_requires_uninstall() -> None:
     )
     assert result.returncode == 1
     assert "valid only with uninstall" in result.stderr
+
+
+def test_prepare_only_rejects_service_stopping_gpu_reallocation() -> None:
+    result = subprocess.run(
+        [
+            "bash",
+            str(DEPLOY_SCRIPT),
+            "a6000",
+            "--prepare-only",
+            "--reallocate-gpus",
+        ],
+        cwd=PROJECT_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "cannot be combined" in result.stderr
 
 
 def test_jetson_override_template_validates() -> None:

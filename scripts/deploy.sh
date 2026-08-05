@@ -18,6 +18,7 @@ build_images=true
 prepare_jetson_power=true
 remove_images=false
 reallocate_gpus=false
+prepare_only=false
 docker_command=(docker)
 docker_display_command="docker"
 
@@ -34,6 +35,7 @@ Options:
   --health-timeout SEC  Maximum model startup wait in seconds (default: 600)
   --no-build            Start existing images without building
   --skip-power-setup    Do not set Jetson MAXN mode or lock clocks
+  --prepare-only        Validate the host and create configuration without deployment
   --reallocate-gpus     Recompute A6000 role assignments from current free GPU memory
   --remove-images       Also remove project-built images during uninstall
   -h, --help            Show this help
@@ -94,6 +96,11 @@ while [ "$#" -gt 0 ]; do
       prepare_jetson_power=false
       shift
       ;;
+    --prepare-only)
+      prepare_only=true
+      prepare_jetson_power=false
+      shift
+      ;;
     --reallocate-gpus)
       reallocate_gpus=true
       shift
@@ -123,6 +130,10 @@ esac
 [ "$health_timeout_seconds" -gt 0 ] || fail "--health-timeout must be greater than zero"
 [ "$remove_images" = false ] || [ "$operation" = "uninstall" ] \
   || fail "--remove-images is valid only with uninstall"
+[ "$prepare_only" = false ] || [ "$operation" = "deploy" ] \
+  || fail "--prepare-only is valid only with deployment"
+[ "$prepare_only" = false ] || [ "$reallocate_gpus" = false ] \
+  || fail "--reallocate-gpus cannot be combined with --prepare-only"
 [ "$reallocate_gpus" = false ] || { [ "$operation" = "deploy" ] \
   && [ "$deployment_target" = "a6000" ]; } \
   || fail "--reallocate-gpus is valid only with A6000 deployment"
@@ -391,6 +402,10 @@ deploy_jetson() {
     "$repository_root/config/local.yaml"
 
   "${docker_command[@]}" compose -f "$compose_file" config --quiet
+  if [ "$prepare_only" = true ]; then
+    printf 'Jetson host configuration is prepared. No images or services were changed.\n'
+    return
+  fi
   if [ "$build_images" = true ]; then
     "${docker_command[@]}" compose -f "$compose_file" build asr asr-verify tts orchestrator
   fi
@@ -434,6 +449,10 @@ deploy_a6000() {
     "$repository_root/config/remote-server.local.yaml"
 
   "${compose_command[@]}" config --quiet
+  if [ "$prepare_only" = true ]; then
+    printf 'A6000 host configuration is prepared. No images or services were changed.\n'
+    return
+  fi
   if [ "$build_images" = true ]; then
     "${compose_command[@]}" build asr asr-verify tts
   fi

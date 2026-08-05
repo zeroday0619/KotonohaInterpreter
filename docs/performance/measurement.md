@@ -61,9 +61,9 @@ resident workload.
 
 ### Artifacts
 
-Run `scripts/fetch_models.sh` before either track. Spike 3 requires both AWQ model
-snapshots. Use a real recording of approximately six seconds for Spike 1. Synthetic audio
-provides timing data only and cannot validate transcription quality.
+Run `bash scripts/manage.sh models fetch` before either track. Spike 3 requires both AWQ
+model snapshots. Use a real recording of approximately six seconds for Spike 1. Synthetic
+audio provides timing data only and cannot validate transcription quality.
 
 ## ASR Measurement
 
@@ -72,7 +72,7 @@ provides timing data only and cannot validate transcription quality.
 Run the vLLM path through the hardware spike container:
 
 ```bash
-ASR_ONLY=vllm bash spikes/run_all.sh jetson --only 1
+ASR_ONLY=vllm bash scripts/manage.sh benchmark jetson --only 1
 ```
 
 The selected image tag targets r38.2, while the host contract is Jetson Linux 39.2. Its
@@ -93,7 +93,7 @@ ASR_ONLY=vllm \
 VLLM_GPU_MEMORY_UTILIZATION=0.80 \
 VLLM_MAX_MODEL_LEN=4096 \
 VLLM_ENFORCE_EAGER=1 \
-bash spikes/run_all.sh a6000 --only 1
+bash scripts/manage.sh benchmark a6000 --only 1
 ```
 
 The harness never installs the PyPI vLLM wheel into the host environment. The selected
@@ -124,7 +124,7 @@ A path without five hypotheses fails the accuracy contract regardless of latency
 ### Jetson
 
 ```bash
-bash spikes/run_all.sh jetson --only 2
+bash scripts/manage.sh benchmark jetson --only 2
 ```
 
 Set `SPIKE_TTS_IMAGE` to the image produced by the jetson-containers FlashAttention build
@@ -136,7 +136,7 @@ fallback path and does not prove a separate FlashAttention build.
 Run in the target-specific TTS spike image. The A6000 image does not contain MeloTTS.
 
 ```bash
-bash spikes/run_all.sh a6000 --only 2
+bash scripts/manage.sh benchmark a6000 --only 2
 ```
 
 The probe executes a FlashAttention kernel and measures Qwen3-TTS with
@@ -156,7 +156,7 @@ Jetson Phase 0 uses context 2048, batch 1, and 60 output tokens.
 LLM_CONTEXT=2048 \
 LLM_GPU_MEMORY_UTILIZATION=0.80 \
 LLM_OUTPUT_TOKENS=60 \
-bash spikes/run_all.sh jetson --only 3
+bash scripts/manage.sh benchmark jetson --only 3
 ```
 
 The A6000 measurement uses the production 4096-token context:
@@ -166,7 +166,7 @@ LLM_CONTEXT=4096 \
 LLM_GPU_MEMORY_UTILIZATION=0.80 \
 LLM_OUTPUT_TOKENS=60 \
 BENCHMARK_RUNS=3 \
-bash spikes/run_all.sh a6000 --only 3
+bash scripts/manage.sh benchmark a6000 --only 3
 ```
 
 The probe starts one vLLM server per profile and records time to first token and generation
@@ -237,8 +237,8 @@ service health evidence before approving high-performance mode.
 The harness interface is documented in [Hardware Spike Harness](../../spikes/README.md).
 
 ```bash
-bash spikes/run_all.sh jetson
-bash spikes/run_all.sh a6000
+bash scripts/manage.sh benchmark jetson
+bash scripts/manage.sh benchmark a6000
 ```
 
 The A6000 run writes only under `spikes/out/a6000` and cannot overwrite Jetson results.

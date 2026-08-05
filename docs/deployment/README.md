@@ -11,16 +11,17 @@
 Quick deployment commands:
 
 ```bash
-bash scripts/deploy.sh jetson
-bash scripts/deploy.sh a6000
+bash scripts/manage.sh deploy jetson
+bash scripts/manage.sh deploy a6000
 ```
 
 Quick uninstall commands preserve models, configuration, logs, and SQLite data:
 
 ```bash
-bash scripts/deploy.sh uninstall jetson
-bash scripts/deploy.sh uninstall a6000
+bash scripts/manage.sh uninstall jetson
+bash scripts/manage.sh uninstall a6000
 ```
 
-The deployment script uses `sudo docker` when the current account cannot access the
-Docker daemon directly. It does not start the interactive orchestrator.
+The management entry point delegates to the deployment script. The deployment script
+uses `sudo docker` when the current account cannot access the Docker daemon directly. It
+does not start the interactive orchestrator.

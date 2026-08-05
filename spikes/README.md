@@ -30,17 +30,17 @@ target, runtime environment, and benchmark conditions.
 ## Docker Interface
 
 ```bash
-bash spikes/run_all.sh jetson
-bash spikes/run_all.sh a6000
-bash spikes/run_all.sh jetson --only 1
-bash spikes/run_all.sh a6000 --only 3
+bash scripts/manage.sh benchmark jetson
+bash scripts/manage.sh benchmark a6000
+bash scripts/manage.sh benchmark jetson --only 1
+bash scripts/manage.sh benchmark a6000 --only 3
 ```
 
-`run_all.sh` accesses Docker directly when the current account has daemon permission. It
-falls back to `sudo docker` when elevated access is required. The wrapper builds the
-target-specific TTS spike image when it is absent, then starts short-lived containers for
-the selected probes. It always regenerates the target report from the available result
-files.
+The management script delegates hardware measurements to `run_all.sh`. The runner
+accesses Docker directly when the current account has daemon permission and falls back to
+`sudo docker` when elevated access is required. It builds the target-specific TTS spike
+image when it is absent, then starts short-lived containers for the selected probes. It
+always regenerates the target report from the available result files.
 
 The harness does not install or execute vLLM in the host Python environment. The source
 tree remains mounted at `/workspace`, model snapshots are mounted read-only at `/models`,
@@ -93,8 +93,8 @@ performance procedure.
 
 ## Constraints
 
-- Run `scripts/fetch_models.sh` before the harness. The wrapper rejects incomplete model
-  snapshots before starting Docker.
+- Run `bash scripts/manage.sh models fetch` before the harness. The wrapper rejects
+  incomplete model snapshots before starting Docker.
 - Run model probes on the named deployment hardware.
 - Use a real six-second recording when evaluating ASR content.
 - Treat synthetic audio as timing-only input.
