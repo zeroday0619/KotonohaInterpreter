@@ -119,10 +119,13 @@ def test_remote_services_default_to_mounted_offline_models() -> None:
         "/models/Voxtral-Mini-4B-Realtime-2602"
     )
     assert remote_config["asr"]["vllm_realtime_architecture"] == "voxtral"
+    assert remote_config["asr"]["vllm_gpu_memory_utilization"] == 0.28
     assert remote_config["asr_verify"]["model_id"] == "/models/faster-whisper-large-v3"
     assert "vllm/vllm-omni:v0.26.0" in compose
     assert "HF_HUB_OFFLINE=${TRANSFORMERS_OFFLINE:-0}" in compose
     assert 'Voxtral-Mini-4B-Realtime-2602/config.json"' in deploy_script
+    assert "ASR_GPU_MEMORY_MIB=14336" in deploy_script
+    assert "ASR_GPU_MEMORY_MIB to at least 14336" in deploy_script
     assert 'faster-whisper-large-v3/config.json"' in deploy_script
     assert 'Qwen3-TTS-0.6B/config.json"' in deploy_script
     assert 'llm/translategemma-12b-it/config.json"' in deploy_script
@@ -225,9 +228,30 @@ def test_asr_images_use_target_vllm_runtimes_with_realtime_support_checks() -> N
     )
     for llm_stage in (remote_llm_stage, jetson_llm_dockerfile):
         assert "--no-install-package numpy" not in llm_stage
-        assert "import kotonoha, numpy, websockets" in llm_stage
         assert "Path(numpy.__file__).is_relative_to('/opt/kotonoha-venv')" in llm_stage
         assert 'uv pip check --python "$UV_PYTHON"' in llm_stage
+    remote_llm_final_sync = remote_llm_stage.rindex("uv sync --active")
+    remote_llm_numpy_override = remote_llm_stage.index(
+        '--reinstall-package numpy "numpy>=2,<2.3"'
+    )
+    remote_llm_dependency_check = remote_llm_stage.index(
+        'uv pip check --python "$UV_PYTHON"'
+    )
+    assert remote_llm_final_sync < remote_llm_numpy_override
+    assert remote_llm_numpy_override < remote_llm_dependency_check
+    assert "import kotonoha, numpy, scipy, sklearn, websockets" in remote_llm_stage
+    assert "from transformers import GenerationMixin" in remote_llm_stage
+    assert "(2, 0) <= numpy_release < (2, 3)" in remote_llm_stage
+    assert "import kotonoha, numpy, websockets" in jetson_llm_dockerfile
+    assert "Path('/opt/venv/lib').glob('python*/site-packages')" in (
+        jetson_llm_dockerfile
+    )
+    assert "vendor-vllm.pth" in jetson_llm_dockerfile
+    assert "root.is_relative_to('/opt/venv')" in jetson_llm_dockerfile
+    jetson_final_sync = jetson_llm_dockerfile.rindex("uv sync --active")
+    jetson_vendor_path = jetson_llm_dockerfile.index("vendor-vllm.pth")
+    jetson_vllm_check = jetson_llm_dockerfile.index("root.is_relative_to('/opt/venv')")
+    assert jetson_final_sync < jetson_vendor_path < jetson_vllm_check
     deploy_script = DEPLOY_SCRIPT.read_text(encoding="utf-8")
     assert 'a6000_vllm_image="nvcr.io/nvidia/vllm:26.07-py3"' in deploy_script
     assert "must set REMOTE_ASR_BASE=$a6000_vllm_image" in deploy_script

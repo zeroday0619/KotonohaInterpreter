@@ -217,6 +217,7 @@ ensure_remote_environment() {
     chmod 600 "$environment_file"
     local environment_token
     local configured_asr_image
+    local configured_asr_memory_mib
     local configured_llm_image
     local configured_tts_image
     environment_token=$(sed -n 's/^KOTONOHA_SERVICE_TOKEN=//p' "$environment_file" | tail -n 1)
@@ -226,10 +227,18 @@ ensure_remote_environment() {
       *'<'*|*'>'*) fail "replace the token placeholder in $environment_file" ;;
     esac
     configured_asr_image=$(sed -n 's/^REMOTE_ASR_BASE=//p' "$environment_file" | tail -n 1)
+    configured_asr_memory_mib=$(sed -n 's/^ASR_GPU_MEMORY_MIB=//p' "$environment_file" | tail -n 1)
     configured_llm_image=$(sed -n 's/^LLM_IMAGE=//p' "$environment_file" | tail -n 1)
     configured_tts_image=$(sed -n 's/^TTS_IMAGE=//p' "$environment_file" | tail -n 1)
     [ -z "$configured_asr_image" ] || [ "$configured_asr_image" = "$a6000_vllm_image" ] \
       || fail "environment file must set REMOTE_ASR_BASE=$a6000_vllm_image"
+    if [ -n "$configured_asr_memory_mib" ]; then
+      case "$configured_asr_memory_mib" in
+        *[!0-9]*) fail "environment file ASR_GPU_MEMORY_MIB must be an integer" ;;
+      esac
+      [ "$configured_asr_memory_mib" -ge 14336 ] \
+        || fail "environment file must set ASR_GPU_MEMORY_MIB to at least 14336"
+    fi
     [ -z "$configured_llm_image" ] || [ "$configured_llm_image" = "$a6000_vllm_image" ] \
       || fail "environment file must set LLM_IMAGE=$a6000_vllm_image"
     [ -z "$configured_tts_image" ] || [ "$configured_tts_image" = "$vllm_omni_image" ] \
@@ -262,7 +271,7 @@ ensure_remote_environment() {
     printf 'GPU_NAME_FILTER=A6000\n'
     printf 'GPU_MEMORY_RESERVE_MIB=1024\n'
     printf 'LLM_GPU_MEMORY_MIB=27648\n'
-    printf 'ASR_GPU_MEMORY_MIB=10240\n'
+    printf 'ASR_GPU_MEMORY_MIB=14336\n'
     printf 'ASR_VERIFY_GPU_MEMORY_MIB=6144\n'
     printf 'TTS_GPU_MEMORY_MIB=3072\n'
     printf 'TTS_GPU_MEMORY_UTILIZATION=0.25\n'

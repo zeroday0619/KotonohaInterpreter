@@ -37,7 +37,7 @@ def _devices(
 def _reservations() -> tuple[RoleReservation, ...]:
     return (
         RoleReservation("llm", "LLM_GPU_DEVICE", 27_648),
-        RoleReservation("asr", "ASR_GPU_DEVICE", 10_240),
+        RoleReservation("asr", "ASR_GPU_DEVICE", 14_336),
         RoleReservation("asr_verify", "ASR_VERIFY_GPU_DEVICE", 6_144),
         RoleReservation("tts", "TTS_GPU_DEVICE", 3_072),
     )
@@ -62,7 +62,7 @@ def test_allocator_honors_manual_device_assignments() -> None:
             reservation.role,
             reservation.environment_key,
             reservation.memory_mib,
-            "1",
+            "0" if reservation.role == "llm" else "1",
         )
         for reservation in _reservations()
     )
@@ -74,7 +74,32 @@ def test_allocator_honors_manual_device_assignments() -> None:
         use_total_memory=True,
     )
 
-    assert set(assignments.values()) == {"GPU-1111"}
+    assert assignments == {
+        "llm": "GPU-0000",
+        "asr": "GPU-1111",
+        "asr_verify": "GPU-1111",
+        "tts": "GPU-1111",
+    }
+
+
+def test_allocator_rejects_single_a6000_for_current_role_budgets() -> None:
+    reservations = tuple(
+        RoleReservation(
+            reservation.role,
+            reservation.environment_key,
+            reservation.memory_mib,
+            "0",
+        )
+        for reservation in _reservations()
+    )
+
+    with pytest.raises(GpuAllocationError, match="cannot reserve"):
+        allocate_roles(
+            _devices()[:1],
+            reservations,
+            reserve_memory_mib=1_024,
+            use_total_memory=True,
+        )
 
 
 def test_allocator_rejects_unsatisfied_memory_reservations() -> None:

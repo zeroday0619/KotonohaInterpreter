@@ -10,8 +10,10 @@ ENV UV_LINK_MODE=copy \
     PYTHONUNBUFFERED=1 \
     HF_HOME=/models/hf
 
-# Keep the vendor vLLM, Torch, and CUDA packages visible while installing the
-# application and its locked runtime dependencies in one environment.
+# Keep ordinary system packages visible while installing the application and
+# its locked runtime dependencies in one environment. The vendor image keeps
+# vLLM under /opt/venv rather than a system site-packages directory, so expose
+# that path explicitly after uv finishes synchronizing the new environment.
 RUN uv venv --python /opt/venv/bin/python --system-site-packages /opt/kotonoha-venv
 ENV VIRTUAL_ENV=/opt/kotonoha-venv \
     UV_PYTHON=/opt/kotonoha-venv/bin/python \
@@ -25,7 +27,9 @@ COPY src ./src
 RUN uv sync --active --frozen --no-dev --no-cache \
  && uv pip check --python "$UV_PYTHON" \
  && "$UV_PYTHON" -c \
- "from importlib.util import find_spec; from pathlib import Path; import kotonoha, numpy, websockets; assert Path(numpy.__file__).is_relative_to('/opt/kotonoha-venv'), numpy.__file__; spec = find_spec('vllm'); assert spec and spec.submodule_search_locations, 'vLLM package missing'; root = Path(next(iter(spec.submodule_search_locations))); assert list(root.rglob('api_server.py')), 'vLLM async engine builder missing'; print('TranslateGemma service dependencies ok | NumPy', numpy.__version__)"
+ "from pathlib import Path; import site; vendor = next(Path('/opt/venv/lib').glob('python*/site-packages')); Path(site.getsitepackages()[0], 'vendor-vllm.pth').write_text(f'{vendor}\n', encoding='utf-8')" \
+ && "$UV_PYTHON" -c \
+ "from importlib.util import find_spec; from pathlib import Path; import kotonoha, numpy, websockets; assert Path(numpy.__file__).is_relative_to('/opt/kotonoha-venv'), numpy.__file__; spec = find_spec('vllm'); assert spec and spec.submodule_search_locations, 'vLLM package missing'; root = Path(next(iter(spec.submodule_search_locations))); assert root.is_relative_to('/opt/venv'), root; assert list(root.rglob('api_server.py')), 'vLLM async engine builder missing'; print('TranslateGemma service dependencies ok | NumPy', numpy.__version__, '| vLLM', root)"
 
 EXPOSE 8003
 CMD ["uvicorn", "kotonoha.services._llm_server:app", "--host", "0.0.0.0", "--port", "8003", "--loop", "uvloop"]

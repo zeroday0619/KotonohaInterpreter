@@ -40,7 +40,7 @@ llm:
 
 asr:
   backend: vllm
-  vllm_gpu_memory_utilization: 0.20
+  vllm_gpu_memory_utilization: 0.28
   vllm_max_model_len: 4096
   n_best: 5
 

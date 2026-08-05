@@ -679,7 +679,7 @@ GPU_ALLOCATION_MODE=auto
 GPU_NAME_FILTER=A6000
 GPU_MEMORY_RESERVE_MIB=1024
 LLM_GPU_MEMORY_MIB=27648
-ASR_GPU_MEMORY_MIB=10240
+ASR_GPU_MEMORY_MIB=14336
 ASR_VERIFY_GPU_MEMORY_MIB=6144
 TTS_GPU_MEMORY_MIB=3072
 TTS_GPU_MEMORY_UTILIZATION=0.25
@@ -713,14 +713,17 @@ values.
 | Role | Environment variable | Default reservation |
 |---|---|---:|
 | Translation LLM | `LLM_GPU_MEMORY_MIB` | 27,648 MiB |
-| Primary ASR | `ASR_GPU_MEMORY_MIB` | 10,240 MiB |
+| Primary ASR | `ASR_GPU_MEMORY_MIB` | 14,336 MiB |
 | Verification ASR | `ASR_VERIFY_GPU_MEMORY_MIB` | 6,144 MiB |
 | TTS | `TTS_GPU_MEMORY_MIB` | 3,072 MiB |
 | Per-GPU safety reserve | `GPU_MEMORY_RESERVE_MIB` | 1,024 MiB |
 
-Measure peak memory with all services resident, then raise reservations when retained
-evidence exceeds a default. The allocator rejects a placement when no eligible GPU has
-enough remaining capacity.
+The A6000 Voxtral startup measurement required 3.27 GiB of KV cache for a 4,096-token
+context, but a 0.20 engine allocation left only 0.41 GiB. The resident profile therefore
+uses 0.28 and reserves 14,336 MiB for primary ASR. Measure peak memory with all services
+resident and retain the resulting evidence. The allocator rejects a placement when no
+eligible GPU has enough remaining capacity; the current guarded role budgets do not fit
+on one 48 GiB A6000 with the safety reserve.
 
 For fixed placement, set `GPU_ALLOCATION_MODE=manual` and define every device by stable
 GPU UUID:
@@ -788,10 +791,17 @@ core dependency therefore fails the image build instead of entering a restart lo
 The A6000 ASR target synchronizes the `a6000-asr` extra into the same active environment
 as the application. That extra supplies `mistral-common[audio]`, which vLLM uses for the
 Voxtral tokenizer and audio preprocessing; it does not install a second vLLM runtime.
+Both A6000 model-service images replace the workstation lock's NumPy 1.26 with NumPy 2.x
+after synchronization. This keeps the NGC SciPy and scikit-learn stack importable and
+the Transformers lazy imports required by vLLM are checked during the image build.
 
 The Jetson ASR image checks for Qwen3-ASR batch and realtime modules. The A6000 ASR image
 checks for Voxtral Realtime, the vLLM realtime connection, and the Mistral audio
 dependencies without importing vLLM.
+The Jetson translation image keeps locked application packages in
+`/opt/kotonoha-venv` and appends the vendor `/opt/venv` site-packages through a `.pth`
+file after synchronization. This preserves the project NumPy while making the Tegra
+vLLM, Torch, and CUDA packages visible to the in-process TranslateGemma service.
 The pinned NVIDIA vLLM 0.24.0 runtime returns only the audio embeddings for a mixed
 offline Voxtral prefill, omitting the trailing text-token position. The A6000 image
 applies a version-scoped compatibility patch that aligns audio embeddings through

@@ -95,9 +95,11 @@ COPY pyproject.toml uv.lock README.md LICENSE hatch_build.py ./
 RUN uv sync --active --frozen --no-dev --no-install-project --no-cache
 COPY src ./src
 RUN uv sync --active --frozen --no-dev --no-cache \
+ && uv pip install --python "$UV_PYTHON" --no-cache --no-deps \
+      --reinstall-package numpy "numpy>=2,<2.3" \
  && uv pip check --python "$UV_PYTHON" \
  && "$UV_PYTHON" -c \
- "from importlib.util import find_spec; from pathlib import Path; import kotonoha, numpy, websockets; assert Path(numpy.__file__).is_relative_to('/opt/kotonoha-venv'), numpy.__file__; spec = find_spec('vllm'); assert spec and spec.submodule_search_locations, 'vLLM package missing'; root = Path(next(iter(spec.submodule_search_locations))); assert list(root.rglob('api_server.py')), 'vLLM async engine builder missing'; print('TranslateGemma service dependencies ok | NumPy', numpy.__version__)"
+ "from importlib.util import find_spec; from pathlib import Path; import kotonoha, numpy, scipy, sklearn, websockets; from transformers import GenerationMixin; numpy_release = tuple(map(int, numpy.__version__.split('.')[:2])); assert (2, 0) <= numpy_release < (2, 3), numpy.__version__; assert Path(numpy.__file__).is_relative_to('/opt/kotonoha-venv'), numpy.__file__; spec = find_spec('vllm'); assert spec and spec.submodule_search_locations, 'vLLM package missing'; root = Path(next(iter(spec.submodule_search_locations))); assert list(root.rglob('api_server.py')), 'vLLM async engine builder missing'; print('TranslateGemma service dependencies ok | NumPy', numpy.__version__, '| SciPy', scipy.__version__)"
 CMD ["uvicorn", "kotonoha.services._llm_server:app", "--host", "0.0.0.0", "--port", "8003", "--loop", "uvloop"]
 
 FROM common AS asr-verify

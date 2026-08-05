@@ -43,7 +43,7 @@ class GpuAllocationError(RuntimeError):
 
 ROLE_DEFINITIONS: Final = (
     ("llm", "LLM_GPU_DEVICE", "LLM_GPU_MEMORY_MIB", 27_648),
-    ("asr", "ASR_GPU_DEVICE", "ASR_GPU_MEMORY_MIB", 10_240),
+    ("asr", "ASR_GPU_DEVICE", "ASR_GPU_MEMORY_MIB", 14_336),
     ("asr_verify", "ASR_VERIFY_GPU_DEVICE", "ASR_VERIFY_GPU_MEMORY_MIB", 6_144),
     ("tts", "TTS_GPU_DEVICE", "TTS_GPU_MEMORY_MIB", 3_072),
 )
@@ -481,4 +481,3 @@ def main() -> int:
         source=source,
     )
     return 0
-

@@ -13,8 +13,9 @@ asr:
   vllm_served_model_name: kotonoha-asr
   vllm_realtime_architecture: voxtral
   dtype: bfloat16
-  # This provisional split must be replaced only by concurrent-residency measurements.
-  vllm_gpu_memory_utilization: 0.20
+  # A measured 0.20 allocation left 0.41 GiB for a 3.27 GiB KV-cache requirement.
+  # Keep headroom above the derived 0.261 minimum and remeasure concurrent residency.
+  vllm_gpu_memory_utilization: 0.28
   vllm_max_model_len: 4096
   vllm_enforce_eager: true
   n_best: 5
