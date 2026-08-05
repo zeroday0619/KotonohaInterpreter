@@ -18,7 +18,7 @@ for output_path in "${output_paths[@]}"; do
   fi
 done
 
-"$@"
+"$SPIKE_PYTHON" "$@"
 command_status=$?
 
 for output_path in "${output_paths[@]}"; do

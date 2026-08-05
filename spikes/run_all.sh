@@ -92,6 +92,7 @@ configure_target() {
     : "${SPIKE_VLLM_IMAGE:=ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04}"
     : "${SPIKE_TTS_IMAGE:=kotonohainterpreter-spike-tts:jetson}"
     : "${SPIKE_GPU_DEVICE:=all}"
+    : "${SPIKE_PYTHON:=/opt/venv/bin/python}"
     : "${OUT:=spikes/out}"
     default_context=2048
     report_name=PHASE0.md
@@ -100,6 +101,7 @@ configure_target() {
     : "${SPIKE_VLLM_IMAGE:=nvcr.io/nvidia/vllm:26.07-py3}"
     : "${SPIKE_TTS_IMAGE:=kotonohainterpreter-spike-tts:a6000}"
     : "${SPIKE_GPU_DEVICE:=0}"
+    : "${SPIKE_PYTHON:=python3}"
     : "${OUT:=spikes/out/a6000}"
     default_context=4096
     report_name=PERFORMANCE.md
@@ -119,7 +121,7 @@ configure_target() {
   : "${SPIKE_USER_ID:=$(id -u)}"
   : "${SPIKE_GROUP_ID:=$(id -g)}"
   export MODELS_DIR OUT SPIKE_GPU_DEVICE SPIKE_GROUP_ID SPIKE_TTS_IMAGE
-  export SPIKE_USER_ID SPIKE_VLLM_IMAGE
+  export SPIKE_PYTHON SPIKE_USER_ID SPIKE_VLLM_IMAGE
 }
 
 build_tts_image() {
@@ -204,6 +206,7 @@ compose_environment=(
   "OUT=$OUT"
   "SPIKE_GPU_DEVICE=$SPIKE_GPU_DEVICE"
   "SPIKE_GROUP_ID=$SPIKE_GROUP_ID"
+  "SPIKE_PYTHON=$SPIKE_PYTHON"
   "SPIKE_TTS_IMAGE=$SPIKE_TTS_IMAGE"
   "SPIKE_USER_ID=$SPIKE_USER_ID"
   "SPIKE_VLLM_IMAGE=$SPIKE_VLLM_IMAGE"
