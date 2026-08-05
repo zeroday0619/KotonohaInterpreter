@@ -5,6 +5,9 @@ ENTRYPOINT []
 
 COPY --from=ghcr.io/astral-sh/uv:0.12 /uv /uvx /bin/
 
+RUN apt-get update && apt-get install -y --no-install-recommends patch \
+    && rm -rf /var/lib/apt/lists/*
+
 ENV UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -18,6 +21,23 @@ RUN uv venv --python /opt/venv/bin/python --system-site-packages /opt/kotonoha-v
 ENV VIRTUAL_ENV=/opt/kotonoha-venv \
     UV_PYTHON=/opt/kotonoha-venv/bin/python \
     PATH=/opt/kotonoha-venv/bin:${PATH}
+
+# vLLM 0.19.0 writes the legacy rope_theta field into TranslateGemma's
+# layer-specific RoPE mapping before validating it. Keep the authoritative
+# full-attention and sliding-attention mappings nested until upstream support
+# lands in the pinned Tegra image.
+COPY docker/patches/vllm-0.19.0-translategemma-nested-rope.patch /tmp/
+RUN vllm_version=$(/opt/venv/bin/python -c \
+ "from importlib.metadata import version; print(version('vllm').split('+', 1)[0])") \
+ && test "$vllm_version" = "0.19.0" \
+ && vllm_configuration=$(/opt/venv/bin/python -c \
+ "from importlib.util import find_spec; from pathlib import Path; spec = find_spec('vllm'); assert spec and spec.submodule_search_locations; root = Path(next(iter(spec.submodule_search_locations))); path = root / 'transformers_utils' / 'config.py'; assert path.is_file(), path; print(path)") \
+ && patch --batch --forward --fuzz=0 "$vllm_configuration" \
+      /tmp/vllm-0.19.0-translategemma-nested-rope.patch \
+ && /opt/venv/bin/python -m py_compile "$vllm_configuration" \
+ && grep -Fq \
+      "if not is_rope_parameters_nested(config.rope_parameters):" \
+      "$vllm_configuration"
 
 WORKDIR /app
 COPY pyproject.toml uv.lock README.md LICENSE hatch_build.py ./

@@ -45,6 +45,15 @@ def test_deploy_script_has_valid_shell_syntax_and_help() -> None:
     assert os.access(DEPLOY_SCRIPT, os.X_OK)
 
 
+def test_deploy_inline_python_checks_have_valid_syntax() -> None:
+    source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+    commands = re.findall(r"-c \\\n\s+'([^']+)' \\", source)
+
+    assert len(commands) == 6
+    for command in commands:
+        compile(command, "scripts/deploy.sh", "exec")
+
+
 def test_deploy_script_preserves_compose_variables_through_sudo() -> None:
     source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
     match = re.search(
@@ -150,6 +159,45 @@ def test_a6000_deploy_rejects_a_stale_asr_memory_override_before_start() -> None
     assert deploy_body.index(validation_call) < deploy_body.index("up -d")
 
 
+def test_jetson_deploy_rejects_stale_asr_overrides_before_start() -> None:
+    deploy_script = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+    deploy_body = deploy_script.split("deploy_jetson() {", 1)[1].split(
+        "deploy_a6000() {", 1
+    )[0]
+    primary_call = 'verify_jetson_asr_configuration "$compose_file"'
+    verification_call = 'verify_jetson_asr_verification_runtime "$compose_file"'
+
+    assert 'expected_vllm = Path("/models/Qwen3-ASR-0.6B")' in deploy_script
+    assert 'expected_fallback = Path("/models/Qwen3-ASR-0.6B-hf")' in deploy_script
+    assert "Update the stale asr override in config/local.yaml" in deploy_script
+    assert 'config.device == "cpu"' in deploy_script
+    assert 'config.compute_type == "int8"' in deploy_script
+    assert "get_supported_compute_types(config.device)" in deploy_script
+    for validation_call in (primary_call, verification_call):
+        assert validation_call in deploy_body
+        assert deploy_body.index(validation_call) < deploy_body.index("up -d")
+
+
+def test_deploy_builds_and_validates_the_llm_image_before_start() -> None:
+    deploy_script = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+    jetson_body = deploy_script.split("deploy_jetson() {", 1)[1].split(
+        "deploy_a6000() {", 1
+    )[0]
+    a6000_body = deploy_script.split("deploy_a6000() {", 1)[1].split(
+        "remove_project_image() {", 1
+    )[0]
+    validation_call = "verify_vllm_translation_runtime"
+
+    assert "build asr asr-verify llm tts orchestrator" in jetson_body
+    assert 'build asr asr-verify llm tts' in a6000_body
+    for deploy_body in (jetson_body, a6000_body):
+        assert validation_call in deploy_body
+        assert deploy_body.index("build asr asr-verify llm tts") < deploy_body.index(
+            validation_call
+        )
+        assert deploy_body.index(validation_call) < deploy_body.index("up -d")
+
+
 def test_remote_compose_uses_distinct_role_images_and_in_process_translation() -> None:
     compose = yaml.safe_load(
         (PROJECT_ROOT / "docker" / "compose.remote.yaml").read_text(encoding="utf-8")
@@ -215,12 +263,10 @@ def test_asr_images_use_target_vllm_runtimes_with_realtime_support_checks() -> N
     assert "uv pip install --system" not in remote_dockerfile
     asr_stage = remote_dockerfile.split("FROM ${LLM_BASE_IMAGE} AS llm", 1)[0]
     assert "--no-install-package numpy" not in asr_stage
+    assert '--reinstall-package numpy "numpy>=2,<2.3"' not in asr_stage
     final_sync = asr_stage.rindex("uv sync --active")
-    numpy_override = asr_stage.index(
-        '--reinstall-package numpy "numpy>=2,<2.3"'
-    )
     dependency_check = asr_stage.index('uv pip check --python "$UV_PYTHON"')
-    assert final_sync < numpy_override < dependency_check
+    assert final_sync < dependency_check
     assert 'uv pip check --python "$UV_PYTHON"' in asr_stage
     assert "import kotonoha, mistral_common, numpy, scipy, sklearn, soundfile, soxr" in (
         remote_dockerfile
@@ -246,15 +292,12 @@ def test_asr_images_use_target_vllm_runtimes_with_realtime_support_checks() -> N
         assert "--no-install-package numpy" not in llm_stage
         assert "Path(numpy.__file__).is_relative_to('/opt/kotonoha-venv')" in llm_stage
         assert 'uv pip check --python "$UV_PYTHON"' in llm_stage
+    assert '--reinstall-package numpy "numpy>=2,<2.3"' not in remote_llm_stage
     remote_llm_final_sync = remote_llm_stage.rindex("uv sync --active")
-    remote_llm_numpy_override = remote_llm_stage.index(
-        '--reinstall-package numpy "numpy>=2,<2.3"'
-    )
     remote_llm_dependency_check = remote_llm_stage.index(
         'uv pip check --python "$UV_PYTHON"'
     )
-    assert remote_llm_final_sync < remote_llm_numpy_override
-    assert remote_llm_numpy_override < remote_llm_dependency_check
+    assert remote_llm_final_sync < remote_llm_dependency_check
     assert "import kotonoha, numpy, scipy, sklearn, websockets" in remote_llm_stage
     assert "from transformers import GenerationMixin" in remote_llm_stage
     assert "(2, 0) <= numpy_release < (2, 3)" in remote_llm_stage
@@ -273,7 +316,16 @@ def test_asr_images_use_target_vllm_runtimes_with_realtime_support_checks() -> N
     assert "must set REMOTE_ASR_BASE=$a6000_vllm_image" in deploy_script
     assert "must set LLM_IMAGE=$a6000_vllm_image" in deploy_script
     assert "import torch, vllm" in deploy_script
-    assert 'verify_vllm_cuda_runtime "$compose_file" "$environment_file" llm' in deploy_script
+    assert "from transformers import GenerationMixin" in deploy_script
+    assert "from vllm.engine.arg_utils import AsyncEngineArgs" in deploy_script
+    assert "build_async_engine_client_from_engine_args" in deploy_script
+    assert "create_engine_config()" in deploy_script
+    assert "model_config.hf_text_config" in deploy_script
+    assert 'nested_keys = {"full_attention", "sliding_attention"}' in deploy_script
+    assert "Path(sys.executable).is_relative_to" in deploy_script
+    assert 'verify_vllm_translation_runtime "$compose_file" "$environment_file"' in (
+        deploy_script
+    )
     assert "ENTRYPOINT []" in remote_dockerfile
     assert "TRANSFORMERS_FALLBACK_VERSION=5.13.0" in jetson_dockerfile
     assert "SPIKE_TRANSFORMERS_PYTHON=/opt/transformers-fallback/bin/python" in (
@@ -295,6 +347,29 @@ def test_asr_images_use_target_vllm_runtimes_with_realtime_support_checks() -> N
     assert "from transformers import AutoModelForMultimodalLM, AutoProcessor" in (
         jetson_dockerfile
     )
+
+
+def test_jetson_llm_preserves_translategemma_nested_rope_configuration() -> None:
+    dockerfile = (PROJECT_ROOT / "docker" / "Dockerfile.llm").read_text(
+        encoding="utf-8"
+    )
+    patch_name = "vllm-0.19.0-translategemma-nested-rope.patch"
+    patch_source = (
+        PROJECT_ROOT / "docker" / "patches" / patch_name
+    ).read_text(encoding="utf-8")
+
+    assert patch_name in dockerfile
+    assert 'test "$vllm_version" = "0.19.0"' in dockerfile
+    assert 'patch --batch --forward --fuzz=0 "$vllm_configuration"' in dockerfile
+    assert '/opt/venv/bin/python -m py_compile "$vllm_configuration"' in dockerfile
+    guard = "if not is_rope_parameters_nested(config.rope_parameters):"
+    assert "grep -Fq" in dockerfile
+    assert f'"{guard}"' in dockerfile
+    assert f"+        {guard}" in patch_source
+    assert patch_source.count('+                config.rope_parameters["') == 3
+    assert "full_attention" not in patch_source
+    assert "sliding_attention" not in patch_source
+    assert '"rope_type": "linear"' not in patch_source
 
 
 def test_jetson_images_use_pinned_r36_4_tegra_runtime() -> None:
@@ -325,6 +400,9 @@ def test_remote_lock_and_dockerfile_use_target_specific_python_environments() ->
     project_configuration = (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
     assert "platform_machine == 'x86_64' and sys_platform == 'linux'" in lock_text
+    assert 'name = "numpy"\nversion = "2.2.6"' in lock_text
+    assert "numpy>=2,<2.3 ; sys_platform == 'linux'" in project_configuration
+    assert "numpy>=1.24,<2 ; sys_platform != 'linux'" in project_configuration
     assert '"mistral-common[audio]>=1.11.3"' in project_configuration
     assert (
         '"nvidia-cufft>=12,<13 ; platform_machine == \'x86_64\' and '
@@ -332,6 +410,7 @@ def test_remote_lock_and_dockerfile_use_target_specific_python_environments() ->
     ) in project_configuration
     assert "UV_PYTHON=/opt/conda/bin/python" in dockerfile
     assert "UV_PYTHON=/opt/kotonoha-venv/bin/python" in dockerfile
+    assert "--extra a6000-runtime" not in dockerfile
     assert dockerfile.count("--extra a6000-asr") == 2
     assert "import kotonoha, mistral_common, numpy" in dockerfile
     assert "soundfile, soxr" in dockerfile
@@ -350,7 +429,11 @@ def test_editable_container_installs_include_the_custom_build_hook() -> None:
         dockerfile = dockerfile_path.read_text(encoding="utf-8")
         assert required_copy in dockerfile
         editable_install = "--no-cache --no-deps -e ."
-        assert dockerfile.index(required_copy) < dockerfile.index(editable_install)
+        if editable_install in dockerfile:
+            project_install = dockerfile.index(editable_install)
+        else:
+            project_install = dockerfile.rindex("uv sync --active")
+        assert dockerfile.index(required_copy) < project_install
 
     remote_dockerfile = (PROJECT_ROOT / "docker" / "Dockerfile.remote").read_text(
         encoding="utf-8"

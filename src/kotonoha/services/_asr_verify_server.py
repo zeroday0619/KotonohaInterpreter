@@ -1,7 +1,7 @@
-"""Cross-verification ASR server — faster-whisper large-v3 (CTranslate2).
+"""Cross-verification ASR server using faster-whisper large-v3.
 
-The aarch64 CUDA compatibility of CTranslate2 requires target-device verification.
-If verification fails, deploy whisper.cpp with CUDA as the backend for this proxy.
+The Jetson AArch64 binary uses CPU INT8 because its CTranslate2 build lacks CUDA.
+The A6000 overlay selects CUDA FP16 independently.
 """
 
 from __future__ import annotations
@@ -37,9 +37,13 @@ class VerificationRequest(BaseModel):
 
 class FasterWhisperBackend:
     __slots__: ClassVar[tuple[str, ...]] = (
+        "compute_type",
+        "device",
         "model",
     )
     name: Final = "faster_whisper"
+    compute_type: str
+    device: str
     model: Any
 
     @override
@@ -53,6 +57,8 @@ class FasterWhisperBackend:
         from faster_whisper import WhisperModel
 
         start_time = time.perf_counter()
+        self.compute_type = compute_type
+        self.device = device
         self.model = WhisperModel(model_id, device=device, compute_type=compute_type)
         log.info(
             "verify.loaded",
@@ -199,6 +205,8 @@ def health() -> dict:
         "ok": backend is not None,
         "service": "asr-verify",
         "backend": getattr(backend, "name", None),
+        "device": getattr(backend, "device", None),
+        "compute_type": getattr(backend, "compute_type", None),
         "error": STATE["error"],
     }
 

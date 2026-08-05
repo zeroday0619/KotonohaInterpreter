@@ -32,6 +32,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from importlib import import_module
 from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
 from typing import Any, ClassVar, Final, Literal
 from uuid import uuid4
 
@@ -163,6 +164,19 @@ def _vllm_engine_arguments(
         ),
         "tokenizer_mode": "mistral" if architecture == "voxtral" else "auto",
     }
+
+
+def _validate_absolute_model_directory(
+    model_id: str,
+    /,
+) -> None:
+    model_path = Path(model_id)
+    if not model_path.is_absolute() or model_path.is_dir():
+        return
+    raise FileNotFoundError(
+        f"Absolute ASR model path is missing or is not a directory: {model_path}. "
+        "Update asr.vllm_model_id or mount the offline model directory at that path."
+    )
 
 
 class TranscribeRequest(BaseModel):
@@ -393,6 +407,7 @@ class VllmBackend:
         if self.bindings is None:
             raise RuntimeError("vLLM runtime bindings are unavailable")
 
+        _validate_absolute_model_directory(self.model_id)
         start_time = time.perf_counter()
         try:
             arguments = self.bindings.engine_arguments_type(**self._engine_arguments)

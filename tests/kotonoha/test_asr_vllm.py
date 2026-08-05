@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, ClassVar
+from unittest.mock import Mock
 
 import numpy as np
+import pytest
 
 from kotonoha._config import DEFAULT_CONFIG, AsrConfig, read_yaml
 from kotonoha.services._asr_server import (
@@ -14,6 +17,7 @@ from kotonoha.services._asr_server import (
     VllmRuntimeBindings,
     _parse_vllm_output,
     _safe_realtime_text,
+    _validate_absolute_model_directory,
     _vllm_engine_arguments,
     _wav_bytes,
 )
@@ -147,6 +151,29 @@ def test_vllm_engine_arguments_select_target_realtime_architectures() -> None:
     assert voxtral["tokenizer_mode"] == "mistral"
 
 
+def test_vllm_model_path_validation_allows_non_absolute_identifiers() -> None:
+    _validate_absolute_model_directory("Qwen/Qwen3-ASR-0.6B")
+    _validate_absolute_model_directory("models/Qwen3-ASR-0.6B")
+    _validate_absolute_model_directory(str(DEFAULT_CONFIG.parent))
+
+
+async def test_vllm_backend_rejects_a_missing_absolute_model_before_engine_arguments(
+    _positional_only: object | None = None,
+    /,
+    *,
+    tmp_path: Path,
+) -> None:
+    engine_arguments_type = Mock()
+    backend = object.__new__(VllmBackend)
+    backend.bindings = SimpleNamespace(engine_arguments_type=engine_arguments_type)
+    backend.model_id = str(tmp_path / "missing-model")
+
+    with pytest.raises(FileNotFoundError, match="Absolute ASR model path is missing"):
+        await backend.start()
+
+    engine_arguments_type.assert_not_called()
+
+
 def test_vllm_output_extracts_language_and_transcription() -> None:
     text, language = _parse_vllm_output(
         "language Japanese<asr_text>こんにちは<|im_end|>",
@@ -215,8 +242,6 @@ def test_realtime_websocket_requires_the_shared_service_token(
 
 
 def test_asr_service_embeds_vllm_without_launching_an_internal_server() -> None:
-    from pathlib import Path
-
     from kotonoha.services import _asr_server
 
     source = Path(_asr_server.__file__).read_text(encoding="utf-8")

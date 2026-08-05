@@ -118,8 +118,10 @@ asr_verify:
   mode: conditional # conditional | always
   backend: faster_whisper # faster_whisper | whisper_cpp
   model_id: large-v3
-  compute_type: int8_float16
-  device: cuda
+  # The published AArch64 CTranslate2 artifact lacks CUDA support. Keep the
+  # Jetson baseline on the supported CPU path until a CUDA build is validated.
+  compute_type: int8
+  device: cpu
   beam_size: 5
   timeout_s: 3.0
   # If the two hypotheses differ by at least this CER, hand both to the LLM.

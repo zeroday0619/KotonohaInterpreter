@@ -431,6 +431,12 @@ llm:
 
 ```
 
+The deployment script preserves an existing `config/local.yaml`. Installations created
+before the Jetson ASR changed to 0.6B can therefore still contain 1.7B paths. Update only
+the three `asr` fields above while preserving the other local values. The deployment
+preflight reads the effective merged configuration inside the ASR container and rejects
+stale paths before starting resident services.
+
 Protect host-specific configuration because it can later contain remote credentials:
 
 ```bash
@@ -465,7 +471,7 @@ Linux arm64 and amd64 variants. The manifest does not establish Jetson compatibi
 ### Build Jetson images
 
 ```bash
-docker compose -f docker/compose.yaml build asr asr-verify tts orchestrator
+docker compose -f docker/compose.yaml build asr asr-verify llm tts orchestrator
 ```
 
 Review the build output for the following conditions:
@@ -477,12 +483,25 @@ Review the build output for the following conditions:
 - The TTS service build resolves the official vLLM-Omni base to the arm64 manifest.
 
 The orchestrator Dockerfile permits selected target dependencies to fail during image
-construction. The AArch64 CTranslate2 wheel is published, but target execution must still
-verify its CUDA 12.6 GPU path. An image pull or successful build does not prove
-faster-whisper GPU execution or vLLM-Omni TTS loading. Service health checks and target
-measurements remain mandatory.
+construction. Target execution showed that the installed AArch64 CTranslate2 artifact
+was not compiled with CUDA support. The Jetson verification service therefore uses the
+documented faster-whisper CPU INT8 path, while the A6000 overlay retains CUDA FP16. The
+verification service synchronizes the `asr-verify` extra and the application into one
+locked environment, then checks CPU INT8 capability during construction. Jetson model
+loading, transcription latency, and memory use remain target measurements. An image pull
+or successful build also does not prove vLLM-Omni TTS loading.
+
+The Jetson translation image applies the vLLM upstream nested-RoPE guard to the pinned
+0.19.0 vendor source. The patch prevents legacy root fields from being inserted into
+TranslateGemma's `full_attention` and `sliding_attention` mappings. Exact version and
+patch-context checks deliberately fail the build if the vendor source changes.
 
 ### Start model services
+
+Prefer `bash scripts/manage.sh deploy jetson`. It validates the effective 0.6B ASR paths,
+the CPU INT8 verification backend, CUDA imports, and TranslateGemma model configuration
+before Compose starts the resident containers. The commands below are the manual path
+after those checks have passed.
 
 ```bash
 docker compose -f docker/compose.yaml up -d asr asr-verify llm tts
@@ -778,28 +797,27 @@ source config/remote-gpu.env
 set +a
 docker compose -f docker/compose.remote.yaml config --quiet
 docker compose -f docker/compose.remote.yaml config --images
-docker compose -f docker/compose.remote.yaml build asr asr-verify tts
-docker compose -f docker/compose.remote.yaml pull llm
+docker compose -f docker/compose.remote.yaml build asr asr-verify llm tts
 ```
 
-The build produces three project-specific Python service images. TTS retains the upstream
+The build produces four project-specific service images. TTS retains the upstream
 vLLM-Omni runtime through its base image:
 
 | Service | Image | Dockerfile target |
 |---|---|---|
 | Primary ASR | `kotonohainterpreter-asr:latest` | `asr` |
 | Verification ASR | `kotonohainterpreter-asr-verify:latest` | `asr-verify` |
+| Translation LLM | `kotonohainterpreter-llm:latest` | `llm` |
 | TTS | `kotonohainterpreter-tts:latest` | `docker/Dockerfile.tts` |
 
 The targets share a cached application layer but install and verify role-specific runtime
 dependencies. The common layer imports `pydantic_settings` during the build. A missing
 core dependency therefore fails the image build instead of entering a restart loop.
-The A6000 ASR target synchronizes the `a6000-asr` extra into the same active environment
-as the application. That extra supplies `mistral-common[audio]`, which vLLM uses for the
-Voxtral tokenizer and audio preprocessing; it does not install a second vLLM runtime.
-Both A6000 model-service images replace the workstation lock's NumPy 1.26 with NumPy 2.x
-after synchronization. This keeps the NGC SciPy and scikit-learn stack importable and
-the Transformers lazy imports required by vLLM are checked during the image build.
+The lock selects NumPy 2.x on A6000 Linux x86_64 for the NGC SciPy and scikit-learn stack,
+while Jetson Linux aarch64 and the macOS workstation retain NumPy 1.x. The A6000 ASR
+target additionally synchronizes `a6000-asr`; that extra supplies `mistral-common[audio]`
+for the Voxtral tokenizer and audio preprocessing without installing a second vLLM
+runtime. The image build checks the Transformers lazy imports required by vLLM.
 
 The Jetson ASR image checks for Qwen3-ASR batch and realtime modules. The A6000 ASR image
 checks for Voxtral Realtime, the vLLM realtime connection, and the Mistral audio
@@ -815,10 +833,13 @@ vLLM's multimodal position mask, preserving both N-best batch transcription and 
 unmodified realtime path. A patch context mismatch intentionally fails the image build.
 Docker BuildKit does not attach the NVIDIA runtime, so CUDA-aware imports belong to
 deployment. `scripts/deploy.sh` starts temporary ASR and LLM containers with the
-Compose GPU reservation and verifies PyTorch CUDA, the GPU identity, and vLLM before
-starting resident services. The same check imports vLLM-Omni and initializes CUDA in a
-temporary TTS container. Spike 2 remains responsible for model loading, FlashAttention
-kernel execution, and Speech API PCM measurements.
+Compose GPU reservation before starting resident services. The LLM probe uses the
+application virtual environment, imports `GenerationMixin`, `AsyncEngineArgs`, and the
+in-process engine builder, and constructs the selected model configuration. The model
+probe also verifies that TranslateGemma retains both nested RoPE mappings. The same check
+imports vLLM-Omni and initializes CUDA in a temporary TTS container. Spike 2 remains
+responsible for model loading, FlashAttention kernel execution, and Speech API PCM
+measurements.
 
 ### Start and verify the remote stack
 

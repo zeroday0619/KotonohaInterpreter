@@ -9,7 +9,10 @@ license = { file = "LICENSE" }
 requires-python = ">=3.10"
 
 dependencies = [
-  "numpy>=1.24,<2.3",
+  # The NGC A6000 runtime ships SciPy and scikit-learn builds for NumPy 2,
+  # while Jetson device dependencies and workstation evaluation still require NumPy 1.
+  "numpy>=2,<2.3 ; sys_platform == 'linux' and platform_machine == 'x86_64'",
+  "numpy>=1.24,<2 ; sys_platform != 'linux' or platform_machine != 'x86_64'",
   "pydantic>=2.7",
   "pydantic-settings>=2.3",
   "PyYAML>=6.0",
@@ -32,16 +35,20 @@ dependencies = [
 # Device-only dependencies. Phase 0 verifies aarch64 wheel availability on the
 # Jetson. Do not install this extra on macOS.
 #
-# This is an extra because device containers install it into the system Python
-# with `uv pip install --system -e ".[device]"`. That preserves the Torch and
-# CUDA builds supplied by the base image.
+# This extra keeps Jetson-only inference packages out of the workstation and
+# A6000 runtime environments.
 [project.optional-dependencies]
 device = [
-  "onnxruntime>=1.18",          # silero-vad
-  "deepfilternet>=0.5.6",       # DeepFilterNet3
-  "faster-whisper>=1.0.3",      # CTranslate2 backend
-  "transformers>=4.57",         # Qwen3-ASR Transformers fallback
-  "accelerate>=0.33",
+  "onnxruntime>=1.18 ; sys_platform == 'linux' and platform_machine == 'aarch64'",          # silero-vad
+  "deepfilternet>=0.5.6 ; sys_platform == 'linux' and platform_machine == 'aarch64'",       # DeepFilterNet3
+  "faster-whisper>=1.0.3 ; sys_platform == 'linux' and platform_machine == 'aarch64'",      # CTranslate2 backend
+  "transformers>=4.57 ; sys_platform == 'linux' and platform_machine == 'aarch64'",         # Qwen3-ASR Transformers fallback
+  "accelerate>=0.33 ; sys_platform == 'linux' and platform_machine == 'aarch64'",
+  "soundfile>=0.12 ; sys_platform == 'linux' and platform_machine == 'aarch64'",
+]
+# Verification ASR runs in one project environment on both inference hosts.
+asr-verify = [
+  "faster-whisper>=1.0.3",
   "soundfile>=0.12",
 ]
 # Voxtral uses vLLM for inference, but its Mistral tokenizer and audio
@@ -64,9 +71,9 @@ dev = [
 ]
 # Evaluation runs on the development workstation. COMET does not run on the Orin.
 eval = [
-  "jiwer>=3.0",
-  "unbabel-comet>=2.2",
-  "pandas>=2.2",
+  "jiwer>=3.0 ; sys_platform == 'darwin' and platform_machine == 'arm64'",
+  "unbabel-comet>=2.2 ; sys_platform == 'darwin' and platform_machine == 'arm64'",
+  "pandas>=2.2 ; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
 [project.scripts]
 kotonoha = "kotonoha._cli:main"

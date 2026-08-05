@@ -464,6 +464,39 @@ verify_vllm_cuda_runtime() {
     || fail "$service_name container cannot initialize the CUDA runtime and vLLM"
 }
 
+verify_vllm_translation_runtime() {
+  local compose_file=$1
+  local compose_environment_file=$2
+  local compose_arguments=(compose)
+  if [ -n "$compose_environment_file" ]; then
+    compose_arguments+=(--env-file "$compose_environment_file")
+  fi
+  compose_arguments+=(-f "$compose_file")
+
+  run_docker "${compose_arguments[@]}" run --rm --no-deps \
+    --entrypoint /opt/kotonoha-venv/bin/python llm -c \
+    'import sys; from pathlib import Path; import numpy, torch, transformers, vllm; from transformers import GenerationMixin; from vllm.engine.arg_utils import AsyncEngineArgs; from vllm.entrypoints.openai.api_server import build_async_engine_client_from_engine_args; from kotonoha._config import load_settings; from kotonoha.services._llm_server import _engine_arguments; assert torch.cuda.is_available(), "CUDA is unavailable in the translation container"; assert Path(sys.executable).is_relative_to("/opt/kotonoha-venv"), sys.executable; engine_config = AsyncEngineArgs(**_engine_arguments(load_settings().llm)).create_engine_config(); model_config = engine_config.model_config; text_config = model_config.hf_text_config; rope_parameters = getattr(text_config, "rope_parameters", None); nested_keys = {"full_attention", "sliding_attention"}; assert not isinstance(rope_parameters, dict) or not nested_keys.intersection(rope_parameters) or nested_keys <= rope_parameters.keys() and all(isinstance(value, dict) and "rope_type" in value for value in rope_parameters.values()), rope_parameters; print("CUDA", torch.version.cuda, "| GPU", torch.cuda.get_device_name(0), "| vLLM", vllm.__version__, "| Transformers", transformers.__version__, "| NumPy", numpy.__version__, "| model", model_config.model)' \
+    || fail "llm container cannot validate the in-process vLLM model configuration"
+}
+
+verify_jetson_asr_configuration() {
+  local compose_file=$1
+
+  run_docker compose -f "$compose_file" run --rm --no-deps \
+    --entrypoint /opt/venv/bin/python asr -c \
+    'import sys; from pathlib import Path; from kotonoha._config import load_settings; config = load_settings().asr; expected_vllm = Path("/models/Qwen3-ASR-0.6B"); expected_fallback = Path("/models/Qwen3-ASR-0.6B-hf"); actual_vllm = Path(config.vllm_model_id); actual_fallback = Path(config.model_id); actual_vllm == expected_vllm or sys.exit(f"effective asr.vllm_model_id is {actual_vllm}; expected {expected_vllm}. Update the stale asr override in config/local.yaml."); actual_fallback == expected_fallback or sys.exit(f"effective asr.model_id is {actual_fallback}; expected {expected_fallback}. Update the stale asr override in config/local.yaml."); config.vllm_realtime_architecture == "qwen3_asr" or sys.exit(f"effective asr.vllm_realtime_architecture is {config.vllm_realtime_architecture}; expected qwen3_asr. Update config/local.yaml."); vllm_config = actual_vllm / "config.json"; fallback_config = actual_fallback / "config.json"; vllm_config.is_file() or sys.exit(f"offline ASR model is missing: {vllm_config}"); fallback_config.is_file() or sys.exit(f"offline ASR fallback is missing: {fallback_config}"); print("Effective Jetson ASR models:", actual_vllm, "| fallback", actual_fallback)' \
+    || fail "Jetson ASR configuration does not select the mounted Qwen3-ASR 0.6B models"
+}
+
+verify_jetson_asr_verification_runtime() {
+  local compose_file=$1
+
+  run_docker compose -f "$compose_file" run --rm --no-deps \
+    --entrypoint /opt/kotonoha-venv/bin/python asr-verify -c \
+    'import sys; from pathlib import Path; import ctranslate2; from kotonoha._config import load_settings; config = load_settings().asr_verify; config.device == "cpu" or sys.exit(f"effective asr_verify.device is {config.device}; expected cpu because the Jetson CTranslate2 wheel has no CUDA support. Update config/local.yaml."); config.compute_type == "int8" or sys.exit(f"effective asr_verify.compute_type is {config.compute_type}; expected int8. Update config/local.yaml."); model_config = Path(config.model_id) / "config.json"; model_config.is_file() or sys.exit(f"offline verification ASR model is missing: {model_config}"); supported = ctranslate2.get_supported_compute_types(config.device); config.compute_type in supported or sys.exit(f"CTranslate2 does not support {config.compute_type} on {config.device}; supported: {sorted(supported)}"); print("Effective Jetson verification ASR:", config.device, config.compute_type, "| CTranslate2", ctranslate2.__version__)' \
+    || fail "Jetson verification ASR cannot use the configured CTranslate2 runtime"
+}
+
 verify_a6000_asr_configuration() {
   local compose_file=$1
   local compose_environment_file=$2
@@ -511,10 +544,12 @@ deploy_jetson() {
     return
   fi
   if [ "$build_images" = true ]; then
-    run_docker compose -f "$compose_file" build asr asr-verify tts orchestrator
+    run_docker compose -f "$compose_file" build asr asr-verify llm tts orchestrator
   fi
+  verify_jetson_asr_configuration "$compose_file"
+  verify_jetson_asr_verification_runtime "$compose_file"
   verify_vllm_cuda_runtime "$compose_file" "" asr
-  verify_vllm_cuda_runtime "$compose_file" "" llm
+  verify_vllm_translation_runtime "$compose_file" ""
   verify_vllm_omni_cuda_runtime "$compose_file" ""
   if [ "$build_images" = false ]; then
     run_docker compose -f "$compose_file" \
@@ -560,11 +595,11 @@ deploy_a6000() {
     return
   fi
   if [ "$build_images" = true ]; then
-    "${compose_command[@]}" build asr asr-verify tts
+    "${compose_command[@]}" build asr asr-verify llm tts
   fi
   verify_a6000_asr_configuration "$compose_file" "$environment_file"
   verify_vllm_cuda_runtime "$compose_file" "$environment_file" asr
-  verify_vllm_cuda_runtime "$compose_file" "$environment_file" llm
+  verify_vllm_translation_runtime "$compose_file" "$environment_file"
   verify_vllm_omni_cuda_runtime "$compose_file" "$environment_file"
   if [ "$build_images" = false ]; then
     "${compose_command[@]}" up -d --no-build asr asr-verify llm tts

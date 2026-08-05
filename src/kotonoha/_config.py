@@ -221,8 +221,9 @@ class AsrVerificationConfig(BaseModel):
     mode: Literal["conditional", "always"] = "conditional"
     backend: Literal["faster_whisper", "whisper_cpp"] = "faster_whisper"
     model_id: str = "large-v3"
-    compute_type: str = "int8_float16"
-    device: str = "cuda"
+    # The Jetson AArch64 wheel uses the CPU path. Remote overlays can select CUDA.
+    compute_type: str = "int8"
+    device: str = "cpu"
     beam_size: int = 5
     timeout_s: float = 3.0
     divergence_cer: float = 0.25
