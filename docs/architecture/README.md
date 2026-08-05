@@ -94,6 +94,12 @@ The ASR and translation services run separate vLLM engines. Their GPU memory uti
 limits are independent and must leave capacity for verification ASR and TTS. The checked-in
 split is provisional until concurrent-residency measurements pass on each target.
 
+On a multi-GPU A6000 host, `scripts/allocate_gpus.py` reads GPU UUID, model name, total
+memory, and free memory from `nvidia-smi`. It applies per-role memory reservations and
+selects the placement with the lowest projected maximum memory utilization. Compose pins
+each service to one generated GPU UUID through `device_ids`. Cached UUID assignments avoid
+placement changes across routine service restarts.
+
 Remote services require a bearer token when `KOTONOHA_SERVICE_TOKEN` is set. Plain HTTP
 does not provide confidentiality. Restrict service ports to a trusted network or place a
 TLS reverse proxy in front of them.

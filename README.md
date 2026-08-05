@@ -38,6 +38,11 @@ behavior on the Jetson. No target compatibility or performance result is claimed
 target measurement. The [Implementation Plan](docs/planning/README.md) defines the phase
 gates.
 
+The A6000 deployment queries GPU UUIDs and available memory before first startup. It
+assigns ASR, verification ASR, translation, and TTS to physical GPUs from configurable
+memory reservations. The generated UUID mapping remains stable until an operator requests
+reallocation.
+
 ## Quick Start
 
 Install the development environment:
@@ -86,6 +91,8 @@ The [documentation index](docs/README.md) organizes project documentation by cat
 - Jetson vLLM model loading and latency remain unverified until Spike 1 runs on sm_87.
 - Translation AWQ loading and throughput remain unverified until Spike 3 runs on each
   target.
+- Default A6000 GPU memory reservations remain provisional until peak resident memory is
+  measured with the complete remote stack.
 - Complete model inference cannot be validated on the macOS development workstation.
 - Push-to-talk is a terminal toggle because terminals do not expose key-release events.
 - Remote configuration changes do not reload resident models.

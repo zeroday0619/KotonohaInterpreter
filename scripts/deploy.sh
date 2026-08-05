@@ -12,10 +12,12 @@ deployment_target=""
 operation="deploy"
 uninstall_requested=false
 environment_file="$repository_root/.env"
+gpu_environment_file="$repository_root/config/remote-gpu.env"
 health_timeout_seconds=600
 build_images=true
 prepare_jetson_power=true
 remove_images=false
+reallocate_gpus=false
 docker_command=(docker)
 docker_display_command="docker"
 
@@ -32,6 +34,7 @@ Options:
   --health-timeout SEC  Maximum model startup wait in seconds (default: 600)
   --no-build            Start existing images without building
   --skip-power-setup    Do not set Jetson MAXN mode or lock clocks
+  --reallocate-gpus     Recompute A6000 role assignments from current free GPU memory
   --remove-images       Also remove project-built images during uninstall
   -h, --help            Show this help
 
@@ -91,6 +94,10 @@ while [ "$#" -gt 0 ]; do
       prepare_jetson_power=false
       shift
       ;;
+    --reallocate-gpus)
+      reallocate_gpus=true
+      shift
+      ;;
     --remove-images)
       remove_images=true
       shift
@@ -116,6 +123,9 @@ esac
 [ "$health_timeout_seconds" -gt 0 ] || fail "--health-timeout must be greater than zero"
 [ "$remove_images" = false ] || [ "$operation" = "uninstall" ] \
   || fail "--remove-images is valid only with uninstall"
+[ "$reallocate_gpus" = false ] || { [ "$operation" = "deploy" ] \
+  && [ "$deployment_target" = "a6000" ]; } \
+  || fail "--reallocate-gpus is valid only with A6000 deployment"
 
 require_command docker
 
@@ -191,6 +201,13 @@ ensure_remote_environment() {
     printf 'LLM_PROFILE=moe\n'
     printf 'LLM_MAX_MODEL_LEN=4096\n'
     printf 'LLM_GPU_MEMORY_UTILIZATION=0.55\n'
+    printf 'GPU_ALLOCATION_MODE=auto\n'
+    printf 'GPU_NAME_FILTER=A6000\n'
+    printf 'GPU_MEMORY_RESERVE_MIB=1024\n'
+    printf 'LLM_GPU_MEMORY_MIB=27648\n'
+    printf 'ASR_GPU_MEMORY_MIB=10240\n'
+    printf 'ASR_VERIFY_GPU_MEMORY_MIB=6144\n'
+    printf 'TTS_GPU_MEMORY_MIB=3072\n'
     printf 'TRANSFORMERS_OFFLINE=1\n'
   } >"$environment_file"
   printf 'Created protected environment file: %s\n' "$environment_file"
@@ -262,6 +279,35 @@ check_a6000_host() {
   check_nvidia_container_runtime
   require_file "$models_path/llm/Qwen3-30B-A3B-Instruct-2507-AWQ/config.json"
   require_file "$models_path/Qwen3-TTS-0.6B/config.json"
+}
+
+load_gpu_environment() {
+  require_file "$gpu_environment_file"
+  while IFS='=' read -r key value; do
+    case "$key" in
+      ASR_GPU_DEVICE|ASR_VERIFY_GPU_DEVICE|LLM_GPU_DEVICE|TTS_GPU_DEVICE)
+        [ -n "$value" ] || fail "empty GPU assignment in $gpu_environment_file: $key"
+        export "$key=$value"
+        ;;
+    esac
+  done < "$gpu_environment_file"
+  [ -n "${ASR_GPU_DEVICE:-}" ] || fail "GPU allocation did not assign ASR"
+  [ -n "${ASR_VERIFY_GPU_DEVICE:-}" ] || fail "GPU allocation did not assign ASR verification"
+  [ -n "${LLM_GPU_DEVICE:-}" ] || fail "GPU allocation did not assign LLM"
+  [ -n "${TTS_GPU_DEVICE:-}" ] || fail "GPU allocation did not assign TTS"
+}
+
+allocate_a6000_gpus() {
+  local arguments=(
+    python3 "$repository_root/scripts/allocate_gpus.py"
+    --environment-file "$environment_file"
+    --output "$gpu_environment_file"
+  )
+  if [ "$reallocate_gpus" = true ]; then
+    arguments+=(--force)
+  fi
+  "${arguments[@]}" || fail "GPU allocation failed"
+  load_gpu_environment
 }
 
 python_service_ready() {
@@ -378,6 +424,11 @@ deploy_a6000() {
   models_path=$(remote_models_path)
   check_speech_models "$models_path"
   check_a6000_host "$models_path"
+  if [ "$reallocate_gpus" = true ]; then
+    printf 'Stopping resident services before measuring free GPU memory.\n'
+    "${compose_command[@]}" stop asr asr-verify llm tts || true
+  fi
+  allocate_a6000_gpus
   ensure_override \
     "$repository_root/config/remote-server.local.example.yaml" \
     "$repository_root/config/remote-server.local.yaml"
@@ -450,7 +501,7 @@ uninstall_a6000() {
     remove_project_image kotonohainterpreter-tts
   fi
 
-  printf 'Preserved: config/remote-server.local.yaml, config/remote-llm.env, .env, models/, and upstream vLLM image.\n'
+  printf 'Preserved: config/remote-server.local.yaml, config/remote-llm.env, config/remote-gpu.env, .env, models/, and upstream vLLM image.\n'
 }
 
 case "$operation:$deployment_target" in

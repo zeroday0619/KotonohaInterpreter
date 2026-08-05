@@ -54,6 +54,11 @@ docker compose -f docker/compose.remote.yaml ps
 All four remote services must remain resident during final acceptance. An isolated model
 benchmark does not prove concurrent residency.
 
+Retain `config/remote-gpu.env` and the corresponding `nvidia-smi` inventory with every
+measurement. Each configured role reservation must be at least its measured peak GPU
+memory consumption, and the per-GPU safety reserve must remain free during the complete
+resident workload.
+
 ### Artifacts
 
 Run `scripts/fetch_models.sh` before either track. Spike 3 requires both AWQ model
@@ -199,8 +204,13 @@ or measured overhead exceeds the limit.
 Start the complete A6000 stack after selecting candidate settings:
 
 ```bash
+set -a
+source .env
+source config/remote-gpu.env
+set +a
 docker compose -f docker/compose.remote.yaml up -d
 docker compose -f docker/compose.remote.yaml ps
+docker compose -f docker/compose.remote.yaml config | sed -n '/device_ids:/,+2p'
 nvidia-smi
 curl -fsS http://127.0.0.1:8001/health
 curl -fsS http://127.0.0.1:8002/health
@@ -210,6 +220,10 @@ curl -fsS http://127.0.0.1:8004/health
 
 Reject a configuration that passes isolated measurements but causes an out-of-memory
 restart when all services are resident.
+
+Record the GPU UUID assigned to each role. Repeat concurrent-residency and latency
+measurements after every `--reallocate-gpus` operation because placement changes the
+available memory and contention profile.
 
 ## Reporting
 

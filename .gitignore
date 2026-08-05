@@ -211,4 +211,5 @@ eval/out/
 config/local.yaml
 config/remote-server.local.yaml
 config/remote-llm.env
+config/remote-gpu.env
 .DS_Store

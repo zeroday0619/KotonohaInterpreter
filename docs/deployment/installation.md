@@ -155,7 +155,8 @@ bash scripts/deploy.sh a6000
 
 The first A6000 run creates a protected `.env` file with a random 32-byte service token
 when no file or `KOTONOHA_SERVICE_TOKEN` value exists. Transfer that token to the Jetson
-through a secure channel. The script never prints the token.
+through a secure channel. The script never prints the token. It also creates
+`config/remote-gpu.env` with the selected GPU UUID for every model service.
 
 Available options:
 
@@ -164,12 +165,17 @@ Available options:
 --health-timeout SEC  Change the model startup timeout from 600 seconds
 --no-build            Start already-built images
 --skip-power-setup    Do not set Jetson MAXN mode or lock clocks
+--reallocate-gpus     Stop A6000 services and recalculate GPU placement from free memory
 --remove-images       Remove project-built images during uninstall
 ```
 
 The script does not replace `config/local.yaml`, `config/remote-server.local.yaml`, or an
-existing `.env`. It does not start the interactive orchestrator. Continue with the
-runtime command printed after all resident services become healthy.
+existing `.env`. Routine deployment reuses `config/remote-gpu.env` so GPU enumeration or
+temporary memory usage cannot move a resident model unexpectedly. Use
+`--reallocate-gpus` after adding, removing, or repurposing GPUs. The option stops resident
+services before measuring free memory. The script does not start the interactive
+orchestrator. Continue with the runtime command printed after all resident services become
+healthy.
 
 The script first attempts Docker access as the current user. When the Docker socket
 requires root privileges, it automatically uses `sudo docker` for Docker and Compose
@@ -196,8 +202,9 @@ bash scripts/deploy.sh uninstall jetson --remove-images
 bash scripts/deploy.sh uninstall a6000 --remove-images
 ```
 
-Uninstall never removes model artifacts, logs, SQLite data, `.env`, local YAML overrides,
-or upstream base images. `--remove-images` removes only images named for this project.
+Uninstall never removes model artifacts, logs, SQLite data, `.env`,
+`config/remote-gpu.env`, local YAML overrides, or upstream base images.
+`--remove-images` removes only images named for this project.
 
 ## macOS Development Installation
 
@@ -626,6 +633,13 @@ LLM_IMAGE=vllm/vllm-openai:v0.19.1
 LLM_PROFILE=moe
 LLM_MAX_MODEL_LEN=4096
 LLM_GPU_MEMORY_UTILIZATION=0.55
+GPU_ALLOCATION_MODE=auto
+GPU_NAME_FILTER=A6000
+GPU_MEMORY_RESERVE_MIB=1024
+LLM_GPU_MEMORY_MIB=27648
+ASR_GPU_MEMORY_MIB=10240
+ASR_VERIFY_GPU_MEMORY_MIB=6144
+TTS_GPU_MEMORY_MIB=3072
 TRANSFORMERS_OFFLINE=1
 HF_HUB_OFFLINE=1
 ```
@@ -639,6 +653,42 @@ Existing deployments must replace any `LLM_IMAGE` value containing `llama.cpp`, 
 `/models/llm`. The deployment script rejects an obsolete llama.cpp image selection.
 Existing GGUF files are not read by the vLLM service and can be archived after the AWQ
 snapshots pass target validation.
+
+### Configure GPU allocation
+
+Automatic allocation uses current free memory on the first deployment or after
+`--reallocate-gpus`. It places larger reservations first and minimizes projected memory
+utilization across eligible GPUs. `GPU_NAME_FILTER=A6000` excludes unrelated NVIDIA GPUs.
+Set an empty filter to permit every GPU reported by `nvidia-smi`.
+
+The checked-in reservation defaults are deployment guards, not measured peak memory
+values.
+
+| Role | Environment variable | Default reservation |
+|---|---|---:|
+| Translation LLM | `LLM_GPU_MEMORY_MIB` | 27,648 MiB |
+| Primary ASR | `ASR_GPU_MEMORY_MIB` | 10,240 MiB |
+| Verification ASR | `ASR_VERIFY_GPU_MEMORY_MIB` | 6,144 MiB |
+| TTS | `TTS_GPU_MEMORY_MIB` | 3,072 MiB |
+| Per-GPU safety reserve | `GPU_MEMORY_RESERVE_MIB` | 1,024 MiB |
+
+Measure peak memory with all services resident, then raise reservations when retained
+evidence exceeds a default. The allocator rejects a placement when no eligible GPU has
+enough remaining capacity.
+
+For fixed placement, set `GPU_ALLOCATION_MODE=manual` and define every device by stable
+GPU UUID:
+
+```dotenv
+GPU_ALLOCATION_MODE=manual
+ASR_GPU_DEVICE=GPU-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+ASR_VERIFY_GPU_DEVICE=GPU-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+LLM_GPU_DEVICE=GPU-11111111-2222-3333-4444-555555555555
+TTS_GPU_DEVICE=GPU-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+```
+
+Use UUIDs instead of indexes because NVIDIA does not guarantee enumeration order across
+reboots. Manual assignments still undergo aggregate capacity validation.
 
 The Python services receive `KOTONOHA_SERVICE_TOKEN`. The vLLM translation launcher
 passes the same token through `--api-key`. Restrict ports 8001-8004 to the Jetson even
@@ -661,6 +711,7 @@ Load the token into the Compose process, then validate the rendered configuratio
 ```bash
 set -a
 source .env
+source config/remote-gpu.env
 set +a
 docker compose -f docker/compose.remote.yaml config --quiet
 docker compose -f docker/compose.remote.yaml config --images
@@ -707,6 +758,13 @@ curl -fsS http://127.0.0.1:8004/health | python3 -m json.tool
 Confirm concurrent residency. A service that loads successfully in isolation can still
 fail when all models occupy the GPU. Check `nvidia-smi` after all four services report
 healthy and retain the output in the deployment record.
+
+Confirm that Compose rendered the generated UUID assignments:
+
+```bash
+cat config/remote-gpu.env
+docker compose -f docker/compose.remote.yaml config | sed -n '/device_ids:/,+2p'
+```
 
 ## Connect the Jetson to the A6000
 

@@ -31,14 +31,6 @@ x-a6000: &a6000
     - ../:/app
     - ${MODELS_DIR:-../models}:/models
   working_dir: /app
-  deploy:
-    resources:
-      reservations:
-        devices:
-          - driver: nvidia
-            count: 1
-            capabilities: [gpu]
-
 x-a6000-python-build: &a6000-python-build
   context: ..
   dockerfile: docker/Dockerfile.remote
@@ -56,6 +48,13 @@ services:
         ASR_BASE_IMAGE: ${REMOTE_ASR_BASE:-vllm/vllm-openai:v0.19.1}
     ports: ["8001:8001"]
     command: uvicorn kotonoha.services._asr_server:app --host 0.0.0.0 --port 8001 --loop uvloop
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${ASR_GPU_DEVICE:-0}"]
+              capabilities: [gpu]
 
   asr-verify:
     <<: *a6000
@@ -66,6 +65,13 @@ services:
     depends_on: [asr]
     ports: ["8002:8002"]
     command: uvicorn kotonoha.services._asr_verify_server:app --host 0.0.0.0 --port 8002 --loop uvloop
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${ASR_VERIFY_GPU_DEVICE:-0}"]
+              capabilities: [gpu]
 
   tts:
     <<: *a6000
@@ -79,6 +85,13 @@ services:
     depends_on: [asr]
     ports: ["8004:8004"]
     command: uvicorn kotonoha.services._tts_server:app --host 0.0.0.0 --port 8004 --loop uvloop
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${TTS_GPU_DEVICE:-0}"]
+              capabilities: [gpu]
 
   llm:
     <<: *a6000
@@ -100,3 +113,10 @@ services:
       - ../config:/config
       - ${MODELS_DIR:-../models}:/models
     entrypoint: ["bash", "/opt/kotonoha/run_vllm_llm.sh"]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${LLM_GPU_DEVICE:-0}"]
+              capabilities: [gpu]

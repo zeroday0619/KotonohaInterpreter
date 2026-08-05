@@ -38,6 +38,7 @@ def test_deploy_script_has_valid_shell_syntax_and_help() -> None:
     assert "scripts/deploy.sh a6000" in help_result.stdout
     assert "scripts/deploy.sh uninstall jetson" in help_result.stdout
     assert "scripts/deploy.sh uninstall a6000" in help_result.stdout
+    assert "--reallocate-gpus" in help_result.stdout
     assert os.access(DEPLOY_SCRIPT, os.X_OK)
 
 

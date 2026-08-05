@@ -56,6 +56,7 @@ does not verify Jetson behavior.
 | External link measurement | `uv run kotonoha netcheck` |
 | Deploy Jetson | `bash scripts/deploy.sh jetson` |
 | Deploy A6000 | `bash scripts/deploy.sh a6000` |
+| Reallocate A6000 GPUs | `bash scripts/deploy.sh a6000 --reallocate-gpus` |
 | Uninstall Jetson | `bash scripts/deploy.sh uninstall jetson` |
 | Uninstall A6000 | `bash scripts/deploy.sh uninstall a6000` |
 
@@ -66,7 +67,7 @@ uv run ruff check .
 uv run pytest -q
 ```
 
-Current baseline: 216 tests and zero lint findings.
+Current baseline: 221 tests and zero lint findings.
 
 ## Non-negotiable constraints
 
@@ -372,6 +373,7 @@ tokens from `config/local.yaml` never enter tests.
 | `test_remote_mode.py` | Placement, transport encoding, failover |
 | `test_config_admin.py` | Remote authorization, allowlist, validation, persistence |
 | `test_deploy_script.py` | Deployment interface and host templates |
+| `test_gpu_allocator.py` | GPU inventory parsing, reservations, stable UUID placement |
 | `test_i18n.py` | Catalog completeness, placeholders, locale resolution |
 | `test_python_style.py` | Module privacy, declarations, type hints, imports, and class slots |
 | `test_history.py` | History filters, escaping, panel, browser |
