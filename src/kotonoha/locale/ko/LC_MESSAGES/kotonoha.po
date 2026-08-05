@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Kotonoha Interpreter 0.1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-05 21:49+0900\n"
+"POT-Creation-Date: 2026-08-05 22:54+0900\n"
 "PO-Revision-Date: 2026-08-05 15:30+0900\n"
 "Last-Translator: Kotonoha Interpreter\n"
 "Language: ko\n"
@@ -1089,3 +1089,4 @@ msgstr "프로세스 중지 중"
 
 #~ msgid " audio off-box"
 #~ msgstr " 오디오 외부 전송"
+
