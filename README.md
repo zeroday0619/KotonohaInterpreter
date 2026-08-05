@@ -99,3 +99,7 @@ The [documentation index](docs/README.md) organizes project documentation by cat
 - Push-to-talk is a terminal toggle because terminals do not expose key-release events.
 - Remote configuration changes do not reload resident models.
 - TLS termination and a production supervisor outside Docker Compose are not included.
+
+## AI-Generated Code Notice
+
+Parts of this project were created with assistance from AI tools (e.g. large language models). All AI-assisted contributions were reviewed and adapted by maintainers before inclusion. If you need provenance for specific changes, please refer to the Git history and commit messages.
