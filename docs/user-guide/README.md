@@ -72,6 +72,25 @@ written atomically to `config/local.yaml`. Remote changes use the authenticated
 `/admin/config` endpoint and only accept settings consumed by resident model services.
 Remote model changes require a service restart.
 
+Qwen3-TTS voice selection is exposed as four local settings under `tts.voices`. The
+configuration editor presents only the presets native to each target language:
+
+| Voice | Character | Native language | Setting |
+|---|---|---|---|
+| `Vivian` | Bright young female voice | Chinese | `tts.voices.zh_tw` |
+| `Serena` | Warm, gentle young female voice | Chinese | `tts.voices.zh_tw` |
+| `Uncle_Fu` | Seasoned male voice with a mellow timbre | Chinese | `tts.voices.zh_tw` |
+| `Dylan` | Youthful Beijing male voice | Chinese, Beijing | `tts.voices.zh_tw` |
+| `Eric` | Lively Chengdu male voice | Chinese, Sichuan | `tts.voices.zh_tw` |
+| `Ryan` | Dynamic male voice with rhythm | English | `tts.voices.en` |
+| `Aiden` | Sunny American male voice | English | `tts.voices.en` |
+| `Ono_Anna` | Playful female voice | Japanese | `tts.voices.ja` |
+| `Sohee` | Warm female voice | Korean | `tts.voices.ko` |
+
+Defaults are Sohee for Korean, Ryan for English, Ono_Anna for Japanese, and Vivian for
+Traditional Chinese. Voice selection is client policy, so it remains in the Jetson local
+configuration rather than the remote model-service allowlist.
+
 ## Localization
 
 English message identifiers are the source text. Korean, Japanese, and Traditional

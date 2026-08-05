@@ -129,22 +129,23 @@ A path without five hypotheses fails the accuracy contract regardless of latency
 bash scripts/manage.sh benchmark jetson --only 2
 ```
 
-The default `vllm/vllm-omni:v0.26.0` image has an arm64 manifest. The probe must still
-start it on the Jetson Linux 39.2 host, initialize CUDA, execute a FlashAttention kernel,
-load the local model, and stream audio before the path is accepted.
+The TTS probe image derives from `vllm/vllm-omni:v0.26.0`, which has an arm64 manifest.
+The probe must still start the Kotonoha FastAPI service on the Jetson Linux 39.2 host,
+initialize CUDA, execute a FlashAttention kernel, load the local model, and stream audio
+before the path is accepted.
 
 ### RTX A6000
 
-Run the same API and model probe through the amd64 variant of the official image.
+Run the same FastAPI service and model probe through the amd64 base-image variant.
 
 ```bash
 bash scripts/manage.sh benchmark a6000 --only 2
 ```
 
-The probe executes a FlashAttention kernel, starts `vllm serve --omni`, waits for
-`/health`, and records 24 kHz signed 16-bit PCM streaming measurements for Korean,
-English, Japanese, and Chinese. The full vLLM-Omni server log is retained beside the JSON
-result.
+The probe executes a FlashAttention kernel, starts `kotonoha.services._tts_server`, waits
+for its in-process vLLM-Omni engine to pass `/health`, and records 24 kHz signed 16-bit PCM
+streaming measurements for Korean, English, Japanese, and Chinese. The full service and
+engine log is retained beside the JSON result.
 
 | Criterion | Requirement |
 |---|---|

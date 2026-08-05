@@ -186,7 +186,7 @@ async def test_vllm_omni_tts_request_streams_openai_compatible_pcm() -> None:
     assert captured_payload == {
         "input": "안녕하세요.",
         "model": "kotonoha-tts",
-        "voice": "vivian",
+        "voice": "Sohee",
         "language": "Korean",
         "task_type": "CustomVoice",
         "response_format": "pcm",

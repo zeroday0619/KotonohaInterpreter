@@ -75,7 +75,12 @@ services:
 
   tts:
     <<: *a6000
-    image: ${TTS_IMAGE:-vllm/vllm-omni:v0.26.0}
+    image: kotonohainterpreter-tts
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.tts
+      args:
+        BASE_IMAGE: ${TTS_IMAGE:-vllm/vllm-omni:v0.26.0}
     depends_on: [asr]
     ports: ["8004:8004"]
     environment:
@@ -84,15 +89,10 @@ services:
       - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-0}
       - HF_HUB_OFFLINE=${TRANSFORMERS_OFFLINE:-0}
       - TTS_MODEL=/models/Qwen3-TTS-0.6B
-      - TTS_PORT=8004
       - TTS_SERVED_MODEL_NAME=kotonoha-tts
       - TTS_GPU_MEMORY_UTILIZATION=${TTS_GPU_MEMORY_UTILIZATION:-0.25}
       - TTS_ENFORCE_EAGER=${TTS_ENFORCE_EAGER:-1}
-    volumes:
-      - ../scripts/run_vllm_omni_tts.sh:/opt/kotonoha/run_vllm_omni_tts.sh:ro
-      - ${MODELS_DIR:-../models}:/models
-    working_dir: /opt/kotonoha
-    entrypoint: ["bash", "/opt/kotonoha/run_vllm_omni_tts.sh"]
+    command: uvicorn kotonoha.services._tts_server:app --host 0.0.0.0 --port 8004 --loop uvloop
     deploy:
       resources:
         reservations:

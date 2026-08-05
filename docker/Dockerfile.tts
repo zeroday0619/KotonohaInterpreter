@@ -1,0 +1,29 @@
+# TTS service layer on the official multi-platform vLLM-Omni runtime.
+ARG BASE_IMAGE=vllm/vllm-omni:v0.26.0
+FROM ${BASE_IMAGE}
+ENTRYPOINT []
+
+COPY --from=ghcr.io/astral-sh/uv:0.12 /uv /uvx /bin/
+
+ENV UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    HF_HOME=/models/hf
+
+RUN uv venv --python python3 --system-site-packages /opt/kotonoha-venv
+ENV VIRTUAL_ENV=/opt/kotonoha-venv \
+    UV_PYTHON=/opt/kotonoha-venv/bin/python \
+    PATH=/opt/kotonoha-venv/bin:${PATH}
+
+WORKDIR /app
+COPY pyproject.toml uv.lock README.md LICENSE hatch_build.py ./
+RUN uv sync --active --frozen --no-dev --no-install-project --no-cache
+
+COPY src ./src
+RUN uv sync --active --frozen --no-dev --no-cache \
+ && uv pip check --python "$UV_PYTHON" \
+ && "$UV_PYTHON" -c \
+ "from importlib.metadata import version; import fastapi, kotonoha; assert version('vllm').startswith('0.26.'); assert version('vllm-omni').startswith('0.26.'); print('TTS service dependencies ok')"
+
+EXPOSE 8004
+CMD ["uvicorn", "kotonoha.services._tts_server:app", "--host", "0.0.0.0", "--port", "8004", "--loop", "uvloop"]

@@ -225,17 +225,27 @@ printf '%s\n' 'KOTONOHA_TRANSFORMERS_RESULT={"backend":"transformers","loaded":t
 
 def test_vllm_omni_probe_uses_the_deployment_speech_api_contract() -> None:
     namespace = runpy.run_path(str(SPIKE2_SCRIPT))
-    command = namespace["server_command"](
+    command = namespace["server_command"](18004)
+    environment = namespace["server_environment"](
         "/models/Qwen3-TTS-0.6B",
-        port=18004,
+        startup_timeout_seconds=600.0,
         gpu_memory_utilization=0.25,
         enforce_eager=True,
     )
 
-    assert command[:4] == ["vllm", "serve", "/models/Qwen3-TTS-0.6B", "--omni"]
-    assert "--served-model-name" in command
-    assert "--stage-overrides" in command
-    assert "--enforce-eager" in command
+    assert command[:5] == [
+        command[0],
+        "-m",
+        "uvicorn",
+        "kotonoha.services._tts_server:app",
+        "--host",
+    ]
+    assert environment["TTS_MODEL"] == "/models/Qwen3-TTS-0.6B"
+    assert environment["TTS_STARTUP_TIMEOUT_SECONDS"] == "600.0"
+    assert environment["TTS_SERVED_MODEL_NAME"] == "kotonoha-tts"
+    assert environment["TTS_GPU_MEMORY_UTILIZATION"] == "0.25"
+    assert environment["TTS_ENFORCE_EAGER"] == "1"
+    assert "KOTONOHA_SERVICE_TOKEN" not in environment
 
 
 def test_performance_document_owns_measurement_procedure() -> None:
@@ -282,7 +292,8 @@ def test_hardware_spikes_use_target_specific_docker_images() -> None:
     assert "nvcr.io/nvidia/vllm:26.07-py3" in runner_source
     assert "vllm/vllm-omni:v0.26.0" in runner_source
     assert "prepare_tts_image()" in runner_source
-    assert 'pull "$SPIKE_TTS_IMAGE"' in runner_source
+    assert '--file docker/Dockerfile.tts' in runner_source
+    assert '--tag "$SPIKE_TTS_IMAGE"' in runner_source
     assert "SPIKE_TTS_PYTHON=$SPIKE_TTS_PYTHON" in runner_source
     assert "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice" in fetch_models_source
     assert '"/v1/audio/speech"' in spike2_source
@@ -308,4 +319,4 @@ def test_tts_runtime_is_not_installed_into_the_project_environment() -> None:
     assert "vllm-omni" not in project_configuration
     assert "qwen-tts" not in project_configuration
     assert "melotts" not in project_configuration
-    assert "vllm/vllm-omni:v0.26.0" in compose_source
+    assert "kotonohainterpreter-spike-tts:jetson" in compose_source

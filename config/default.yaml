@@ -158,12 +158,13 @@ tts:
   task_type: CustomVoice
   sample_rate: 24000
   timeout_s: 5.0
-  # Preset timbres from Qwen3-TTS CustomVoice (Vivian / Ryan / Aiden and six more).
+  # Qwen3-TTS CustomVoice presets, constrained to each voice's native language.
   voices:
-    ko: Vivian
-    en: Vivian
-    zh-TW: Vivian
-    ja: Vivian
+    ko: Sohee # Warm Korean female voice.
+    en: Ryan # Dynamic English male voice with rhythm; Aiden is also available.
+    ja: Ono_Anna # Playful Japanese female voice.
+    # Vivian, Serena, Uncle_Fu, Dylan, and Eric are available for Chinese.
+    zh_tw: Vivian
 
 zh:
   opencc_config: s2twp # Simplified -> Traditional with Taiwanese usage (§5)

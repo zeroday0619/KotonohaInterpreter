@@ -15,6 +15,7 @@ from kotonoha._config_store import validate_candidate
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEPLOY_SCRIPT = PROJECT_ROOT / "scripts" / "deploy.sh"
 LLM_SCRIPT = PROJECT_ROOT / "scripts" / "run_vllm_llm.sh"
+TTS_SERVER = PROJECT_ROOT / "src" / "kotonoha" / "services" / "_tts_server.py"
 
 
 def test_deploy_script_has_valid_shell_syntax_and_help() -> None:
@@ -132,8 +133,9 @@ def test_remote_compose_uses_distinct_role_images_and_vllm_translation() -> None
 
     assert len({services[role]["image"] for role in python_roles}) == len(python_roles)
     assert {services[role]["build"]["target"] for role in python_roles} == set(python_roles)
-    assert "vllm/vllm-omni:v0.26.0" in services["tts"]["image"]
-    assert "build" not in services["tts"]
+    assert services["tts"]["image"] == "kotonohainterpreter-tts"
+    assert services["tts"]["build"]["dockerfile"] == "docker/Dockerfile.tts"
+    assert "vllm/vllm-omni:v0.26.0" in services["tts"]["build"]["args"]["BASE_IMAGE"]
 
     assert "nvcr.io/nvidia/vllm:26.07-py3" in services["llm"]["image"]
     assert services["llm"]["entrypoint"] == [
@@ -258,26 +260,27 @@ def test_editable_container_installs_include_the_custom_build_hook() -> None:
     assert asr_stage.index("COPY src ./src") < asr_stage.rindex("uv sync --active")
 
 
-def test_tts_uses_the_official_vllm_omni_image_and_launcher() -> None:
+def test_tts_uses_the_fastapi_service_on_the_official_vllm_omni_base() -> None:
     compose = yaml.safe_load(
         (PROJECT_ROOT / "docker" / "compose.remote.yaml").read_text(encoding="utf-8")
     )
-    dockerfile = (PROJECT_ROOT / "docker" / "Dockerfile.remote").read_text(encoding="utf-8")
-    launcher = (PROJECT_ROOT / "scripts" / "run_vllm_omni_tts.sh").read_text(
-        encoding="utf-8"
-    )
+    dockerfile = (PROJECT_ROOT / "docker" / "Dockerfile.tts").read_text(encoding="utf-8")
+    server = TTS_SERVER.read_text(encoding="utf-8")
     service = compose["services"]["tts"]
 
-    assert "vllm/vllm-omni:v0.26.0" in service["image"]
-    assert service["entrypoint"] == ["bash", "/opt/kotonoha/run_vllm_omni_tts.sh"]
-    assert "build" not in service
-    assert " AS tts" not in dockerfile
-    assert "qwen_tts" not in dockerfile
-    assert "serve \"$MODEL\"" in launcher
-    assert "--omni" in launcher
-    assert "--served-model-name \"$SERVED_MODEL_NAME\"" in launcher
-    assert "--api-key \"$KOTONOHA_SERVICE_TOKEN\"" in launcher
-    assert 'echo "auth.disabled service=tts"' in launcher
+    assert service["image"] == "kotonohainterpreter-tts"
+    assert service["build"]["dockerfile"] == "docker/Dockerfile.tts"
+    assert "vllm/vllm-omni:v0.26.0" in service["build"]["args"]["BASE_IMAGE"]
+    assert "uvicorn kotonoha.services._tts_server:app" in service["command"]
+    assert "ARG BASE_IMAGE=vllm/vllm-omni:v0.26.0" in dockerfile
+    assert "uv sync --active --frozen" in dockerfile
+    assert "--system-site-packages" in dockerfile
+    assert 'app = FastAPI(title="kotonoha-tts"' in server
+    assert '@app.post("/v1/audio/speech")' in server
+    assert "AsyncOmni" in server
+    assert "OmniOpenAIServingSpeech" in server
+    assert "create_subprocess_exec" not in server
+    assert "install_auth(app, \"tts\")" in server
 
 
 def test_python_service_containers_force_uvloop() -> None:
@@ -287,14 +290,14 @@ def test_python_service_containers_force_uvloop() -> None:
     )
     for compose_path in compose_paths:
         compose = yaml.safe_load(compose_path.read_text(encoding="utf-8"))
-        for role in ("asr", "asr-verify"):
+        for role in ("asr", "asr-verify", "tts"):
             assert "--loop uvloop" in compose["services"][role]["command"]
-        assert "run_vllm_omni_tts.sh" in compose["services"]["tts"]["entrypoint"][-1]
 
     dockerfile_paths = (
         PROJECT_ROOT / "docker" / "Dockerfile.asr",
         PROJECT_ROOT / "docker" / "Dockerfile.asr-verify",
         PROJECT_ROOT / "docker" / "Dockerfile.remote",
+        PROJECT_ROOT / "docker" / "Dockerfile.tts",
     )
     for dockerfile_path in dockerfile_paths:
         dockerfile = dockerfile_path.read_text(encoding="utf-8")

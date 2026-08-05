@@ -41,7 +41,7 @@ accesses Docker directly when the current account has daemon permission and fall
 `sudo docker` when elevated access is required. The runner passes target-specific Compose
 variables through an explicit `sudo env` invocation because standard sudo policy removes
 exported shell variables. It refreshes the target-specific ASR image through the Docker
-build cache and pulls the official vLLM-Omni TTS image when absent. User-configured image
+build cache and builds the FastAPI TTS image from official vLLM-Omni. User-configured image
 tags are inspected but never rebuilt or pulled. The runner always regenerates the target
 report from the available result files.
 
@@ -61,14 +61,17 @@ failure stops the runner before any probe is started.
 
 | Target | Default ASR image | LLM and report image | Default TTS image |
 |---|---|---|---|
-| Jetson | `kotonohainterpreter-spike-asr:jetson` | `ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04` | `vllm/vllm-omni:v0.26.0` |
-| A6000 | `kotonohainterpreter-spike-asr:a6000` | `nvcr.io/nvidia/vllm:26.07-py3` | `vllm/vllm-omni:v0.26.0` |
+| Jetson | `kotonohainterpreter-spike-asr:jetson` | `ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04` | `kotonohainterpreter-spike-tts:jetson` |
+| A6000 | `kotonohainterpreter-spike-asr:a6000` | `nvcr.io/nvidia/vllm:26.07-py3` | `kotonohainterpreter-spike-tts:a6000` |
 
 The default ASR image derives from the target vLLM image and adds the locked application
 runtime dependencies required by the probe, including `soxr`. The native Hugging Face
-ASR fallback remains isolated because it requires Transformers 5.13 or newer. TTS runs
-directly in the official vLLM-Omni image and invokes the same `vllm serve --omni`
-contract used by deployment. No TTS runtime package enters the project uv environment.
+ASR fallback remains isolated because it requires Transformers 5.13 or newer. The TTS
+image derives from `vllm/vllm-omni:v0.26.0`, installs the locked FastAPI application into
+a uv environment with access to the base system packages, and runs the same
+`kotonoha.services._tts_server` path used by deployment. That service wraps the
+vLLM-Omni engine and speech-serving objects in-process; it does not start an internal
+HTTP server. No second TTS runtime enters the project lock.
 
 The Jetson vLLM image targets CUDA architecture 8.7, but its r36.4 runtime predates the
 Jetson Linux 39.2 host contract. Successful container and kernel execution on Orin sm_87

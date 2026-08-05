@@ -3,7 +3,7 @@
 set -uo pipefail
 
 repository_root=$(cd "$(dirname "$0")/.." && pwd)
-cd "$repository_root"
+cd "$repository_root" || exit 1
 
 show_usage() {
   cat <<'EOF'
@@ -95,10 +95,10 @@ configure_target() {
   if [ "$deployment_target" = "jetson" ]; then
     : "${SPIKE_VLLM_IMAGE:=ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04}"
     : "${SPIKE_ASR_IMAGE:=kotonohainterpreter-spike-asr:jetson}"
-    : "${SPIKE_TTS_IMAGE:=vllm/vllm-omni:v0.26.0}"
+    : "${SPIKE_TTS_IMAGE:=kotonohainterpreter-spike-tts:jetson}"
     : "${SPIKE_GPU_DEVICE:=all}"
     : "${SPIKE_PYTHON:=/opt/venv/bin/python}"
-    : "${SPIKE_TTS_PYTHON:=python3}"
+    : "${SPIKE_TTS_PYTHON:=/opt/kotonoha-venv/bin/python}"
     : "${OUT:=spikes/out}"
     default_context=2048
     report_name=PHASE0.md
@@ -106,10 +106,10 @@ configure_target() {
   else
     : "${SPIKE_VLLM_IMAGE:=nvcr.io/nvidia/vllm:26.07-py3}"
     : "${SPIKE_ASR_IMAGE:=kotonohainterpreter-spike-asr:a6000}"
-    : "${SPIKE_TTS_IMAGE:=vllm/vllm-omni:v0.26.0}"
+    : "${SPIKE_TTS_IMAGE:=kotonohainterpreter-spike-tts:a6000}"
     : "${SPIKE_GPU_DEVICE:=0}"
     : "${SPIKE_PYTHON:=python3}"
-    : "${SPIKE_TTS_PYTHON:=python3}"
+    : "${SPIKE_TTS_PYTHON:=/opt/kotonoha-venv/bin/python}"
     : "${OUT:=spikes/out/a6000}"
     default_context=4096
     report_name=PERFORMANCE.md
@@ -121,7 +121,7 @@ configure_target() {
     *) MODELS_DIR=$repository_root/${models_directory#./} ;;
   esac
   case "$OUT" in
-    /*|*../*|../*)
+    /*|..|../*|*/..|*/../*)
       printf 'OUT must be a repository-relative path: %s\n' "$OUT" >&2
       exit 2
       ;;
@@ -181,10 +181,12 @@ prepare_tts_image() {
     return
   fi
 
-  "${docker_command[@]}" image inspect "$SPIKE_TTS_IMAGE" >/dev/null 2>&1 || {
-    printf 'Pulling vLLM-Omni TTS image: %s\n' "$SPIKE_TTS_IMAGE"
-    "${docker_command[@]}" pull "$SPIKE_TTS_IMAGE"
-  }
+  printf 'Building TTS spike image: %s\n' "$SPIKE_TTS_IMAGE"
+  "${docker_command[@]}" build \
+    --build-arg "BASE_IMAGE=vllm/vllm-omni:v0.26.0" \
+    --file docker/Dockerfile.tts \
+    --tag "$SPIKE_TTS_IMAGE" \
+    .
 }
 
 require_model_snapshot() {
@@ -276,7 +278,7 @@ if [ "$selected_spike" = "1" ] || [ "$selected_spike" = "all" ]; then
   wav_path=${WAV:-samples/ko_6s.wav}
   if [ -f "$wav_path" ]; then
     case "$wav_path" in
-      /*|*../*|../*)
+      /*|..|../*|*/..|*/../*)
         printf 'WAV must be a repository-relative path: %s\n' "$wav_path" >&2
         exit 2
         ;;

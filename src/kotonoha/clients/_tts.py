@@ -78,7 +78,7 @@ class TextToSpeechClient(BaseClient):
         payload = {
             "input": text,
             "model": self.config.served_model_name,
-            "voice": self.config.voices.get(language, "Vivian").lower(),
+            "voice": self.config.voices.for_language(language),
             "language": _LANGUAGE_NAMES.get(language, "Auto"),
             "task_type": self.config.task_type,
             "response_format": "pcm",

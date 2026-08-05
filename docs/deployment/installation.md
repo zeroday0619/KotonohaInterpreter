@@ -448,15 +448,15 @@ the pinned Tegra image family:
 
 - `ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04`
 
-TTS must resolve to `vllm/vllm-omni:v0.26.0`. Its multi-platform manifest digest is
+The TTS build must use `vllm/vllm-omni:v0.26.0` as its base image. Its multi-platform
+manifest digest is
 `sha256:5cba1538c6f8ee81e8bea6708c24e68d7b2640f466a9fbf2ef15e68f2168b48b` and includes
 Linux arm64 and amd64 variants. The manifest does not establish Jetson compatibility.
 
 ### Build Jetson images
 
 ```bash
-docker compose -f docker/compose.yaml build asr asr-verify orchestrator
-docker compose -f docker/compose.yaml pull tts
+docker compose -f docker/compose.yaml build asr asr-verify tts orchestrator
 ```
 
 Review the build output for the following conditions:
@@ -465,7 +465,7 @@ Review the build output for the following conditions:
 - vLLM reports version 0.19.0 in the ASR and translation images.
 - CTranslate2 and faster-whisper import in the verification image.
 - `onnxruntime` and DeepFilterNet installation status is explicit.
-- The official vLLM-Omni image resolves to the arm64 manifest.
+- The TTS service build resolves the official vLLM-Omni base to the arm64 manifest.
 
 The orchestrator Dockerfile permits selected target dependencies to fail during image
 construction. The AArch64 CTranslate2 wheel is published, but target execution must still
@@ -727,16 +727,27 @@ TTS_GPU_DEVICE=GPU-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
 Use UUIDs instead of indexes because NVIDIA does not guarantee enumeration order across
 reboots. Manual assignments still undergo aggregate capacity validation.
 
-The Python services receive `KOTONOHA_SERVICE_TOKEN`. Both the vLLM translation launcher
-and the vLLM-Omni TTS launcher pass the same token through `--api-key`. Restrict ports
-8001-8004 to the Jetson even when bearer authentication is enabled.
+The Python services receive `KOTONOHA_SERVICE_TOKEN`. The TTS FastAPI layer enforces the
+same bearer token before dispatching requests to its in-process vLLM-Omni engine.
+Restrict ports 8001-8004 to the Jetson even when bearer authentication is enabled.
 
-TTS uses the official multi-platform `vllm/vllm-omni:v0.26.0` image and mounts the local
-Qwen3-TTS snapshot at `/models/Qwen3-TTS-0.6B`. No project Dockerfile installs
-another TTS runtime or a second Transformers environment. A remote transport failure
-before the first PCM chunk is retried against the resident Jetson vLLM-Omni service.
-The image manifest contains both Linux arm64 and amd64 variants, but only Spike 2 model
-loading and CUDA kernel execution can establish compatibility on either target.
+TTS builds `kotonohainterpreter-tts` from the official multi-platform
+`vllm/vllm-omni:v0.26.0` base and mounts the local Qwen3-TTS snapshot at
+`/models/Qwen3-TTS-0.6B`. `Dockerfile.tts` creates one uv-managed environment with access
+to the base image's system packages, then installs the locked Kotonoha dependencies into
+that environment. It does not install another vLLM, vLLM-Omni, or Transformers runtime.
+A remote transport failure before the first PCM chunk is retried against the resident
+Jetson service. The base manifest contains both Linux arm64 and amd64 variants, but only
+Spike 2 model loading and CUDA kernel execution can establish compatibility on either
+target.
+
+`kotonoha.services._tts_server` is the public FastAPI service. Its lifespan validates the
+model snapshot and matching vLLM/vLLM-Omni versions, constructs `AsyncOmni`,
+`OpenAIServingModels`, and `OmniOpenAIServingSpeech` in the uvicorn process, and returns
+the runtime's raw PCM stream from `/v1/audio/speech`. It does not open a second HTTP
+server or use an internal HTTP proxy. The pinned 0.26.0 base satisfies the
+[upstream installation contract](https://docs.vllm.ai/projects/vllm-omni/en/latest/getting_started/installation/)
+without installing a second inference runtime. Spike 2 starts the same FastAPI service.
 
 ### Validate and build the remote stack
 
@@ -749,18 +760,18 @@ source config/remote-gpu.env
 set +a
 docker compose -f docker/compose.remote.yaml config --quiet
 docker compose -f docker/compose.remote.yaml config --images
-docker compose -f docker/compose.remote.yaml build asr asr-verify
-docker compose -f docker/compose.remote.yaml pull llm tts
+docker compose -f docker/compose.remote.yaml build asr asr-verify tts
+docker compose -f docker/compose.remote.yaml pull llm
 ```
 
-The build produces two project-specific Python service images. TTS uses the upstream
-vLLM-Omni image directly:
+The build produces three project-specific Python service images. TTS retains the upstream
+vLLM-Omni runtime through its base image:
 
 | Service | Image | Dockerfile target |
 |---|---|---|
 | Primary ASR | `kotonohainterpreter-asr:latest` | `asr` |
 | Verification ASR | `kotonohainterpreter-asr-verify:latest` | `asr-verify` |
-| TTS | `vllm/vllm-omni:v0.26.0` | Upstream image |
+| TTS | `kotonohainterpreter-tts:latest` | `docker/Dockerfile.tts` |
 
 The targets share a cached application layer but install and verify role-specific runtime
 dependencies. The common layer imports `pydantic_settings` during the build. A missing

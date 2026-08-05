@@ -473,7 +473,7 @@ deploy_jetson() {
     return
   fi
   if [ "$build_images" = true ]; then
-    run_docker compose -f "$compose_file" build asr asr-verify orchestrator
+    run_docker compose -f "$compose_file" build asr asr-verify tts orchestrator
   fi
   verify_vllm_cuda_runtime "$compose_file" "" asr
   verify_vllm_cuda_runtime "$compose_file" "" llm
@@ -485,11 +485,12 @@ deploy_jetson() {
     run_docker compose -f "$compose_file" up -d asr asr-verify llm tts
   fi
 
-  wait_for_service asr http://127.0.0.1:8001 python \
-    && wait_for_service asr-verify http://127.0.0.1:8002 python \
-    && wait_for_service llm http://127.0.0.1:8003 http \
-    && wait_for_service tts http://127.0.0.1:8004 http \
-    || show_failed_health "$compose_file" "" asr asr-verify llm tts
+  if ! wait_for_service asr http://127.0.0.1:8001 python \
+    || ! wait_for_service asr-verify http://127.0.0.1:8002 python \
+    || ! wait_for_service llm http://127.0.0.1:8003 http \
+    || ! wait_for_service tts http://127.0.0.1:8004 python; then
+    show_failed_health "$compose_file" "" asr asr-verify llm tts
+  fi
 
   printf '\nJetson model services are ready. Start the interactive interpreter with:\n'
   printf '%s compose -f docker/compose.yaml run --rm orchestrator\n' "$docker_display_command"
@@ -521,7 +522,7 @@ deploy_a6000() {
     return
   fi
   if [ "$build_images" = true ]; then
-    "${compose_command[@]}" build asr asr-verify
+    "${compose_command[@]}" build asr asr-verify tts
   fi
   verify_vllm_cuda_runtime "$compose_file" "$environment_file" asr
   verify_vllm_cuda_runtime "$compose_file" "$environment_file" llm
@@ -532,11 +533,12 @@ deploy_a6000() {
     "${compose_command[@]}" up -d asr asr-verify llm tts
   fi
 
-  wait_for_service asr http://127.0.0.1:8001 python \
-    && wait_for_service asr-verify http://127.0.0.1:8002 python \
-    && wait_for_service llm http://127.0.0.1:8003 http \
-    && wait_for_service tts http://127.0.0.1:8004 http \
-    || show_failed_health "$compose_file" "$environment_file" asr asr-verify llm tts
+  if ! wait_for_service asr http://127.0.0.1:8001 python \
+    || ! wait_for_service asr-verify http://127.0.0.1:8002 python \
+    || ! wait_for_service llm http://127.0.0.1:8003 http \
+    || ! wait_for_service tts http://127.0.0.1:8004 python; then
+    show_failed_health "$compose_file" "$environment_file" asr asr-verify llm tts
+  fi
 
   printf '\nA6000 model services are ready. Configure the Jetson with the token in:\n'
   printf '%s\n' "$environment_file"
@@ -559,6 +561,7 @@ uninstall_jetson() {
   if [ "$remove_images" = true ]; then
     remove_project_image kotonohainterpreter-asr
     remove_project_image kotonohainterpreter-asr-verify
+    remove_project_image kotonohainterpreter-tts
     remove_project_image kotonohainterpreter-orchestrator
   fi
 
@@ -593,6 +596,7 @@ uninstall_a6000() {
   if [ "$remove_images" = true ]; then
     remove_project_image kotonohainterpreter-asr
     remove_project_image kotonohainterpreter-asr-verify
+    remove_project_image kotonohainterpreter-tts
   fi
 
   printf 'Preserved: config/remote-server.local.yaml, config/remote-llm.env, config/remote-gpu.env, .env, models/, and the NVIDIA NGC vLLM image.\n'

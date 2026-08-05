@@ -15,6 +15,7 @@ import platform
 import signal
 import statistics
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -26,6 +27,12 @@ PROBE_TEXT = {
     "English": "Hello, this is a latency probe for the interpreter.",
     "Japanese": "こんにちは、通訳機の性能を確認しています。",
     "Chinese": "您好，我们正在确认口译设备的性能。",
+}
+PROBE_VOICE = {
+    "Korean": "Sohee",
+    "English": "Ryan",
+    "Japanese": "Ono_Anna",
+    "Chinese": "Vivian",
 }
 SAMPLE_RATE = 24000
 SAMPLE_WIDTH = 2
@@ -109,31 +116,43 @@ def gpu_memory_usage_mib() -> float | None:
 
 
 def server_command(
-    model: str,
-    /,
-    *,
     port: int,
-    gpu_memory_utilization: float,
-    enforce_eager: bool,
+    /,
 ) -> list[str]:
-    command = [
-        "vllm",
-        "serve",
-        model,
-        "--omni",
+    return [
+        sys.executable,
+        "-m",
+        "uvicorn",
+        "kotonoha.services._tts_server:app",
         "--host",
         "127.0.0.1",
         "--port",
         str(port),
-        "--served-model-name",
-        SERVED_MODEL_NAME,
-        "--gpu-memory-utilization",
-        str(gpu_memory_utilization),
-        "--stage-overrides",
-        '{"1":{"max_num_seqs":1}}',
+        "--loop",
+        "uvloop",
     ]
-    command.append("--enforce-eager" if enforce_eager else "--no-enforce-eager")
-    return command
+
+
+def server_environment(
+    model: str,
+    /,
+    *,
+    startup_timeout_seconds: float,
+    gpu_memory_utilization: float,
+    enforce_eager: bool,
+) -> dict[str, str]:
+    environment = {
+        **os.environ,
+        "KOTONOHA_CONFIG": "/workspace/config/default.yaml",
+        "KOTONOHA_SKIP_LOCAL_CONFIG": "1",
+        "TTS_MODEL": model,
+        "TTS_STARTUP_TIMEOUT_SECONDS": str(startup_timeout_seconds),
+        "TTS_SERVED_MODEL_NAME": SERVED_MODEL_NAME,
+        "TTS_GPU_MEMORY_UTILIZATION": str(gpu_memory_utilization),
+        "TTS_ENFORCE_EAGER": "1" if enforce_eager else "0",
+    }
+    environment.pop("KOTONOHA_SERVICE_TOKEN", None)
+    return environment
 
 
 def wait_for_server(
@@ -157,7 +176,10 @@ def wait_for_server(
                 timeout=2.0,
             ) as response:
                 if response.status == 200:
-                    return True, round(time.perf_counter() - started_at, 2), None
+                    health = json.loads(response.read())
+                    if health.get("ok") is True:
+                        return True, round(time.perf_counter() - started_at, 2), None
+                    last_error = str(health.get("error") or "TTS service is not ready")
         except (urllib.error.URLError, TimeoutError) as error:
             last_error = repr(error)
         time.sleep(2.0)
@@ -169,6 +191,7 @@ def request_speech(
     /,
     *,
     language: str,
+    voice: str,
     port: int,
     timeout_seconds: float,
 ) -> dict:
@@ -176,7 +199,7 @@ def request_speech(
         {
             "input": text,
             "model": SERVED_MODEL_NAME,
-            "voice": "vivian",
+            "voice": voice,
             "language": language,
             "task_type": "CustomVoice",
             "response_format": "pcm",
@@ -261,13 +284,24 @@ def run_vllm_omni(
         "log": str(log_path),
         "gpu_memory_samples_mib": [],
     }
-    command = server_command(
+    command = server_command(port)
+    environment = server_environment(
         model,
-        port=port,
+        startup_timeout_seconds=startup_timeout_seconds,
         gpu_memory_utilization=gpu_memory_utilization,
         enforce_eager=enforce_eager,
     )
     result["command"] = command
+    result["server_environment"] = {
+        name: environment[name]
+        for name in (
+            "TTS_MODEL",
+            "TTS_STARTUP_TIMEOUT_SECONDS",
+            "TTS_SERVED_MODEL_NAME",
+            "TTS_GPU_MEMORY_UTILIZATION",
+            "TTS_ENFORCE_EAGER",
+        )
+    }
     baseline_memory = gpu_memory_usage_mib()
     if baseline_memory is not None:
         result["gpu_memory_samples_mib"].append(baseline_memory)
@@ -280,6 +314,7 @@ def run_vllm_omni(
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
                 start_new_session=True,
+                env=environment,
             )
         except Exception as error:  # noqa: BLE001
             result["error"] = f"server start: {error!r}"
@@ -304,6 +339,7 @@ def run_vllm_omni(
                     warmup = request_speech(
                         text,
                         language=language,
+                        voice=PROBE_VOICE[language],
                         port=port,
                         timeout_seconds=request_timeout_seconds,
                     )
@@ -312,6 +348,7 @@ def run_vllm_omni(
                             request_speech(
                                 text,
                                 language=language,
+                                voice=PROBE_VOICE[language],
                                 port=port,
                                 timeout_seconds=request_timeout_seconds,
                             )

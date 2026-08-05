@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, ClassVar, Literal
+from typing import Any, ClassVar, Final, Literal
 
 import yaml
-from pydantic import BaseModel, Field, model_validator
+from pydantic import AliasChoices, BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from kotonoha._typing import override
@@ -21,6 +21,38 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG = REPO_ROOT / "config" / "default.yaml"
 
 SupportedLanguage = Literal["ko", "en", "zh-TW", "ja"]
+ChineseVoice = Literal["Vivian", "Serena", "Uncle_Fu", "Dylan", "Eric"]
+EnglishVoice = Literal["Ryan", "Aiden"]
+JapaneseVoice = Literal["Ono_Anna"]
+KoreanVoice = Literal["Sohee"]
+QwenVoice = Literal[
+    "Vivian",
+    "Serena",
+    "Uncle_Fu",
+    "Dylan",
+    "Eric",
+    "Ryan",
+    "Aiden",
+    "Ono_Anna",
+    "Sohee",
+]
+QWEN_VOICE_NAMES: Final[dict[str, QwenVoice]] = {
+    "vivian": "Vivian",
+    "serena": "Serena",
+    "uncle_fu": "Uncle_Fu",
+    "dylan": "Dylan",
+    "eric": "Eric",
+    "ryan": "Ryan",
+    "aiden": "Aiden",
+    "ono_anna": "Ono_Anna",
+    "sohee": "Sohee",
+}
+QWEN_LANGUAGE_VOICES: Final[dict[str, frozenset[QwenVoice]]] = {
+    "Chinese": frozenset({"Vivian", "Serena", "Uncle_Fu", "Dylan", "Eric"}),
+    "English": frozenset({"Ryan", "Aiden"}),
+    "Japanese": frozenset({"Ono_Anna"}),
+    "Korean": frozenset({"Sohee"}),
+}
 
 
 class SessionConfig(BaseModel):
@@ -235,6 +267,31 @@ class LanguageModelConfig(BaseModel):
         return self.models_dir / self.active.directory
 
 
+class TextToSpeechVoices(BaseModel):
+    __slots__: ClassVar[tuple[str, ...]] = ()
+    ko: KoreanVoice = "Sohee"
+    en: EnglishVoice = "Ryan"
+    ja: JapaneseVoice = "Ono_Anna"
+    zh_tw: ChineseVoice = Field(
+        "Vivian",
+        validation_alias=AliasChoices("zh_tw", "zh-TW"),
+        serialization_alias="zh-TW",
+    )
+
+    def for_language(
+        self,
+        language: str,
+        /,
+    ) -> QwenVoice:
+        voices: dict[str, QwenVoice] = {
+            "ko": self.ko,
+            "en": self.en,
+            "ja": self.ja,
+            "zh-TW": self.zh_tw,
+        }
+        return voices.get(language, self.en)
+
+
 class TextToSpeechConfig(BaseModel):
     __slots__: ClassVar[tuple[str, ...]] = ()
     backend: Literal["vllm_omni"] = "vllm_omni"
@@ -242,7 +299,7 @@ class TextToSpeechConfig(BaseModel):
     task_type: Literal["CustomVoice"] = "CustomVoice"
     sample_rate: int = Field(24000, ge=24000, le=24000)
     timeout_s: float = 5.0
-    voices: dict[str, str] = {}
+    voices: TextToSpeechVoices = Field(default_factory=TextToSpeechVoices)
 
 
 class TraditionalChineseConfig(BaseModel):
