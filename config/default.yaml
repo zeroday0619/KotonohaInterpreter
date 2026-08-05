@@ -87,8 +87,12 @@ remote:
 asr:
   # [SPIKE-1] vLLM is the primary runtime. Transformers remains an explicit fallback.
   backend: vllm # vllm | transformers
-  model_id: Qwen/Qwen3-ASR-1.7B-hf
-  vllm_model_id: Qwen/Qwen3-ASR-1.7B
+  # Jetson uses the compact Qwen checkpoint. The A6000 overlay selects Voxtral.
+  model_id: Qwen/Qwen3-ASR-0.6B-hf
+  vllm_model_id: Qwen/Qwen3-ASR-0.6B
+  vllm_served_model_name: kotonoha-asr
+  # qwen3_asr applies the realtime architecture override required by vLLM.
+  vllm_realtime_architecture: qwen3_asr # qwen3_asr | voxtral
   dtype: float16
   # The ASR and translation vLLM engines share one GPU. Spike measurements must
   # validate this provisional split before deployment acceptance.

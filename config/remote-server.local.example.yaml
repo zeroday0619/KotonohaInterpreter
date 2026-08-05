@@ -2,8 +2,9 @@
 # scripts/deploy.sh copies this file only when no remote server override exists.
 
 asr:
-  model_id: /models/Qwen3-ASR-1.7B-hf
-  vllm_model_id: /models/Qwen3-ASR-1.7B
+  model_id: /models/Qwen3-ASR-0.6B-hf
+  vllm_model_id: /models/Voxtral-Mini-4B-Realtime-2602
+  vllm_realtime_architecture: voxtral
 
 asr_verify:
   model_id: /models/faster-whisper-large-v3

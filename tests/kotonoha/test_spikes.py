@@ -149,7 +149,7 @@ def test_spike_runner_rejects_incomplete_model_snapshots(
 
     assert completed.returncode == 1
     assert "Required model snapshot is missing" in completed.stderr
-    assert "Qwen3-ASR-1.7B/config.json" in completed.stderr
+    assert "Qwen3-ASR-0.6B/config.json" in completed.stderr
 
 
 def test_spike_runner_stops_after_asr_image_build_failure(
@@ -173,7 +173,7 @@ exit 0
     docker_command.chmod(0o755)
     models_directory = tmp_path / "models"
     for model_directory in (
-        "Qwen3-ASR-1.7B",
+        "Voxtral-Mini-4B-Realtime-2602",
         "Qwen3-TTS-0.6B",
         "llm/Qwen3-14B-AWQ",
         "llm/Qwen3-30B-A3B-Instruct-2507-AWQ",
@@ -296,6 +296,7 @@ def test_hardware_spikes_use_target_specific_docker_images() -> None:
     performance_document = PERFORMANCE_DOCUMENT.read_text(encoding="utf-8")
     fetch_models_source = FETCH_MODELS_SCRIPT.read_text(encoding="utf-8")
     spike2_source = SPIKE2_SCRIPT.read_text(encoding="utf-8")
+    spike1_source = SPIKE1_SCRIPT.read_text(encoding="utf-8")
     runner_source = RUNNER_SCRIPT.read_text(encoding="utf-8")
     compose_source = SPIKE_COMPOSE.read_text(encoding="utf-8")
     compose = yaml.safe_load(compose_source)
@@ -321,6 +322,12 @@ def test_hardware_spikes_use_target_specific_docker_images() -> None:
     assert 'uv pip install --python "$UV_PYTHON"' in asr_dockerfile
     assert "r36.4.tegra-aarch64-cu126-22.04" in compose_source
     assert "nvcr.io/nvidia/vllm:26.07-py3" in runner_source
+    assert "Qwen3-ASR-0.6B" in runner_source
+    assert "Voxtral-Mini-4B-Realtime-2602" in runner_source
+    assert '--realtime-architecture "$asr_realtime_architecture"' in runner_source
+    assert "VllmBackend" in spike1_source
+    assert "handle_websocket" in spike1_source
+    assert "input_audio_buffer.append" in spike1_source
     assert "vllm/vllm-omni:v0.26.0" in runner_source
     assert "vllm.vllm_flash_attn.flash_attn_interface" in spike2_source
     assert "fa_version=2" in spike2_source
@@ -330,6 +337,8 @@ def test_hardware_spikes_use_target_specific_docker_images() -> None:
     assert '--tag "$SPIKE_TTS_IMAGE"' in runner_source
     assert "SPIKE_TTS_PYTHON=$SPIKE_TTS_PYTHON" in runner_source
     assert "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice" in fetch_models_source
+    assert "Qwen/Qwen3-ASR-0.6B" in fetch_models_source
+    assert "mistralai/Voxtral-Mini-4B-Realtime-2602" in fetch_models_source
     assert '"/v1/audio/speech"' in spike2_source
     assert '"stream_format": "audio"' in spike2_source
     assert "probe_flash_attention" in spike2_source

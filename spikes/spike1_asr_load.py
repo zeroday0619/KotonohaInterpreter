@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Spike 1 — does the Jetson vLLM load Qwen3-ASR?
+"""Spike 1 — do the target-specific vLLM ASR models support batch and realtime?
 
 What this decides:
   · whether vLLM loads it at all
@@ -16,6 +16,8 @@ model snapshots read-only, and executes this script inside the container.
 from __future__ import annotations
 
 import argparse
+import asyncio
+import base64
 import json
 import os
 import platform
@@ -23,13 +25,15 @@ import statistics
 import subprocess
 import sys
 import time
+import traceback
 import wave
 from pathlib import Path
+from typing import ClassVar
 
 import numpy as np
 
-TRANSFORMERS_ID = "Qwen/Qwen3-ASR-1.7B-hf"
-VLLM_ID = "Qwen/Qwen3-ASR-1.7B"
+TRANSFORMERS_ID = "Qwen/Qwen3-ASR-0.6B-hf"
+VLLM_ID = "Qwen/Qwen3-ASR-0.6B"
 N_BEST = 5
 TRANSFORMERS_WORKER_MARKER = "KOTONOHA_TRANSFORMERS_RESULT="
 
@@ -220,6 +224,166 @@ def transformers_worker_main() -> int:
 
 
 # -- the vLLM path ---------------------------------------------------------
+class SpikeWebSocket:
+    """Drive vLLM's WebSocket connection without launching another server."""
+
+    __slots__: ClassVar[tuple[str, ...]] = (
+        "_disconnect_type",
+        "_done",
+        "_messages",
+        "accepted",
+        "events",
+        "first_delta_ms",
+        "started_at",
+    )
+
+    def __init__(
+        self,
+        /,
+        audio: np.ndarray,
+        model_name: str,
+    ) -> None:
+        from starlette.websockets import WebSocketDisconnect
+
+        samples = np.rint(np.clip(audio, -1.0, 1.0) * 32767.0).astype("<i2")
+        encoded = base64.b64encode(samples.tobytes()).decode("ascii")
+        self._disconnect_type = WebSocketDisconnect
+        self._done = asyncio.Event()
+        self._messages = iter(
+            (
+                json.dumps({"type": "session.update", "model": model_name}),
+                json.dumps({"type": "input_audio_buffer.commit", "final": False}),
+                json.dumps({"type": "input_audio_buffer.append", "audio": encoded}),
+                json.dumps({"type": "input_audio_buffer.commit", "final": True}),
+            )
+        )
+        self.accepted = False
+        self.events: list[dict] = []
+        self.first_delta_ms: float | None = None
+        self.started_at = time.perf_counter()
+
+    async def accept(
+        self,
+        /,
+        *arguments: object,
+        **keywords: object,
+    ) -> None:
+        del arguments, keywords
+        self.accepted = True
+
+    async def receive_text(
+        self,
+        /,
+    ) -> str:
+        try:
+            return next(self._messages)
+        except StopIteration:
+            await self._done.wait()
+            raise self._disconnect_type(code=1000) from None
+
+    async def send_text(
+        self,
+        data: str,
+        /,
+    ) -> None:
+        event = json.loads(data)
+        self.events.append(event)
+        if event.get("type") == "transcription.delta" and self.first_delta_ms is None:
+            self.first_delta_ms = (time.perf_counter() - self.started_at) * 1000
+        if event.get("type") == "transcription.done":
+            self._done.set()
+
+
+async def _run_vllm(
+    audio: np.ndarray,
+    /,
+    runs: int,
+    gpu_memory_utilization: float,
+    max_model_len: int,
+    enforce_eager: bool,
+    model_identifier: str,
+    served_model_name: str,
+    realtime_architecture: str,
+    dtype: str,
+) -> dict:
+    from kotonoha.services._asr_server import TranscribeRequest, VllmBackend
+
+    out: dict = {
+        "backend": "vllm_in_process",
+        "model": model_identifier,
+        "served_model_name": served_model_name,
+        "realtime_architecture": realtime_architecture,
+    }
+    backend = None
+    try:
+        backend = VllmBackend(
+            model_identifier,
+            served_model_name,
+            realtime_architecture,
+            dtype,
+            gpu_memory_utilization,
+            max_model_len,
+            enforce_eager,
+        )
+        await backend.start()
+        out["load_s"] = backend.load_seconds
+        out["loaded"] = True
+        out["health"] = await backend.health()
+    except Exception as error:  # noqa: BLE001
+        return {
+            **out,
+            "loaded": False,
+            "error": f"load: {error!r}",
+            "traceback": traceback.format_exc(),
+        }
+
+    request = TranscribeRequest(n_best=N_BEST, num_beams=N_BEST)
+    try:
+        await backend.transcribe(audio, request)
+        durations = []
+        result = None
+        for _ in range(runs):
+            start_time = time.perf_counter()
+            result = await backend.transcribe(audio, request)
+            durations.append(time.perf_counter() - start_time)
+        assert result is not None
+        hypotheses = result["hypotheses"]
+        websocket = SpikeWebSocket(audio, served_model_name)
+        await asyncio.wait_for(backend.handle_websocket(websocket), timeout=300.0)
+        done_events = [
+            event for event in websocket.events if event.get("type") == "transcription.done"
+        ]
+        delta_events = [
+            event for event in websocket.events if event.get("type") == "transcription.delta"
+        ]
+        out.update(
+            nbest_ms=round(statistics.median(durations) * 1000, 1),
+            nbest_count=len(hypotheses),
+            nbest_ok=len(hypotheses) == N_BEST,
+            has_logprobs=all(item.get("avg_logprob") is not None for item in hypotheses),
+            sample=[item["text"] for item in hypotheses],
+            scores=[round(float(item["avg_logprob"]), 4) for item in hypotheses],
+            language=result.get("language"),
+            realtime={
+                "accepted": websocket.accepted,
+                "delta_count": len(delta_events),
+                "done": bool(done_events),
+                "first_delta_ms": (
+                    round(websocket.first_delta_ms, 1)
+                    if websocket.first_delta_ms is not None
+                    else None
+                ),
+                "sample": done_events[-1].get("text") if done_events else None,
+            },
+        )
+    except Exception as error:  # noqa: BLE001
+        out["infer_error"] = repr(error)
+        out["infer_traceback"] = traceback.format_exc()
+    finally:
+        await backend.shutdown()
+    return out
+
+
 def run_vllm(
     audio: np.ndarray,
     /,
@@ -228,68 +392,32 @@ def run_vllm(
     max_model_len: int,
     enforce_eager: bool,
     model_identifier: str,
+    served_model_name: str,
+    realtime_architecture: str,
+    dtype: str,
 ) -> dict:
-    """First: does vLLM recognise this architecture at all?
-
-    Even if it does, check that N-best (n > 1) and log-probabilities come out.
-    Transcription without N-best does not satisfy §5.2, so that path cannot be
-    adopted.
-    """
-    out: dict = {"backend": "vllm", "model": model_identifier}
     try:
-        from vllm import LLM
-        from vllm.sampling_params import BeamSearchParams
-    except Exception as e:  # noqa: BLE001
-        return {**out, "loaded": False, "error": f"import: {e!r}"}
-
-    try:
-        t0 = time.perf_counter()
-        llm = LLM(
-            model=model_identifier,
-            max_model_len=max_model_len,
-            dtype="float16",
-            gpu_memory_utilization=gpu_memory_utilization,
-            limit_mm_per_prompt={"audio": 1},
-            enforce_eager=enforce_eager,
+        return asyncio.run(
+            _run_vllm(
+                audio,
+                runs,
+                gpu_memory_utilization,
+                max_model_len,
+                enforce_eager,
+                model_identifier,
+                served_model_name,
+                realtime_architecture,
+                dtype,
+            )
         )
-        out["load_s"] = round(time.perf_counter() - t0, 2)
-        out["loaded"] = True
-    except Exception as e:  # noqa: BLE001
-        return {**out, "loaded": False, "error": f"load: {e!r}"}
-
-    try:
-        parameters = BeamSearchParams(
-            beam_width=N_BEST,
-            max_tokens=256,
-            temperature=0.0,
-            length_penalty=1.0,
-        )
-        prompt = {
-            "prompt": (
-                "<|im_start|>user\n"
-                "<|audio_start|><|audio_pad|><|audio_end|><|im_end|>\n"
-                "<|im_start|>assistant\n"
-            ),
-            "multi_modal_data": {"audio": (audio, 16000)},
+    except Exception as error:  # noqa: BLE001
+        return {
+            "backend": "vllm_in_process",
+            "model": model_identifier,
+            "loaded": False,
+            "error": f"import: {error!r}",
+            "traceback": traceback.format_exc(),
         }
-        llm.beam_search([prompt], parameters, use_tqdm=False)  # warm-up
-        durations = []
-        for _ in range(runs):
-            start_time = time.perf_counter()
-            result = llm.beam_search([prompt], parameters, use_tqdm=False)
-            durations.append(time.perf_counter() - start_time)
-        outputs = result[0].sequences
-        out.update(
-            nbest_ms=round(statistics.median(durations) * 1000, 1),
-            nbest_count=len(outputs),
-            nbest_ok=len(outputs) == N_BEST,
-            has_logprobs=all(bool(output.logprobs) for output in outputs),
-            sample=[output.text for output in outputs],
-            scores=[round(float(output.cum_logprob), 4) for output in outputs],
-        )
-    except Exception as e:  # noqa: BLE001
-        out["infer_error"] = repr(e)
-    return out
 
 
 def verdict(
@@ -297,7 +425,8 @@ def verdict(
     /,
     tf: dict,
 ) -> dict:
-    v_ok = vllm.get("loaded") and vllm.get("nbest_ok")
+    realtime_ok = bool(vllm.get("realtime", {}).get("done"))
+    v_ok = vllm.get("loaded") and vllm.get("nbest_ok") and realtime_ok
     t_ok = tf.get("loaded") and tf.get("nbest_ok")
     if v_ok and t_ok:
         rec = "vllm" if vllm.get("nbest_ms", 1e9) < tf.get("nbest_ms", 1e9) else "transformers"
@@ -314,8 +443,9 @@ def verdict(
         "nbest_ms": ms,
         "asr_budget_ms": 900,
         "within_budget": (ms is not None and ms <= 900),
+        "realtime_ok": realtime_ok,
         "note": (
-            "두 경로 모두 실패. Qwen3-ASR 채택 불가 — 대안 검토 필요."
+            "대상 ASR 경로가 실패했다. 모델 채택 불가 — 전체 오류 로그를 확인할 것."
             if rec == "none"
             else (
                 f"{rec} 경로의 N-best5 전사가 {ms:.0f}ms. §6 예산 900ms 대비 "
@@ -335,6 +465,13 @@ def main() -> int:
     ap.add_argument("--runs", type=int, default=3)
     ap.add_argument("--only", choices=["vllm", "transformers"], default=None)
     ap.add_argument("--vllm-model", default=VLLM_ID)
+    ap.add_argument("--served-model-name", default="kotonoha-asr")
+    ap.add_argument(
+        "--realtime-architecture",
+        choices=["qwen3_asr", "voxtral"],
+        default="qwen3_asr",
+    )
+    ap.add_argument("--dtype", choices=["float16", "bfloat16"], default="float16")
     ap.add_argument("--transformers-model", default=TRANSFORMERS_ID)
     ap.add_argument("--gpu-memory-utilization", type=float, default=0.80)
     ap.add_argument("--max-model-len", type=int, default=4096)
@@ -357,13 +494,15 @@ def main() -> int:
     result = {
         "spike": 1,
         "target": a.target,
-        "question": f"{a.target} vLLM 이 Qwen3-ASR 을 로드하는가",
+        "question": f"{a.target} vLLM ASR 이 N-best 5와 WebSocket 전사를 실행하는가",
         "audio": {"source": src, "seconds": round(len(audio) / 16000, 2)},
         "env": env_info(),
         "conditions": {
             "gpu_memory_utilization": a.gpu_memory_utilization,
             "max_model_len": a.max_model_len,
             "enforce_eager": a.enforce_eager,
+            "dtype": a.dtype,
+            "realtime_architecture": a.realtime_architecture,
         },
     }
     result["vllm"] = (
@@ -374,6 +513,9 @@ def main() -> int:
             a.max_model_len,
             a.enforce_eager,
             a.vllm_model,
+            a.served_model_name,
+            a.realtime_architecture,
+            a.dtype,
         )
         if a.only in (None, "vllm")
         else {"skipped": True}

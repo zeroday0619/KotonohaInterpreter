@@ -115,11 +115,14 @@ def test_remote_services_default_to_mounted_offline_models() -> None:
     compose = (PROJECT_ROOT / "docker" / "compose.remote.yaml").read_text(encoding="utf-8")
     deploy_script = DEPLOY_SCRIPT.read_text(encoding="utf-8")
 
-    assert remote_config["asr"]["vllm_model_id"] == "/models/Qwen3-ASR-1.7B"
+    assert remote_config["asr"]["vllm_model_id"] == (
+        "/models/Voxtral-Mini-4B-Realtime-2602"
+    )
+    assert remote_config["asr"]["vllm_realtime_architecture"] == "voxtral"
     assert remote_config["asr_verify"]["model_id"] == "/models/faster-whisper-large-v3"
     assert "vllm/vllm-omni:v0.26.0" in compose
     assert "HF_HUB_OFFLINE=${TRANSFORMERS_OFFLINE:-0}" in compose
-    assert 'Qwen3-ASR-1.7B/config.json"' in deploy_script
+    assert 'Voxtral-Mini-4B-Realtime-2602/config.json"' in deploy_script
     assert 'faster-whisper-large-v3/config.json"' in deploy_script
     assert 'Qwen3-TTS-0.6B/config.json"' in deploy_script
 
@@ -148,7 +151,7 @@ def test_remote_compose_uses_distinct_role_images_and_vllm_translation() -> None
     )
 
 
-def test_asr_images_use_vllm_runtimes_with_qwen3_support_checks() -> None:
+def test_asr_images_use_target_vllm_runtimes_with_realtime_support_checks() -> None:
     jetson_compose = yaml.safe_load(
         (PROJECT_ROOT / "docker" / "compose.yaml").read_text(encoding="utf-8")
     )
@@ -167,7 +170,9 @@ def test_asr_images_use_vllm_runtimes_with_qwen3_support_checks() -> None:
     assert "ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04" in jetson_base
     assert "nvcr.io/nvidia/vllm:26.07-py3" in remote_base
     assert "rglob('qwen3_asr.py')" in jetson_dockerfile
-    assert "rglob('qwen3_asr.py')" in remote_dockerfile
+    assert "rglob('qwen3_asr_realtime.py')" in jetson_dockerfile
+    assert "rglob('voxtral_realtime.py')" in remote_dockerfile
+    assert "rglob('realtime/connection.py')" in remote_dockerfile
     assert "import vllm" not in jetson_dockerfile
     assert "import vllm" not in remote_dockerfile
     assert "uv venv --python python3 --system-site-packages /opt/kotonoha-venv" in (
@@ -183,7 +188,9 @@ def test_asr_images_use_vllm_runtimes_with_qwen3_support_checks() -> None:
     dependency_check = remote_dockerfile.index('uv pip check --python "$UV_PYTHON"')
     assert final_sync < numpy_override < dependency_check
     assert 'uv pip check --python "$UV_PYTHON"' in remote_dockerfile
-    assert "import kotonoha, numpy, scipy, sklearn, soxr" in remote_dockerfile
+    assert "import kotonoha, mistral_common, numpy, scipy, sklearn, soundfile, soxr" in (
+        remote_dockerfile
+    )
     assert "from transformers import GenerationMixin" in remote_dockerfile
     assert "(2, 0) <= numpy_release < (2, 3)" in remote_dockerfile
     assert "Path(numpy.__file__).is_relative_to('/opt/kotonoha-venv')" in (
@@ -243,10 +250,15 @@ def test_jetson_images_use_pinned_r36_4_tegra_runtime() -> None:
 def test_remote_lock_and_dockerfile_use_target_specific_python_environments() -> None:
     lock_text = (PROJECT_ROOT / "uv.lock").read_text(encoding="utf-8")
     dockerfile = (PROJECT_ROOT / "docker" / "Dockerfile.remote").read_text(encoding="utf-8")
+    project_configuration = (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
     assert "platform_machine == 'x86_64' and sys_platform == 'linux'" in lock_text
+    assert 'a6000-asr = [\n  "mistral-common[audio]>=1.11.3",\n]' in project_configuration
     assert "UV_PYTHON=/opt/conda/bin/python" in dockerfile
     assert "UV_PYTHON=/opt/kotonoha-venv/bin/python" in dockerfile
+    assert dockerfile.count("--extra a6000-asr") == 2
+    assert "import kotonoha, mistral_common, numpy" in dockerfile
+    assert "soundfile, soxr" in dockerfile
     assert "import kotonoha, pydantic_settings" in dockerfile
 
 

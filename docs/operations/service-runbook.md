@@ -136,7 +136,9 @@ requests. Treat this as a deployment failure on the A6000.
 | Service returns `ok: false` | Service log and `error` field | Correct model path, dependency, CUDA, or memory failure; restart the service |
 | Python services restart with missing `pydantic_settings` | Inspect x86_64 markers in `uv.lock` and the common image build check | Regenerate the lock with Linux x86_64 support and rebuild the ASR Python images |
 | LLM reports that `vllm` is unavailable | Inspect the selected LLM image | Restore the pinned vLLM image and recreate the container |
-| ASR cannot find the model offline | Inspect `asr.vllm_model_id` | Set `/models/Qwen3-ASR-1.7B` in the host override |
+| Jetson ASR cannot find the model offline | Inspect `asr.vllm_model_id` | Set `/models/Qwen3-ASR-0.6B` in the Jetson override |
+| A6000 ASR cannot find the model offline | Inspect `asr.vllm_model_id` | Set `/models/Voxtral-Mini-4B-Realtime-2602` in the remote override |
+| Realtime ASR WebSocket fails | Inspect `/v1/realtime`, service logs, and the configured realtime architecture | Restore the target model and architecture pair; rerun Spike 1 |
 | Verification downloads `large-v3` | Inspect `asr_verify.model_id` | Set `/models/faster-whisper-large-v3` |
 | LLM reports an incomplete model snapshot | Inspect `/models/llm` and `remote-llm.env` | Correct `LLM_MODELS_DIR`, profile, or model directory; restart `llm` |
 | vLLM-Omni TTS does not start | Inspect the selected image, CUDA initialization, model path, and Spike 2 log | Restore the pinned Omni image or correct the offline snapshot; do not infer compatibility from the manifest |

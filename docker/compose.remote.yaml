@@ -47,6 +47,16 @@ services:
       args:
         ASR_BASE_IMAGE: ${REMOTE_ASR_BASE:-nvcr.io/nvidia/vllm:26.07-py3}
     ports: ["8001:8001"]
+    environment:
+      - KOTONOHA_CONFIG=/app/config/remote-server.yaml
+      - KOTONOHA_LOCAL_CONFIG=/app/config/remote-server.local.yaml
+      - KOTONOHA_LLM_CONFIG_ENV=/app/config/remote-llm.env
+      - KOTONOHA_SERVICE_TOKEN=${KOTONOHA_SERVICE_TOKEN:?set a token before starting}
+      - HF_HOME=/models/hf
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-0}
+      - HF_HUB_OFFLINE=${TRANSFORMERS_OFFLINE:-0}
+      # Voxtral Realtime does not support the full CUDA graph path.
+      - VLLM_DISABLE_COMPILE_CACHE=1
     command: uvicorn kotonoha.services._asr_server:app --host 0.0.0.0 --port 8001 --loop uvloop
     deploy:
       resources:

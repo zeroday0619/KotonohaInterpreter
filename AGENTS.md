@@ -105,9 +105,10 @@ Identifiers confirmed as of 2026-08:
 
 | Component | Identifier |
 |---|---|
-| Primary ASR | `Qwen/Qwen3-ASR-1.7B` |
-| ASR runtime | vLLM 0.19 or newer, multimodal beam search |
-| Transformers fallback | `Qwen/Qwen3-ASR-1.7B-hf` |
+| Jetson primary ASR | `Qwen/Qwen3-ASR-0.6B` |
+| Jetson Transformers fallback | `Qwen/Qwen3-ASR-0.6B-hf` |
+| A6000 primary ASR | `mistralai/Voxtral-Mini-4B-Realtime-2602` |
+| ASR runtime | In-process vLLM, N-best beam search and `/v1/realtime` WebSocket |
 | TTS | `Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice` |
 | TTS runtime | vLLM-Omni 0.26.0 Speech API |
 | TTS API | `POST /v1/audio/speech`, streaming signed 16-bit 24 kHz PCM |
@@ -124,11 +125,12 @@ unverified until Spike 1 executes its CUDA kernels on the target device.
 
 The A6000 image manifest includes Linux amd64. Its metadata reports Python 3.12, CUDA
 13.3.1, vLLM `0.24.0+092c4842`, and compute capability 8.6. Target execution must still
-verify Qwen3-ASR beam search and AWQ model loading.
+verify Voxtral realtime transcription, N-best beam search, and AWQ model loading.
 
-`VllmBackend` in `src/kotonoha/services/_asr_server.py` is the default. Spike 1 still
-verifies model loading, five-hypothesis output, and measured latency on sm_87. Do not
-report target compatibility from workstation tests.
+`VllmBackend` in `src/kotonoha/services/_asr_server.py` owns the vLLM engine in the
+FastAPI process; do not launch a nested vLLM HTTP server. Spike 1 verifies model loading,
+five-hypothesis output, realtime WebSocket deltas, and measured latency on each target.
+Do not report target compatibility from workstation tests.
 
 ## Python and source standards
 

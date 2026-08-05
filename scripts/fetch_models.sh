@@ -3,7 +3,8 @@
 # local before it is used in anger.
 #
 # Repository IDs were confirmed by lookup in 2026-08:
-#   Qwen/Qwen3-ASR-1.7B                        vLLM format
+#   Qwen/Qwen3-ASR-0.6B                        Jetson vLLM ASR
+#   mistralai/Voxtral-Mini-4B-Realtime-2602    A6000 vLLM realtime ASR
 #   Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice       nine preset timbres
 #   ELVISIO/Qwen3-30B-A3B-Instruct-2507-AWQ    4-bit MoE translation profile
 #   Qwen/Qwen3-14B-AWQ                         4-bit dense translation profile
@@ -33,11 +34,15 @@ elif command -v hf >/dev/null; then HFCLI="hf download"
 elif command -v huggingface-cli >/dev/null; then HFCLI="huggingface-cli download"
 else echo "needs uv, or the huggingface_hub CLI"; exit 1; fi
 
-echo "== Qwen3-ASR 1.7B =="
-$HFCLI Qwen/Qwen3-ASR-1.7B --local-dir "$MODELS/Qwen3-ASR-1.7B"
+echo "== Qwen3-ASR 0.6B =="
+$HFCLI Qwen/Qwen3-ASR-0.6B --local-dir "$MODELS/Qwen3-ASR-0.6B"
 
-echo "== Qwen3-ASR 1.7B Transformers fallback =="
-$HFCLI Qwen/Qwen3-ASR-1.7B-hf --local-dir "$MODELS/Qwen3-ASR-1.7B-hf"
+echo "== Qwen3-ASR 0.6B Transformers fallback =="
+$HFCLI Qwen/Qwen3-ASR-0.6B-hf --local-dir "$MODELS/Qwen3-ASR-0.6B-hf"
+
+echo "== Voxtral Mini 4B Realtime =="
+$HFCLI mistralai/Voxtral-Mini-4B-Realtime-2602 \
+  --local-dir "$MODELS/Voxtral-Mini-4B-Realtime-2602"
 
 echo "== Qwen3-TTS 0.6B for vLLM-Omni =="
 $HFCLI Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice --local-dir "$MODELS/Qwen3-TTS-0.6B"

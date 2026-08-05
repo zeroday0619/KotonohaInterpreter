@@ -48,7 +48,9 @@ Resolve hardware-dependent runtime decisions before feature acceptance begins.
 
 ### Scope
 
-- Load Qwen3-ASR through Jetson vLLM and return five scored hypotheses.
+- Load Qwen3-ASR 0.6B through Jetson vLLM and return five scored hypotheses.
+- Load Voxtral Mini 4B Realtime through A6000 vLLM.
+- Execute the embedded vLLM realtime WebSocket path on both targets.
 - Measure the Transformers fallback when vLLM fails or does not satisfy N-best.
 - Execute FlashAttention on sm_87 and measure vLLM-Omni Qwen3-TTS PCM streaming.
 - Measure MoE 30B-A3B and dense 14B AWQ generation through vLLM under the specified
@@ -59,7 +61,7 @@ Resolve hardware-dependent runtime decisions before feature acceptance begins.
 
 | Artifact | Purpose |
 |---|---|
-| `spikes/out/spike1.json` | ASR compatibility, N-best, scores, and latency |
+| `spikes/out/spike1.json` | ASR compatibility, N-best, realtime events, scores, and latency |
 | `spikes/out/spike2.json` | FlashAttention and TTS backend evidence |
 | `spikes/out/spike3.json` | MoE and dense LLM measurements |
 | `spikes/out/PHASE0.md` | Consolidated verdict and unresolved failures |

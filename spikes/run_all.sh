@@ -101,6 +101,10 @@ configure_target() {
     : "${SPIKE_TTS_PYTHON:=/opt/kotonoha-venv/bin/python}"
     : "${OUT:=spikes/out}"
     default_context=2048
+    asr_dtype=float16
+    asr_realtime_architecture=qwen3_asr
+    asr_transformers_model=Qwen3-ASR-0.6B-hf
+    asr_vllm_model=Qwen3-ASR-0.6B
     report_name=PHASE0.md
     patch_name=local.yaml
   else
@@ -112,6 +116,10 @@ configure_target() {
     : "${SPIKE_TTS_PYTHON:=/opt/kotonoha-venv/bin/python}"
     : "${OUT:=spikes/out/a6000}"
     default_context=4096
+    asr_dtype=bfloat16
+    asr_realtime_architecture=voxtral
+    asr_transformers_model=Qwen3-ASR-0.6B-hf
+    asr_vllm_model=Voxtral-Mini-4B-Realtime-2602
     report_name=PERFORMANCE.md
     patch_name=remote-server.local.yaml
   fi
@@ -202,15 +210,15 @@ validate_models() {
   if [ "$selected_spike" = "1" ] || [ "$selected_spike" = "all" ]; then
     case "${ASR_ONLY:-}" in
       transformers)
-        require_model_snapshot Qwen3-ASR-1.7B-hf
+        require_model_snapshot "$asr_transformers_model"
         ;;
       vllm)
-        require_model_snapshot Qwen3-ASR-1.7B
+        require_model_snapshot "$asr_vllm_model"
         ;;
       *)
-        require_model_snapshot Qwen3-ASR-1.7B
+        require_model_snapshot "$asr_vllm_model"
         if [ "$deployment_target" = "jetson" ]; then
-          require_model_snapshot Qwen3-ASR-1.7B-hf
+          require_model_snapshot "$asr_transformers_model"
         fi
         ;;
     esac
@@ -318,8 +326,11 @@ if [ "$selected_spike" = "1" ] || [ "$selected_spike" = "all" ]; then
   printf '== Spike 1: ASR ==\n'
   "${compose_command[@]}" run --rm asr \
     --target "$deployment_target" \
-    --vllm-model /models/Qwen3-ASR-1.7B \
-    --transformers-model /models/Qwen3-ASR-1.7B-hf \
+    --vllm-model "/models/$asr_vllm_model" \
+    --transformers-model "/models/$asr_transformers_model" \
+    --served-model-name kotonoha-asr \
+    --realtime-architecture "$asr_realtime_architecture" \
+    --dtype "$asr_dtype" \
     "${wav_arguments[@]}" \
     "${vllm_arguments[@]}" \
     "${asr_arguments[@]}" \

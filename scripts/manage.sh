@@ -79,8 +79,9 @@ verify_model_artifacts() {
   models_directory=$(resolve_models_directory)
   local required_artifacts=(
     silero_vad.onnx
-    Qwen3-ASR-1.7B/config.json
-    Qwen3-ASR-1.7B-hf/config.json
+    Qwen3-ASR-0.6B/config.json
+    Qwen3-ASR-0.6B-hf/config.json
+    Voxtral-Mini-4B-Realtime-2602/config.json
     Qwen3-TTS-0.6B/config.json
     faster-whisper-large-v3/config.json
     llm/Qwen3-14B-AWQ/config.json

@@ -197,8 +197,10 @@ class LanguageIdentificationConfig(BaseModel):
 class AsrConfig(BaseModel):
     __slots__: ClassVar[tuple[str, ...]] = ()
     backend: Literal["vllm", "transformers"] = "vllm"
-    model_id: str = "Qwen/Qwen3-ASR-1.7B-hf"
-    vllm_model_id: str = "Qwen/Qwen3-ASR-1.7B"
+    model_id: str = "Qwen/Qwen3-ASR-0.6B-hf"
+    vllm_model_id: str = "Qwen/Qwen3-ASR-0.6B"
+    vllm_served_model_name: str = "kotonoha-asr"
+    vllm_realtime_architecture: Literal["qwen3_asr", "voxtral"] = "qwen3_asr"
     dtype: str = "float16"
     vllm_gpu_memory_utilization: float = Field(0.80, gt=0.0, le=1.0)
     vllm_max_model_len: int = Field(4096, ge=512)

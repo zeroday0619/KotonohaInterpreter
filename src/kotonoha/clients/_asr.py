@@ -1,4 +1,4 @@
-"""Primary ASR client (Qwen3-ASR 1.7B, N-best 5 with LID)."""
+"""Primary ASR client for target-specific vLLM models with N-best 5 and LID."""
 
 from __future__ import annotations
 

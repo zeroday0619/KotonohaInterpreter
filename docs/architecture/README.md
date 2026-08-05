@@ -18,7 +18,7 @@ Shared-memory audio ring
     |
     v
 Orchestrator (asyncio and uvloop)
-    |-- :8001 primary ASR       Qwen3-ASR 1.7B, N-best 5, LID
+    |-- :8001 primary ASR       target vLLM model, N-best 5 and realtime WS
     |-- :8002 verification ASR  faster-whisper large-v3, conditional
     |-- :8003 translation LLM   vLLM, correction and translation
     `-- :8004 TTS               vLLM-Omni, Qwen3-TTS 0.6B
@@ -108,8 +108,9 @@ TLS reverse proxy in front of them.
 
 | Component | Identifier |
 |---|---|
-| Primary ASR, vLLM | `Qwen/Qwen3-ASR-1.7B` |
-| Primary ASR, Transformers fallback | `Qwen/Qwen3-ASR-1.7B-hf` |
+| Jetson primary ASR, vLLM | `Qwen/Qwen3-ASR-0.6B` |
+| Jetson ASR, Transformers fallback | `Qwen/Qwen3-ASR-0.6B-hf` |
+| A6000 primary ASR, vLLM | `mistralai/Voxtral-Mini-4B-Realtime-2602` |
 | TTS | `Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice` |
 | MoE translation model | `ELVISIO/Qwen3-30B-A3B-Instruct-2507-AWQ` |
 | Dense translation model | `Qwen/Qwen3-14B-AWQ` |
@@ -120,6 +121,12 @@ TLS reverse proxy in front of them.
 
 The TTS FastAPI service owns `AsyncOmni` and `OmniOpenAIServingSpeech` in-process. It
 exposes their speech stream directly and does not run a nested vLLM-Omni HTTP server.
+
+The ASR FastAPI service similarly owns one vLLM `AsyncLLM` engine in-process. The same
+resident engine serves N-best five batch transcription and the vLLM realtime WebSocket
+protocol at `/v1/realtime`; no nested vLLM HTTP server or per-request model load is used.
+The wrapper accepts both the vLLM 0.19 OpenAI module layout and the current
+`speech_to_text` layout because these are internal, version-sensitive interfaces.
 
 ## Scope Exclusions
 

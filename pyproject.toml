@@ -43,6 +43,12 @@ device = [
   "accelerate>=0.33",
   "soundfile>=0.12",
 ]
+# Voxtral uses vLLM for inference, but its Mistral tokenizer and audio
+# preprocessing require the audio features supplied by mistral-common. Keep
+# this target-specific so the Jetson Qwen3-ASR image does not install it.
+a6000-asr = [
+  "mistral-common[audio]>=1.11.3",
+]
 
 # Development-only tools use a PEP 735 dependency group so they do not enter
 # deployment artifacts.

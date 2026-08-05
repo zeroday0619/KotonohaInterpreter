@@ -290,7 +290,9 @@ The script creates the following layout:
 
 ```text
 models/
-├── Qwen3-ASR-1.7B/
+├── Qwen3-ASR-0.6B/
+├── Qwen3-ASR-0.6B-hf/
+├── Voxtral-Mini-4B-Realtime-2602/
 ├── Qwen3-TTS-0.6B/
 ├── faster-whisper-large-v3/
 ├── llm/
@@ -306,7 +308,9 @@ hosts. The service never downloads model artifacts at startup.
 
 ```bash
 test -s models/silero_vad.onnx
-test -d models/Qwen3-ASR-1.7B
+test -d models/Qwen3-ASR-0.6B
+test -d models/Qwen3-ASR-0.6B-hf
+test -d models/Voxtral-Mini-4B-Realtime-2602
 test -d models/faster-whisper-large-v3
 test -s models/Qwen3-TTS-0.6B/config.json
 test -s models/llm/Qwen3-14B-AWQ/config.json
@@ -412,7 +416,9 @@ frontend:
     model_path: /app/models/silero_vad.onnx
 
 asr:
-  vllm_model_id: /models/Qwen3-ASR-1.7B
+  model_id: /models/Qwen3-ASR-0.6B-hf
+  vllm_model_id: /models/Qwen3-ASR-0.6B
+  vllm_realtime_architecture: qwen3_asr
 
 asr_verify:
   model_id: /models/faster-whisper-large-v3
@@ -621,8 +627,8 @@ The default remote Compose file mounts the repository `models` directory at `/mo
 Use the same artifact layout documented in Model Artifact Preparation.
 
 ```bash
-test -d models/Qwen3-ASR-1.7B
-test -s models/Qwen3-ASR-1.7B/config.json
+test -d models/Voxtral-Mini-4B-Realtime-2602
+test -s models/Voxtral-Mini-4B-Realtime-2602/config.json
 test -d models/faster-whisper-large-v3
 test -s models/faster-whisper-large-v3/config.json
 test -s models/Qwen3-TTS-0.6B/config.json
@@ -637,7 +643,8 @@ override does not exist. For manual deployment, create `config/remote-server.loc
 ```yaml
 # A6000-specific paths for an offline deployment.
 asr:
-  vllm_model_id: /models/Qwen3-ASR-1.7B
+  vllm_model_id: /models/Voxtral-Mini-4B-Realtime-2602
+  vllm_realtime_architecture: voxtral
 
 asr_verify:
   model_id: /models/faster-whisper-large-v3
@@ -776,10 +783,15 @@ vLLM-Omni runtime through its base image:
 The targets share a cached application layer but install and verify role-specific runtime
 dependencies. The common layer imports `pydantic_settings` during the build. A missing
 core dependency therefore fails the image build instead of entering a restart loop.
+The A6000 ASR target synchronizes the `a6000-asr` extra into the same active environment
+as the application. That extra supplies `mistral-common[audio]`, which vLLM uses for the
+Voxtral tokenizer and audio preprocessing; it does not install a second vLLM runtime.
 
-The ASR image build checks that the vLLM package contains the Qwen3-ASR module without
-importing vLLM. Docker BuildKit does not attach the NVIDIA runtime, so CUDA-aware imports
-belong to deployment. `scripts/deploy.sh` starts temporary ASR and LLM containers with the
+The Jetson ASR image checks for Qwen3-ASR batch and realtime modules. The A6000 ASR image
+checks for Voxtral Realtime, the vLLM realtime connection, and the Mistral audio
+dependencies without importing vLLM.
+Docker BuildKit does not attach the NVIDIA runtime, so CUDA-aware imports belong to
+deployment. `scripts/deploy.sh` starts temporary ASR and LLM containers with the
 Compose GPU reservation and verifies PyTorch CUDA, the GPU identity, and vLLM before
 starting resident services. The same check imports vLLM-Omni and initializes CUDA in a
 temporary TTS container. Spike 2 remains responsible for model loading, FlashAttention

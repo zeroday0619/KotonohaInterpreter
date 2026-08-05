@@ -275,14 +275,28 @@ ensure_remote_environment() {
   printf 'Copy its KOTONOHA_SERVICE_TOKEN value to the Jetson through a secure channel.\n'
 }
 
-check_speech_models() {
+check_common_speech_models() {
   local models_path=$1
-  require_directory "$models_path/Qwen3-ASR-1.7B"
-  require_file "$models_path/Qwen3-ASR-1.7B/config.json"
   require_directory "$models_path/faster-whisper-large-v3"
   require_file "$models_path/faster-whisper-large-v3/config.json"
   require_directory "$models_path/Qwen3-TTS-0.6B"
   require_file "$models_path/Qwen3-TTS-0.6B/config.json"
+}
+
+check_jetson_speech_models() {
+  local models_path=$1
+  check_common_speech_models "$models_path"
+  require_directory "$models_path/Qwen3-ASR-0.6B"
+  require_file "$models_path/Qwen3-ASR-0.6B/config.json"
+  require_directory "$models_path/Qwen3-ASR-0.6B-hf"
+  require_file "$models_path/Qwen3-ASR-0.6B-hf/config.json"
+}
+
+check_a6000_speech_models() {
+  local models_path=$1
+  check_common_speech_models "$models_path"
+  require_directory "$models_path/Voxtral-Mini-4B-Realtime-2602"
+  require_file "$models_path/Voxtral-Mini-4B-Realtime-2602/config.json"
 }
 
 remote_models_path() {
@@ -461,7 +475,7 @@ verify_vllm_omni_cuda_runtime() {
 deploy_jetson() {
   local compose_file="$repository_root/docker/compose.yaml"
   printf 'Deploying Jetson model services from %s\n' "$repository_root"
-  check_speech_models "$repository_root/models"
+  check_jetson_speech_models "$repository_root/models"
   check_jetson_host
   ensure_override \
     "$repository_root/config/jetson.local.example.yaml" \
@@ -505,7 +519,7 @@ deploy_a6000() {
   printf 'Deploying A6000 model services from %s\n' "$repository_root"
   ensure_remote_environment
   models_path=$(remote_models_path)
-  check_speech_models "$models_path"
+  check_a6000_speech_models "$models_path"
   check_a6000_host "$models_path"
   if [ "$reallocate_gpus" = true ]; then
     printf 'Stopping resident services before measuring free GPU memory.\n'

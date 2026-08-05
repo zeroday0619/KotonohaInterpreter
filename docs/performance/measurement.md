@@ -67,6 +67,12 @@ audio provides timing data only and cannot validate transcription quality.
 
 ## ASR Measurement
 
+The WebSocket probe follows the
+[vLLM Speech to Text API](https://docs.vllm.ai/en/latest/serving/online_serving/speech_to_text/):
+base64 PCM16, mono, 16 kHz audio with `session.update`, buffer commit and append events,
+then transcription delta and done events. The service wraps vLLM's connection class in
+the resident FastAPI process instead of starting a nested vLLM server.
+
 ### Jetson
 
 Run the vLLM path through the hardware spike container:
@@ -80,6 +86,10 @@ Linux 39.2. Its build metadata targets CUDA architecture 8.7. A successful image
 validates only registry access and the arm64/v8 manifest. Spike 1 must execute CUDA
 kernels on sm_87; reject the image if the container cannot use the host driver or the
 runtime reports an unsupported compute capability or no compatible kernel image.
+
+The Jetson probe loads `Qwen/Qwen3-ASR-0.6B` with vLLM's
+`Qwen3ASRRealtimeGeneration` override. It must exercise both N-best five beam search and
+the embedded `/v1/realtime` protocol before the target path is accepted.
 
 Run the Transformers fallback in a separately validated JetPack 7.2 Arm64 image when
 comparison is required. Preserve both backend results in the final `spike1.json`.
@@ -101,6 +111,10 @@ The harness never installs the PyPI vLLM wheel into the host environment. The se
 metadata reports vLLM `0.24.0+092c4842`; the benchmark must confirm that the project ASR
 and translation interfaces remain compatible with that runtime.
 
+The A6000 probe loads `mistralai/Voxtral-Mini-4B-Realtime-2602` in BF16 and exercises
+the same in-process N-best and WebSocket paths. The model selection does not establish
+latency, memory use, or compatibility until this target run completes.
+
 Tune one variable per run. Store candidates under distinct names, then copy the accepted
 result to `spike1.json` before report generation.
 
@@ -117,6 +131,7 @@ Acceptance criteria:
 | Model load | Succeeds |
 | N-best output | Exactly five sequences |
 | Log-probabilities | Available per sequence |
+| Realtime transcription | At least one delta and one final event |
 | Six-second transcription | 900 ms or less |
 
 A path without five hypotheses fails the accuracy contract regardless of latency.

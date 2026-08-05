@@ -1,4 +1,4 @@
-# Primary ASR — Qwen3-ASR 1.7B on the selected NVIDIA Tegra runtime.
+# Primary ASR — Qwen3-ASR 0.6B on the selected NVIDIA Tegra runtime.
 ARG BASE_IMAGE=ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04
 FROM ${BASE_IMAGE}
 ENTRYPOINT []
@@ -47,7 +47,7 @@ ENV SPIKE_TRANSFORMERS_PYTHON=/opt/transformers-fallback/bin/python
 # BuildKit has no GPU runtime. Verify module presence without importing vLLM;
 # deployment performs the CUDA-aware import after Compose attaches the GPU.
 RUN "$UV_PYTHON" -c \
- "from importlib.util import find_spec; from pathlib import Path; spec = find_spec('vllm'); assert spec and spec.submodule_search_locations, 'vLLM package missing'; root = Path(next(iter(spec.submodule_search_locations))); matches = list(root.rglob('qwen3_asr.py')); assert matches, 'Qwen3-ASR module missing'; print('Qwen3-ASR module', matches[0])"
+ "from importlib.util import find_spec; from pathlib import Path; spec = find_spec('vllm'); assert spec and spec.submodule_search_locations, 'vLLM package missing'; root = Path(next(iter(spec.submodule_search_locations))); batch = list(root.rglob('qwen3_asr.py')); realtime = list(root.rglob('qwen3_asr_realtime.py')); connection = list(root.rglob('realtime/connection.py')); assert batch, 'Qwen3-ASR module missing'; assert realtime, 'Qwen3-ASR realtime module missing'; assert connection, 'vLLM realtime connection missing'; print('Qwen3-ASR modules', batch[0], realtime[0], connection[0])"
 
 EXPOSE 8001
 CMD ["uvicorn", "kotonoha.services._asr_server:app", "--host", "0.0.0.0", "--port", "8001", "--loop", "uvloop"]

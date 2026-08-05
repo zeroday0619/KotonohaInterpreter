@@ -19,7 +19,7 @@ import hmac
 import os
 from typing import Any
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, WebSocket
 from fastapi.responses import JSONResponse
 
 from kotonoha._logging_setup import get_logger
@@ -29,6 +29,26 @@ log = get_logger(__name__)
 ENV_VAR = "KOTONOHA_SERVICE_TOKEN"
 # /health stays open so a load balancer or `netcheck` can see the service.
 OPEN_PATHS = frozenset({"/health", "/docs", "/openapi.json"})
+
+
+def websocket_authorized(
+    websocket: WebSocket,
+    /,
+    service: str,
+) -> bool:
+    """Check the shared service token for a WebSocket handshake."""
+    token = os.environ.get(ENV_VAR, "").strip()
+    if not token:
+        return True
+    header = websocket.headers.get("authorization", "")
+    scheme, _, presented = header.partition(" ")
+    authorized = scheme.lower() == "bearer" and hmac.compare_digest(
+        presented.strip(),
+        token,
+    )
+    if not authorized:
+        log.warning("auth.rejected", service=service, path=websocket.url.path)
+    return authorized
 
 
 def install_auth(

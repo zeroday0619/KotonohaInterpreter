@@ -72,18 +72,19 @@ def md_report(
             f", 컨텍스트 {conditions.get('max_model_len')}"
             f", eager {conditions.get('enforce_eager')}",
             "",
-            "| 경로 | 로드 | N-best 5 | 로그확률 | N-best 전사(ms) |",
-            "|---|---|---|---|---|",
+            "| 경로 | 로드 | N-best 5 | 로그확률 | 실시간 WS | N-best 전사(ms) |",
+            "|---|---|---|---|---|---|",
         ]
         for key in ("vllm", "transformers"):
             r = d.get(key, {})
             if r.get("skipped"):
-                out.append(f"| {key} | 건너뜀 | | | |")
+                out.append(f"| {key} | 건너뜀 | | | | |")
                 continue
             out.append(
                 f"| {key} | {'✅' if r.get('loaded') else '❌ ' + str(r.get('error'))[:60]} "
                 f"| {'✅' if r.get('nbest_ok') else '❌'} "
                 f"| {'✅' if r.get('has_logprobs') else '❌'} "
+                f"| {'✅' if r.get('realtime', {}).get('done') else '❌'} "
                 f"| {r.get('nbest_ms', '—')} |"
             )
         out += ["", f"**판정: `asr.backend: {v.get('recommended_backend')}`** — {v.get('note')}"]
@@ -160,7 +161,7 @@ def md_report(
         ]
         return out
 
-    section("Spike 1 — vLLM 이 Qwen3-ASR 을 로드하는가", s1, b1)
+    section("Spike 1 — 대상 vLLM ASR 이 N-best와 실시간 전사를 실행하는가", s1, b1)
     section("Spike 2 — vLLM-Omni Qwen3-TTS 가 동작하는가", s2, b2)
     section("Spike 3 — MoE vs 밀집 14B 실측 tok/s", s3, b3)
 

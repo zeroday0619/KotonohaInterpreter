@@ -86,5 +86,5 @@ def test_model_verification_reports_every_missing_artifact(
     )
 
     assert completed.returncode == 1
-    assert completed.stderr.count("MISSING:") == 7
-    assert "7 required model artifact(s) are missing" in completed.stderr
+    assert completed.stderr.count("MISSING:") == 8
+    assert "8 required model artifact(s) are missing" in completed.stderr

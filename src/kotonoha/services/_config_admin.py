@@ -29,6 +29,8 @@ REMOTE_EDITABLE_PATHS = frozenset(
         "asr.dtype",
         "asr.model_id",
         "asr.vllm_model_id",
+        "asr.vllm_realtime_architecture",
+        "asr.vllm_served_model_name",
         "asr.vllm_gpu_memory_utilization",
         "asr.vllm_max_model_len",
         "asr.vllm_enforce_eager",

@@ -20,7 +20,7 @@ target, runtime environment, and benchmark conditions.
 
 | File | Role |
 |---|---|
-| `spike1_asr_load.py` | Measures Qwen3-ASR loading, N-best output, scores, and latency |
+| `spike1_asr_load.py` | Measures target ASR loading, N-best 5, realtime deltas, and latency |
 | `spike2_flash_attn.py` | Executes FlashAttention and measures vLLM-Omni Qwen3-TTS streaming |
 | `spike3_llm_tokrate.py` | Compares MoE and dense AWQ generation through vLLM |
 | `run_all.sh` | Selects target images and runs each probe through Docker Compose |
@@ -51,7 +51,8 @@ tree remains mounted at `/workspace`, and model snapshots are mounted read-only 
 and vLLM environments for the default root runtime user. Jetson probes invoke
 `/opt/venv/bin/python` explicitly instead of falling back to the Ubuntu system Python.
 The prepared A6000 ASR image creates `/opt/kotonoha-venv` with access to the NGC system
-packages, then uses `uv sync --frozen` to install the locked project dependencies without
+packages, then uses `uv sync --frozen --extra a6000-asr` to install the locked project
+dependencies and the Voxtral `mistral-common[audio]` preprocessing support without
 modifying the externally managed system Python. It then replaces the locked NumPy 1.x
 wheel inside that child environment with the NGC SciPy-compatible `>=2,<2.3` range.
 This target-only ABI overlay does not modify the workstation or Jetson environments.

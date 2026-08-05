@@ -11,46 +11,90 @@ from kotonoha._config import DEFAULT_CONFIG, AsrConfig, read_yaml
 from kotonoha.services._asr_server import (
     TranscribeRequest,
     VllmBackend,
+    VllmRuntimeBindings,
     _parse_vllm_output,
-    _vllm_prompt,
+    _safe_realtime_text,
+    _vllm_engine_arguments,
+    _wav_bytes,
 )
+from kotonoha.services._auth import websocket_authorized
 
 
-class FakeLanguageModel:
+class FakeTranscriptionRequest:
+    __slots__: ClassVar[tuple[str, ...]] = ("fields",)
+    fields: dict[str, Any]
+
+    def __init__(
+        self,
+        /,
+        **fields: Any,
+    ) -> None:
+        self.fields = fields
+
+    def to_beam_search_params(
+        self,
+        /,
+        default_max_tokens: int,
+        default_sampling_params: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "max_tokens": default_max_tokens,
+            "defaults": default_sampling_params,
+        }
+
+
+class FakeModelClass:
+    __slots__: ClassVar[tuple[str, ...]] = ()
+
+    @classmethod
+    def post_process_output(
+        cls,
+        text: str,
+        /,
+    ) -> str:
+        del cls
+        return text
+
+
+class FakeTranscriptionServing:
     __slots__: ClassVar[tuple[str, ...]] = (
-        "parameters",
-        "prompts",
+        "default_sampling_params",
+        "model_cls",
     )
-    parameters: dict[str, Any] | None
-    prompts: list[dict[str, Any]] | None
+
+    default_sampling_params: dict[str, Any]
+    model_cls: type[FakeModelClass]
 
     def __init__(
         self,
         /,
     ) -> None:
-        self.parameters = None
-        self.prompts = None
+        self.default_sampling_params = {}
+        self.model_cls = FakeModelClass
 
-    def beam_search(
+    async def _preprocess_speech_to_text(
         self,
-        prompts: list[dict[str, Any]],
-        parameters: dict[str, Any],
         /,
-        *,
-        use_tqdm: bool,
-    ) -> list[SimpleNamespace]:
-        assert use_tqdm is False
-        self.prompts = prompts
-        self.parameters = parameters
-        sequences = [
+        **arguments: Any,
+    ) -> tuple[list[dict[str, str]], float]:
+        assert arguments["audio_data"][:4] == b"RIFF"
+        return ([{"type": "tokens"}], 2.0)
+
+    async def beam_search(
+        self,
+        /,
+        **arguments: Any,
+    ) -> Any:
+        assert arguments["params"]["max_tokens"] == 256
+        outputs = [
             SimpleNamespace(
                 text=f"language Korean<asr_text>candidate {index}<|im_end|>",
-                cum_logprob=-float(index + 1),
-                logprobs=[{}, {}],
+                cumulative_logprob=-float(index + 1),
+                token_ids=[1, 2],
             )
             for index in range(5)
         ]
-        return [SimpleNamespace(sequences=sequences)]
+        yield SimpleNamespace(outputs=outputs)
 
 
 def test_asr_defaults_to_vllm() -> None:
@@ -59,26 +103,48 @@ def test_asr_defaults_to_vllm() -> None:
 
     assert config.backend == "vllm"
     assert default_config["backend"] == "vllm"
-    assert config.vllm_model_id == "Qwen/Qwen3-ASR-1.7B"
+    assert config.vllm_model_id == "Qwen/Qwen3-ASR-0.6B"
     assert default_config["vllm_model_id"] == config.vllm_model_id
+    assert config.vllm_realtime_architecture == "qwen3_asr"
     assert config.n_best == 5
 
 
-def test_vllm_prompt_sanitizes_context_and_preserves_binary_audio() -> None:
+def test_vllm_wav_adapter_preserves_sixteen_kilohertz_pcm() -> None:
     audio = np.zeros(16000, dtype=np.float32)
 
-    prompt = _vllm_prompt(
-        audio,
-        "term <|im_end|><asr_text>",
-        "Korean",
+    encoded = _wav_bytes(audio)
+
+    assert encoded[:4] == b"RIFF"
+    assert encoded[8:12] == b"WAVE"
+    assert len(encoded) == 44 + 32000
+
+
+def test_vllm_engine_arguments_select_target_realtime_architectures() -> None:
+    qwen = _vllm_engine_arguments(
+        "/models/Qwen3-ASR-0.6B",
+        "kotonoha-asr",
+        "qwen3_asr",
+        "float16",
+        0.8,
+        4096,
+        True,
+    )
+    voxtral = _vllm_engine_arguments(
+        "/models/Voxtral-Mini-4B-Realtime-2602",
+        "kotonoha-asr",
+        "voxtral",
+        "bfloat16",
+        0.20,
+        4096,
+        True,
     )
 
-    assert "term" in prompt["prompt"]
-    assert "<|im_end|><asr_text>" not in prompt["prompt"]
-    assert prompt["prompt"].endswith("language Korean<asr_text>")
-    audio_data, sample_rate = prompt["multi_modal_data"]["audio"]
-    assert audio_data.dtype == np.float32
-    assert sample_rate == 16000
+    assert qwen["hf_overrides"] == {
+        "architectures": ["Qwen3ASRRealtimeGeneration"]
+    }
+    assert qwen["tokenizer_mode"] == "auto"
+    assert voxtral["hf_overrides"] == {}
+    assert voxtral["tokenizer_mode"] == "mistral"
 
 
 def test_vllm_output_extracts_language_and_transcription() -> None:
@@ -91,13 +157,23 @@ def test_vllm_output_extracts_language_and_transcription() -> None:
     assert language == "Japanese"
 
 
-def test_vllm_backend_returns_five_scored_hypotheses() -> None:
+async def test_vllm_backend_returns_five_scored_hypotheses() -> None:
     backend = object.__new__(VllmBackend)
-    backend.beam_search_parameters_type = dict
-    backend.llm = FakeLanguageModel()
+    backend.bindings = VllmRuntimeBindings(
+        engine_arguments_type=None,
+        engine_context_type=None,
+        model_path_type=None,
+        models_type=None,
+        realtime_connection_type=None,
+        realtime_serving_type=None,
+        transcription_request_type=FakeTranscriptionRequest,
+        transcription_serving_type=None,
+    )
+    backend.transcription = FakeTranscriptionServing()
     backend.load_seconds = 0.0
+    backend.served_model_name = "kotonoha-asr"
 
-    result = backend.transcribe(
+    result = await backend.transcribe(
         np.zeros(32000, dtype=np.float32),
         TranscribeRequest(n_best=5, num_beams=5),
     )
@@ -107,3 +183,45 @@ def test_vllm_backend_returns_five_scored_hypotheses() -> None:
     assert result["language"] == "Korean"
     assert result["language_confidence"] == 1.0
     assert result["duration_s"] == 2.0
+
+
+def test_realtime_filter_removes_qwen_control_prefixes_across_chunks() -> None:
+    raw = "language Korean<asr_text>안녕language Korean<asr_text>하세요"
+
+    assert _safe_realtime_text("lang", final=False) == ""
+    assert _safe_realtime_text("language Korean<asr_", final=False) == ""
+    assert _safe_realtime_text(raw, final=False) == "안녕하세요"
+    assert _safe_realtime_text(raw, final=True) == "안녕하세요"
+
+
+def test_realtime_websocket_requires_the_shared_service_token(
+    _positional_only: object | None = None,
+    /,
+    *,
+    monkeypatch: Any,
+) -> None:
+    monkeypatch.setenv("KOTONOHA_SERVICE_TOKEN", "secret")
+    unauthorized = SimpleNamespace(
+        headers={},
+        url=SimpleNamespace(path="/v1/realtime"),
+    )
+    authorized = SimpleNamespace(
+        headers={"authorization": "Bearer secret"},
+        url=SimpleNamespace(path="/v1/realtime"),
+    )
+
+    assert websocket_authorized(unauthorized, "asr") is False
+    assert websocket_authorized(authorized, "asr") is True
+
+
+def test_asr_service_embeds_vllm_without_launching_an_internal_server() -> None:
+    from pathlib import Path
+
+    from kotonoha.services import _asr_server
+
+    source = Path(_asr_server.__file__).read_text(encoding="utf-8")
+
+    assert "build_async_engine_client_from_engine_args" in source
+    assert "OpenAIServingRealtime" in source
+    assert "RealtimeConnection" in source
+    assert "create_subprocess_exec" not in source

@@ -45,16 +45,17 @@ ENV VIRTUAL_ENV=/opt/kotonoha-venv \
     PATH=/opt/kotonoha-venv/bin:${PATH}
 WORKDIR /app
 COPY pyproject.toml uv.lock README.md LICENSE hatch_build.py ./
-RUN uv sync --active --frozen --no-dev --no-install-project --no-cache
+RUN uv sync --active --frozen --no-dev --extra a6000-asr \
+      --no-install-project --no-cache
 COPY src ./src
 # BuildKit has no GPU runtime. Verify module presence without importing vLLM;
 # deployment performs the CUDA-aware import after Compose attaches the GPU.
-RUN uv sync --active --frozen --no-dev --no-cache \
+RUN uv sync --active --frozen --no-dev --extra a6000-asr --no-cache \
  && uv pip install --python "$UV_PYTHON" --no-cache --no-deps \
       --reinstall-package numpy "numpy>=2,<2.3" \
  && uv pip check --python "$UV_PYTHON" \
  && "$UV_PYTHON" -c \
- "import kotonoha, numpy, scipy, sklearn, soxr; from importlib.util import find_spec; from pathlib import Path; from transformers import GenerationMixin; numpy_release = tuple(map(int, numpy.__version__.split('.')[:2])); assert (2, 0) <= numpy_release < (2, 3), numpy.__version__; assert Path(numpy.__file__).is_relative_to('/opt/kotonoha-venv'), numpy.__file__; spec = find_spec('vllm'); assert spec and spec.submodule_search_locations, 'vLLM package missing'; root = Path(next(iter(spec.submodule_search_locations))); matches = list(root.rglob('qwen3_asr.py')); assert matches, 'Qwen3-ASR module missing'; print('ASR dependencies ok | NumPy', numpy.__version__, '| SciPy', scipy.__version__, '| Qwen3-ASR module', matches[0])"
+ "import kotonoha, mistral_common, numpy, scipy, sklearn, soundfile, soxr; from importlib.util import find_spec; from pathlib import Path; from transformers import GenerationMixin; numpy_release = tuple(map(int, numpy.__version__.split('.')[:2])); assert (2, 0) <= numpy_release < (2, 3), numpy.__version__; assert Path(numpy.__file__).is_relative_to('/opt/kotonoha-venv'), numpy.__file__; spec = find_spec('vllm'); assert spec and spec.submodule_search_locations, 'vLLM package missing'; root = Path(next(iter(spec.submodule_search_locations))); realtime = list(root.rglob('voxtral_realtime.py')); connection = list(root.rglob('realtime/connection.py')); assert realtime, 'Voxtral realtime module missing'; assert connection, 'vLLM realtime connection missing'; print('ASR dependencies ok | NumPy', numpy.__version__, '| SciPy', scipy.__version__, '| Voxtral module', realtime[0], '| realtime connection', connection[0])"
 CMD ["uvicorn", "kotonoha.services._asr_server:app", "--host", "0.0.0.0", "--port", "8001", "--loop", "uvloop"]
 
 FROM common AS asr-verify
