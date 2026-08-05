@@ -228,6 +228,9 @@ def test_panel_appends_completed_turns() -> None:
     rendered = pane.render().plain
     assert "안녕하세요" in rendered and "Hello" in rendered
     assert "ko→en" in rendered
+    assert "╭─ KO" in rendered
+    assert "    ╭─ EN" in rendered
+    assert rendered.index("안녕하세요") < rendered.index("Hello")
 
 
 def test_empty_panel_says_so() -> None:

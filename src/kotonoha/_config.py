@@ -264,7 +264,7 @@ class UserInterfaceConfig(BaseModel):
     __slots__: ClassVar[tuple[str, ...]] = ()
     language: Literal["auto", "en", "ko", "ja", "zh-TW"] = "auto"
     refresh_hz: int = Field(60, ge=15, le=60)
-    # Completed turns kept on screen beside the live panes. 0 hides the panel.
+    # Completed turns appear as messages below the live panes. 0 hides the panel.
     history_turns: int = Field(20, ge=0, le=200)
 
 

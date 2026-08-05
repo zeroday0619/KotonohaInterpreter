@@ -178,8 +178,8 @@ zh:
 ui:
   # auto follows KOTONOHA_LANG, then the system locale, then English.
   language: auto # auto | en | ko | ja | zh-TW
-  # Past turns shown alongside the live panes in the interpreter. 0 hides the
-  # panel; `h` toggles it at runtime.
+  # Past turns shown as messages below the live panes. 0 hides the panel; `h`
+  # toggles it at runtime.
   history_turns: 20
   refresh_hz: 60 # idle frames do not trigger terminal repaint
 

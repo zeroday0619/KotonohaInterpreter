@@ -454,6 +454,13 @@ async def test_main_interface_composes_with_localized_labels(
         assert app.title == translate_to("ko", "Kotonoha Interpreter")
         assert app.source_pane._title == translate_to("ko", "Source (ASR)")
         assert app.translation_pane._title == translate_to("ko", "Translation")
+        assert app.source_pane.parent.id == "current-turn"
+        assert app.translation_pane.parent.id == "current-turn"
+        assert app.history_pane.parent.id == "panes"
+        assert list(app.query_one("#panes").children)[-1] is app.history_pane
+        current_turn = app.query_one("#current-turn")
+        assert app.history_pane.region.y == current_turn.region.bottom
+        assert app.history_pane.region.width == app.query_one("#panes").region.width
         assert str(app.query_one("#log-title").render()) == translate_to("ko", "Application logs")
         get_logger().info("tui.test", readable=True)
         await pilot.pause(0.2)

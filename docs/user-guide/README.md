@@ -27,8 +27,8 @@ The integrated TUI provides interpreter, configuration, history, operations, and
 views. Structured JSON logs render as bounded, human-readable records in the interpreter
 footer without writing terminal control output to the application log.
 
-Live ASR and translation panes clear when a new turn starts. Completed turns remain
-available in history.
+Live ASR and translation panes clear when a new turn starts. Completed turns remain in a
+message-style conversation timeline below the live panes.
 
 ## Text Input
 
@@ -46,7 +46,8 @@ Source-language selection follows this order:
 
 SQLite stores source text, translation, language decision provenance, ASR confidence,
 verification status, timing data, placement, failovers, and outcome. The TUI separates
-the current turn from completed history.
+the current turn from completed history. Each history entry renders the source and
+translation as distinct messages in chronological order.
 
 ## Configuration
 

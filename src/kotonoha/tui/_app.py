@@ -23,7 +23,7 @@ from rich.text import Text
 from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding, BindingsMap
-from textual.containers import Container, Horizontal
+from textual.containers import Container, Horizontal, Vertical
 from textual.reactive import reactive
 from textual.widgets import Footer, Header, Input, RichLog, Static
 
@@ -197,7 +197,7 @@ class Pane(Static):
 
 
 class HistoryPane(Static):
-    """Completed turns, seeded from the database and appended as turns finish.
+    """Render completed turns as a conversation below the active turn.
 
     The live panes are cleared at the start of every utterance, so without this
     the screen forgets the conversation the moment the next one begins. It is
@@ -238,7 +238,7 @@ class HistoryPane(Static):
             )
             for entry in entries
         ][-self._limit :]
-        self.refresh()
+        self._refresh_and_follow_latest()
 
     def append(
         self,
@@ -259,7 +259,7 @@ class HistoryPane(Static):
             )
         )
         self._entries = self._entries[-self._limit :]
-        self.refresh()
+        self._refresh_and_follow_latest()
 
     def clear_entries(
         self,
@@ -267,6 +267,31 @@ class HistoryPane(Static):
     ) -> None:
         self._entries.clear()
         self.refresh()
+
+    def _refresh_and_follow_latest(
+        self,
+        /,
+    ) -> None:
+        self.refresh()
+        if self.is_mounted:
+            self.call_after_refresh(self.scroll_end, animate=False)
+
+    @staticmethod
+    def _append_message(
+        text: Text,
+        /,
+        *,
+        language: str,
+        message: str,
+        indent: str,
+        style: str,
+    ) -> None:
+        if not message:
+            return
+        text.append(f"{indent}╭─ {language.upper()}\n", style=f"bold {style}")
+        for line in message.splitlines() or [message]:
+            text.append(f"{indent}│ {line}\n", style=style)
+        text.append(f"{indent}╰─\n", style=f"dim {style}")
 
     @override
     def render(
@@ -278,17 +303,31 @@ class HistoryPane(Static):
         if not self._entries:
             text.append(_("No past turns") + "\n", style="dim")
             return text
-        # Newest last, so the eye lands on the most recent exchange at the bottom.
-        for timestamp, source_language, target_language, source, translation in self._entries:
+        # The source and translation use opposing indentation to preserve message
+        # ownership without consuming another column on narrow terminals.
+        for index, entry in enumerate(self._entries):
+            timestamp, source_language, target_language, source, translation = entry
             text.append(
                 datetime.fromtimestamp(timestamp).strftime("%H:%M:%S "),
                 style="dim",
             )
             text.append(f"{source_language}→{target_language}\n", style="magenta")
-            if source:
-                text.append(f"  {source}\n", style="white")
-            if translation:
-                text.append(f"  {translation}\n", style="cyan")
+            self._append_message(
+                text,
+                language=source_language,
+                message=source,
+                indent="",
+                style="white",
+            )
+            self._append_message(
+                text,
+                language=target_language,
+                message=translation,
+                indent="    ",
+                style="cyan",
+            )
+            if index < len(self._entries) - 1:
+                text.append("\n")
         return text
 
 
@@ -486,13 +525,26 @@ class KotonohaApp(App):
     CSS: ClassVar[str] = """
     Screen { layout: vertical; }
     StatusBar { height: 1; background: $panel; }
-    #panes { height: 1fr; }
-    #src, #tgt { width: 1fr; border: round $primary; padding: 0 1; }
-    #hist { width: 1fr; border: round $secondary; padding: 0 1; overflow-y: auto; }
-    #bottom { height: 9; }
+    #panes { height: 1fr; overflow-y: auto; }
+    #current-turn { height: 1fr; }
+    #src, #tgt {
+        width: 1fr;
+        height: 100%;
+        border: round $primary;
+        padding: 0 1;
+        overflow-y: auto;
+    }
+    #hist {
+        width: 100%;
+        height: 1fr;
+        border: round $secondary;
+        padding: 0 1;
+        overflow-y: auto;
+    }
+    #bottom { height: 7; }
     #lat, #svc { width: 1fr; border: round $secondary; padding: 0 1; }
     #text-input { height: 3; border: round $accent; }
-    #logs { height: 7; border: round $secondary; padding: 0 1; }
+    #logs { height: 5; border: round $secondary; padding: 0 1; }
     #log-title { height: 1; text-style: bold underline; }
     #log-output { height: 1fr; }
     """
@@ -559,14 +611,15 @@ class KotonohaApp(App):
         yield Header(show_clock=True)
         self.status = StatusBar()
         yield self.status
-        with Horizontal(id="panes"):
-            self.source_pane = Pane(_("Source (ASR)"), "white", id="src")
-            self.translation_pane = Pane(_("Translation"), "bold cyan", id="tgt")
+        with Vertical(id="panes"):
+            with Horizontal(id="current-turn"):
+                self.source_pane = Pane(_("Source (ASR)"), "white", id="src")
+                self.translation_pane = Pane(_("Translation"), "bold cyan", id="tgt")
+                yield self.source_pane
+                yield self.translation_pane
             self.history_pane = HistoryPane(
                 _("History"), max(1, self.orchestrator.settings.ui.history_turns), id="hist"
             )
-            yield self.source_pane
-            yield self.translation_pane
             yield self.history_pane
         with Horizontal(id="bottom"):
             self.latency_panel = LatencyPanel(self.orchestrator.settings.budget_ms, id="lat")
@@ -845,7 +898,7 @@ class KotonohaApp(App):
         self,
         /,
     ) -> None:
-        """Reclaim the column when the live panes need the width."""
+        """Reclaim vertical space when the active turn needs more room."""
         self.history_pane.display = not self.history_pane.display
 
     def _clear_transcripts(
