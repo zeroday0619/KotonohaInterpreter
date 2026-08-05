@@ -202,6 +202,16 @@ def test_asr_images_use_target_vllm_runtimes_with_realtime_support_checks() -> N
     assert "Path(numpy.__file__).is_relative_to('/opt/kotonoha-venv')" in (
         remote_dockerfile
     )
+    remote_llm_stage = remote_dockerfile.split("FROM ${LLM_BASE_IMAGE} AS llm", 1)[1]
+    remote_llm_stage = remote_llm_stage.split("FROM common AS asr-verify", 1)[0]
+    jetson_llm_dockerfile = (PROJECT_ROOT / "docker" / "Dockerfile.llm").read_text(
+        encoding="utf-8"
+    )
+    for llm_stage in (remote_llm_stage, jetson_llm_dockerfile):
+        assert "--no-install-package numpy" not in llm_stage
+        assert "import kotonoha, numpy, websockets" in llm_stage
+        assert "Path(numpy.__file__).is_relative_to('/opt/kotonoha-venv')" in llm_stage
+        assert 'uv pip check --python "$UV_PYTHON"' in llm_stage
     deploy_script = DEPLOY_SCRIPT.read_text(encoding="utf-8")
     assert 'a6000_vllm_image="nvcr.io/nvidia/vllm:26.07-py3"' in deploy_script
     assert "must set REMOTE_ASR_BASE=$a6000_vllm_image" in deploy_script
