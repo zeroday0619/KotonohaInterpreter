@@ -45,7 +45,7 @@ services:
       <<: *a6000-python-build
       target: asr
       args:
-        ASR_BASE_IMAGE: ${REMOTE_ASR_BASE:-vllm/vllm-openai:v0.19.1}
+        ASR_BASE_IMAGE: ${REMOTE_ASR_BASE:-nvcr.io/nvidia/vllm:26.07-py3}
     ports: ["8001:8001"]
     command: uvicorn kotonoha.services._asr_server:app --host 0.0.0.0 --port 8001 --loop uvloop
     deploy:
@@ -95,7 +95,7 @@ services:
 
   llm:
     <<: *a6000
-    image: ${LLM_IMAGE:-vllm/vllm-openai:v0.19.1}
+    image: ${LLM_IMAGE:-nvcr.io/nvidia/vllm:26.07-py3}
     ports: ["8003:8003"]
     environment:
       - KOTONOHA_SERVICE_TOKEN=${KOTONOHA_SERVICE_TOKEN:?set a token before starting}

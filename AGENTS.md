@@ -113,11 +113,15 @@ Identifiers confirmed as of 2026-08:
 | MoE translation model | `ELVISIO/Qwen3-30B-A3B-Instruct-2507-AWQ` |
 | Dense translation model | `Qwen/Qwen3-14B-AWQ` |
 | Jetson vLLM image | `ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04` |
-| A6000 vLLM image | `vllm/vllm-openai:v0.19.1` |
+| A6000 vLLM image | `nvcr.io/nvidia/vllm:26.07-py3` |
 
 The Jetson image manifest is Linux arm64. Its build metadata advertises CUDA architecture
 11.0, while AGX Orin uses sm_87. Treat the image as unverified until Spike 1 executes its
 CUDA kernels on the target device.
+
+The A6000 image manifest includes Linux amd64. Its metadata reports Python 3.12, CUDA
+13.3.1, vLLM `0.24.0+092c4842`, and compute capability 8.6. Target execution must still
+verify Qwen3-ASR beam search and AWQ model loading.
 
 `VllmBackend` in `src/kotonoha/services/_asr_server.py` is the default. Spike 1 still
 verifies model loading, five-hypothesis output, and measured latency on sm_87. Do not

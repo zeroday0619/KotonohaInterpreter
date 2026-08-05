@@ -95,7 +95,7 @@ configure_target() {
     report_name=PHASE0.md
     patch_name=local.yaml
   else
-    : "${SPIKE_VLLM_IMAGE:=vllm/vllm-openai:v0.19.1}"
+    : "${SPIKE_VLLM_IMAGE:=nvcr.io/nvidia/vllm:26.07-py3}"
     : "${SPIKE_TTS_IMAGE:=kotonohainterpreter-spike-tts:a6000}"
     : "${SPIKE_GPU_DEVICE:=0}"
     : "${OUT:=spikes/out/a6000}"

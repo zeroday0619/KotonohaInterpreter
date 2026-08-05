@@ -130,11 +130,18 @@ Platform references:
 | GPU | NVIDIA RTX A6000 48 GB, sm_86 |
 | Host architecture | x86_64 |
 | Container runtime | Docker Engine, Compose plugin, NVIDIA Container Toolkit |
-| Driver | Must execute the configured CUDA 12.6 container image |
+| Driver | Must execute the configured CUDA 13.3.1 vLLM and CUDA 12.6 TTS images |
 | Network | Stable route from the Jetson to TCP 8001-8004 |
 
+The A6000 ASR and translation services pin `nvcr.io/nvidia/vllm:26.07-py3`. Its manifest
+list digest is `sha256:95c498a475142c20c989c65e5d223348c09fed83ba17ddf44f117610c0bd3268`.
+The selected Linux amd64 manifest contains Ubuntu 24.04, Python 3.12, CUDA 13.3.1, and
+vLLM `0.24.0+092c4842`. Its build metadata includes compute capability 8.6.
+
 The repository does not specify an exact host driver version. Installation is blocked
-until `nvidia-smi` works on the host and inside a GPU-enabled container.
+until `nvidia-smi` works on the host and both configured CUDA images initialize through
+the NVIDIA Container Toolkit. Manifest inspection does not verify Qwen3-ASR loading,
+vLLM beam search, AWQ loading, latency, or concurrent residency on the A6000.
 
 ## Source Installation
 
@@ -651,9 +658,9 @@ Create a repository-root `.env` file. Replace the token placeholder with the out
 KOTONOHA_SERVICE_TOKEN=<64-hex-character-random-token>
 MODELS_DIR=../models
 REMOTE_BASE=pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime
-REMOTE_ASR_BASE=vllm/vllm-openai:v0.19.1
+REMOTE_ASR_BASE=nvcr.io/nvidia/vllm:26.07-py3
 REMOTE_TTS_BUILD_BASE=pytorch/pytorch:2.6.0-cuda12.6-cudnn9-devel
-LLM_IMAGE=vllm/vllm-openai:v0.19.1
+LLM_IMAGE=nvcr.io/nvidia/vllm:26.07-py3
 LLM_PROFILE=moe
 LLM_MAX_MODEL_LEN=4096
 LLM_GPU_MEMORY_UTILIZATION=0.55
@@ -672,11 +679,13 @@ HF_HUB_OFFLINE=1
 chmod 600 .env
 ```
 
-Existing deployments must replace any `LLM_IMAGE` value containing `llama.cpp`, rename
-`LLM_CTX` to `LLM_MAX_MODEL_LEN`, and update host overrides from `/models/gguf` to
-`/models/llm`. The deployment script rejects an obsolete llama.cpp image selection.
-Existing GGUF files are not read by the vLLM service and can be archived after the AWQ
-snapshots pass target validation.
+Existing deployments must set both `REMOTE_ASR_BASE` and `LLM_IMAGE` to
+`nvcr.io/nvidia/vllm:26.07-py3`, or remove those variables to use the Compose defaults.
+They must also rename `LLM_CTX` to `LLM_MAX_MODEL_LEN` and update host overrides from
+`/models/gguf` to `/models/llm`. The deployment script rejects any explicitly configured
+A6000 ASR or LLM image that differs from the pinned NGC image. Existing GGUF files are not
+read by the vLLM service and can be archived after the AWQ snapshots pass target
+validation.
 
 ### Configure GPU allocation
 

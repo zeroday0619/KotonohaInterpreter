@@ -143,6 +143,7 @@ def test_performance_document_owns_measurement_procedure() -> None:
 def test_hardware_spikes_use_target_specific_docker_images() -> None:
     project_configuration = PROJECT_CONFIGURATION.read_text(encoding="utf-8")
     performance_document = PERFORMANCE_DOCUMENT.read_text(encoding="utf-8")
+    runner_source = RUNNER_SCRIPT.read_text(encoding="utf-8")
     compose_source = SPIKE_COMPOSE.read_text(encoding="utf-8")
     compose = yaml.safe_load(compose_source)
 
@@ -158,4 +159,5 @@ def test_hardware_spikes_use_target_specific_docker_images() -> None:
         "spikes/spike2_flash_attn.py",
     ]
     assert "r38.2.arm64-sbsa-cu130-24.04" in compose_source
+    assert "nvcr.io/nvidia/vllm:26.07-py3" in runner_source
     assert "bash scripts/manage.sh benchmark a6000 --only 1" in performance_document

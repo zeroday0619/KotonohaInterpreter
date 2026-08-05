@@ -7,7 +7,7 @@
 # Pin BASE_IMAGE to a verified tag that is present on the deployment host.
 ARG BASE_IMAGE=pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime
 ARG TTS_BUILD_IMAGE=pytorch/pytorch:2.6.0-cuda12.6-cudnn9-devel
-ARG ASR_BASE_IMAGE=vllm/vllm-openai:v0.19.1
+ARG ASR_BASE_IMAGE=nvcr.io/nvidia/vllm:26.07-py3
 FROM ${BASE_IMAGE} AS common
 
 COPY --from=ghcr.io/astral-sh/uv:0.12 /uv /uvx /bin/
@@ -44,7 +44,7 @@ ENV UV_SYSTEM_PYTHON=1 \
 WORKDIR /app
 COPY pyproject.toml uv.lock README.md LICENSE hatch_build.py ./
 RUN uv export --frozen --no-dev --no-emit-project --no-hashes -o /tmp/req.txt \
- && uv pip install --system --no-cache -r /tmp/req.txt
+ && uv pip install --system --no-cache --constraint /etc/pip/constraint.txt -r /tmp/req.txt
 COPY src ./src
 # BuildKit has no GPU runtime. Verify module presence without importing vLLM;
 # deployment performs the CUDA-aware import after Compose attaches the GPU.

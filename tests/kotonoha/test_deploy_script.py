@@ -109,7 +109,7 @@ def test_remote_compose_uses_distinct_role_images_and_vllm_translation() -> None
     assert len({services[role]["image"] for role in python_roles}) == len(python_roles)
     assert {services[role]["build"]["target"] for role in python_roles} == set(python_roles)
 
-    assert "vllm/vllm-openai:v0.19.1" in services["llm"]["image"]
+    assert "nvcr.io/nvidia/vllm:26.07-py3" in services["llm"]["image"]
     assert services["llm"]["entrypoint"] == [
         "bash",
         "/opt/kotonoha/run_vllm_llm.sh",
@@ -137,12 +137,16 @@ def test_asr_images_use_vllm_runtimes_with_qwen3_support_checks() -> None:
     jetson_base = jetson_compose["services"]["asr"]["build"]["args"]["BASE_IMAGE"]
     remote_base = remote_compose["services"]["asr"]["build"]["args"]["ASR_BASE_IMAGE"]
     assert "ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04" in jetson_base
-    assert "vllm/vllm-openai:v0.19.1" in remote_base
+    assert "nvcr.io/nvidia/vllm:26.07-py3" in remote_base
     assert "rglob('qwen3_asr.py')" in jetson_dockerfile
     assert "rglob('qwen3_asr.py')" in remote_dockerfile
     assert "import vllm" not in jetson_dockerfile
     assert "import vllm" not in remote_dockerfile
+    assert "--constraint /etc/pip/constraint.txt" in remote_dockerfile
     deploy_script = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+    assert 'a6000_vllm_image="nvcr.io/nvidia/vllm:26.07-py3"' in deploy_script
+    assert "must set REMOTE_ASR_BASE=$a6000_vllm_image" in deploy_script
+    assert "must set LLM_IMAGE=$a6000_vllm_image" in deploy_script
     assert "import torch, vllm" in deploy_script
     assert 'verify_vllm_cuda_runtime "$compose_file" "$environment_file" llm' in deploy_script
     assert "ENTRYPOINT []" in remote_dockerfile

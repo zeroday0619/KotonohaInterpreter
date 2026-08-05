@@ -97,7 +97,9 @@ bash scripts/manage.sh benchmark a6000 --only 1
 ```
 
 The harness never installs the PyPI vLLM wheel into the host environment. The selected
-container image supplies the CUDA-matched runtime.
+`nvcr.io/nvidia/vllm:26.07-py3` container supplies the CUDA-matched runtime. The image
+metadata reports vLLM `0.24.0+092c4842`; the benchmark must confirm that the project ASR
+and translation interfaces remain compatible with that runtime.
 
 Tune one variable per run. Store candidates under distinct names, then copy the accepted
 result to `spike1.json` before report generation.

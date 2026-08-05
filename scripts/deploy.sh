@@ -19,6 +19,7 @@ prepare_jetson_power=true
 remove_images=false
 reallocate_gpus=false
 prepare_only=false
+a6000_vllm_image="nvcr.io/nvidia/vllm:26.07-py3"
 docker_command=(docker)
 docker_display_command="docker"
 
@@ -179,15 +180,20 @@ ensure_remote_environment() {
   if [ -e "$environment_file" ]; then
     chmod 600 "$environment_file"
     local environment_token
+    local configured_asr_image
+    local configured_llm_image
     environment_token=$(sed -n 's/^KOTONOHA_SERVICE_TOKEN=//p' "$environment_file" | tail -n 1)
     [ -n "$environment_token" ] \
       || fail "environment file does not define KOTONOHA_SERVICE_TOKEN: $environment_file"
     case "$environment_token" in
       *'<'*|*'>'*) fail "replace the token placeholder in $environment_file" ;;
     esac
-    if grep -Eq '^LLM_IMAGE=.*llama\.cpp' "$environment_file"; then
-      fail "environment file still selects llama.cpp; set LLM_IMAGE=vllm/vllm-openai:v0.19.1"
-    fi
+    configured_asr_image=$(sed -n 's/^REMOTE_ASR_BASE=//p' "$environment_file" | tail -n 1)
+    configured_llm_image=$(sed -n 's/^LLM_IMAGE=//p' "$environment_file" | tail -n 1)
+    [ -z "$configured_asr_image" ] || [ "$configured_asr_image" = "$a6000_vllm_image" ] \
+      || fail "environment file must set REMOTE_ASR_BASE=$a6000_vllm_image"
+    [ -z "$configured_llm_image" ] || [ "$configured_llm_image" = "$a6000_vllm_image" ] \
+      || fail "environment file must set LLM_IMAGE=$a6000_vllm_image"
     if [ -n "${KOTONOHA_SERVICE_TOKEN:-}" ] \
       && [ "$KOTONOHA_SERVICE_TOKEN" != "$environment_token" ]; then
       fail "shell and environment-file service tokens differ"
@@ -207,8 +213,9 @@ ensure_remote_environment() {
     printf 'KOTONOHA_SERVICE_TOKEN=%s\n' "$service_token"
     printf 'MODELS_DIR=../models\n'
     printf 'REMOTE_BASE=pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime\n'
+    printf 'REMOTE_ASR_BASE=%s\n' "$a6000_vllm_image"
     printf 'REMOTE_TTS_BUILD_BASE=pytorch/pytorch:2.6.0-cuda12.6-cudnn9-devel\n'
-    printf 'LLM_IMAGE=vllm/vllm-openai:v0.19.1\n'
+    printf 'LLM_IMAGE=%s\n' "$a6000_vllm_image"
     printf 'LLM_PROFILE=moe\n'
     printf 'LLM_MAX_MODEL_LEN=4096\n'
     printf 'LLM_GPU_MEMORY_UTILIZATION=0.55\n'
@@ -520,7 +527,7 @@ uninstall_a6000() {
     remove_project_image kotonohainterpreter-tts
   fi
 
-  printf 'Preserved: config/remote-server.local.yaml, config/remote-llm.env, config/remote-gpu.env, .env, models/, and upstream vLLM image.\n'
+  printf 'Preserved: config/remote-server.local.yaml, config/remote-llm.env, config/remote-gpu.env, .env, models/, and the NVIDIA NGC vLLM image.\n'
 }
 
 case "$operation:$deployment_target" in

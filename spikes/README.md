@@ -52,7 +52,7 @@ and GID.
 | Target | ASR, LLM, report image | Default TTS image |
 |---|---|---|
 | Jetson | `ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04` | `kotonohainterpreter-spike-tts:jetson` |
-| A6000 | `vllm/vllm-openai:v0.19.1` | `kotonohainterpreter-spike-tts:a6000` |
+| A6000 | `nvcr.io/nvidia/vllm:26.07-py3` | `kotonohainterpreter-spike-tts:a6000` |
 
 The Jetson vLLM image advertises CUDA architecture 11.0, so successful kernel execution
 on Orin sm_87 remains a required Spike 1 result. Set `SPIKE_TTS_IMAGE` to a separately
@@ -60,6 +60,9 @@ built FlashAttention candidate before Spike 2 when testing an image other than t
 deployment TTS image. Set `SPIKE_SKIP_BUILD=1` to reject a missing TTS image instead of
 building the default. A configured candidate image must already exist; the harness never
 builds deployment contents under a user-supplied candidate tag.
+
+The A6000 NGC image advertises CUDA architecture 8.6 and vLLM `0.24.0+092c4842`.
+Manifest metadata does not replace Spike 1 and Spike 3 execution on the A6000.
 
 ## Configuration
 
