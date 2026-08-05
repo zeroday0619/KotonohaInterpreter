@@ -188,6 +188,18 @@ def test_asr_images_use_vllm_runtimes_with_qwen3_support_checks() -> None:
     assert "SPIKE_TRANSFORMERS_PYTHON=/opt/transformers-fallback/bin/python" in (
         jetson_dockerfile
     )
+    fallback_install = jetson_dockerfile.index(
+        '"transformers==${TRANSFORMERS_FALLBACK_VERSION}" librosa soundfile'
+    )
+    vendor_packages = jetson_dockerfile.index("vendor-vllm.pth")
+    fallback_import = jetson_dockerfile.index(
+        "from transformers import AutoModelForMultimodalLM, AutoProcessor"
+    )
+    assert fallback_install < vendor_packages < fallback_import
+    assert "transformers.__version__ == '${TRANSFORMERS_FALLBACK_VERSION}'" in (
+        jetson_dockerfile
+    )
+    assert "Path(torch.__file__).is_relative_to('/opt/venv')" in jetson_dockerfile
     assert "from transformers import AutoModelForMultimodalLM, AutoProcessor" in (
         jetson_dockerfile
     )
