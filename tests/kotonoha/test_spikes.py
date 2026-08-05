@@ -13,6 +13,7 @@ REPORT_SCRIPT = PROJECT_ROOT / "spikes" / "report.py"
 RUNNER_SCRIPT = PROJECT_ROOT / "spikes" / "run_all.sh"
 SPIKE_README = PROJECT_ROOT / "spikes" / "README.md"
 SPIKE3_SCRIPT = PROJECT_ROOT / "spikes" / "spike3_llm_tokrate.py"
+PROJECT_CONFIGURATION = PROJECT_ROOT / "pyproject.toml"
 
 
 def test_a6000_report_generates_remote_configuration_patch(
@@ -104,3 +105,17 @@ def test_performance_document_owns_measurement_procedure() -> None:
     assert "900 ms or less" in performance_document
     assert "../docs/performance/measurement.md" in spike_readme
     assert "## ASR Measurement" not in spike_readme
+
+
+def test_a6000_spike_vllm_dependency_is_locked_and_isolated() -> None:
+    project_configuration = PROJECT_CONFIGURATION.read_text(encoding="utf-8")
+    performance_document = PERFORMANCE_DOCUMENT.read_text(encoding="utf-8")
+
+    assert "spike-vllm = [" in project_configuration
+    assert '"vllm==0.19.1' in project_configuration
+    assert "platform_machine == 'x86_64'" in project_configuration
+    assert "sys_platform == 'linux'" in project_configuration
+    assert '{ group = "spike-vllm" }' in project_configuration
+    assert '{ extra = "device" }' in project_configuration
+    assert '{ group = "eval" }' in project_configuration
+    assert "uv run --group spike-vllm spikes/spike1_asr_load.py" in performance_document

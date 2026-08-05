@@ -37,6 +37,27 @@ The probes can require different model images. Repeated execution in role-specif
 containers is expected. `run_all.sh` preserves target separation even when an individual
 container supports only one probe.
 
+## uv Environment
+
+The A6000 host can execute Spike 1 from the locked project environment:
+
+```bash
+uv run --group spike-vllm spikes/spike1_asr_load.py \
+  --target a6000 \
+  --wav samples/ko_6s.wav \
+  --only vllm \
+  --out spikes/out/a6000/spike1.json
+```
+
+The `spike-vllm` dependency group is limited to Linux x86_64 and pins the same vLLM
+version as the remote deployment image. It conflicts with the `device` extra because
+DeepFilterNet and FlashInfer require incompatible `packaging` versions. It also conflicts
+with the `eval` group because COMET and vLLM require incompatible `protobuf` versions.
+Run COMET in its separate development-workstation environment.
+
+Jetson does not install vLLM from PyPI. Run Spike 1 with `python3` inside the configured
+NVIDIA vLLM image so the script uses the image-provided aarch64 CUDA runtime.
+
 The A6000 runner accepts tuning conditions through environment variables:
 
 | Variable | Default | Consumer |

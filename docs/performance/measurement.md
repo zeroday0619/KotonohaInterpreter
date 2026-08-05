@@ -85,10 +85,10 @@ required. Preserve both backend results in the final `spike1.json`.
 
 ### RTX A6000
 
-Run inside the remote ASR image:
+Run directly on a Linux x86_64 A6000 host through the locked uv dependency group:
 
 ```bash
-python3 spikes/spike1_asr_load.py \
+uv run --group spike-vllm spikes/spike1_asr_load.py \
   --target a6000 \
   --wav samples/ko_6s.wav \
   --only vllm \
@@ -97,6 +97,10 @@ python3 spikes/spike1_asr_load.py \
   --enforce-eager \
   --out spikes/out/a6000/spike1.json
 ```
+
+When the host exposes only the containerized runtime, run the same script with `python3`
+inside the remote ASR image. Do not install the PyPI wheel into that image because the
+base image already supplies the CUDA-matched vLLM runtime.
 
 Tune one variable per run. Store candidates under distinct names, then copy the accepted
 result to `spike1.json` before report generation.

@@ -54,6 +54,7 @@ does not verify Jetson behavior.
 | Typed turn | `uv run kotonoha text "<utterance>"` |
 | WAV replay | `uv run kotonoha replay <wav> --seconds 12` |
 | External link measurement | `uv run kotonoha netcheck` |
+| A6000 ASR spike | `uv run --group spike-vllm spikes/spike1_asr_load.py --target a6000` |
 | Deploy Jetson | `bash scripts/deploy.sh jetson` |
 | Deploy A6000 | `bash scripts/deploy.sh a6000` |
 | Reallocate A6000 GPUs | `bash scripts/deploy.sh a6000 --reallocate-gpus` |
@@ -67,7 +68,7 @@ uv run ruff check .
 uv run pytest -q
 ```
 
-Current baseline: 227 tests and zero lint findings.
+Current baseline: 228 tests and zero lint findings.
 
 ## Non-negotiable constraints
 

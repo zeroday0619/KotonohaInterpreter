@@ -8,7 +8,11 @@ What this decides:
   · if it fails, how long the transformers path takes instead (needed to
     recompute the latency budget)
 
-On the Jetson:
+On an A6000 Linux host managed by uv:
+    uv run --group spike-vllm spikes/spike1_asr_load.py \
+        --target a6000 --wav samples/ko_6s.wav --out spikes/out/a6000/spike1.json
+
+Inside a target vLLM container:
     python3 spikes/spike1_asr_load.py --wav samples/ko_6s.wav --out spikes/out/spike1.json
 
 Run the vLLM part inside
