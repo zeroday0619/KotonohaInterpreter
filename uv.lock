@@ -852,6 +852,7 @@ dependencies = [
 [package.optional-dependencies]
 a6000-asr = [
     { name = "mistral-common", extra = ["audio"], marker = "(platform_machine == 'arm64' and sys_platform == 'darwin') or (platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
+    { name = "nvidia-cufft", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
 ]
 device = [
     { name = "accelerate", marker = "(platform_machine == 'arm64' and sys_platform == 'darwin') or (platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
@@ -886,6 +887,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27" },
     { name = "mistral-common", extras = ["audio"], marker = "extra == 'a6000-asr'", specifier = ">=1.11.3" },
     { name = "numpy", specifier = ">=1.24,<2.3" },
+    { name = "nvidia-cufft", marker = "platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'a6000-asr'", specifier = ">=12,<13" },
     { name = "onnxruntime", marker = "extra == 'device'", specifier = ">=1.18" },
     { name = "opencc-python-reimplemented", specifier = ">=0.1.7" },
     { name = "pydantic", specifier = ">=2.7" },

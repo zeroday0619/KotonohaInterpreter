@@ -202,6 +202,13 @@ def test_asr_images_use_target_vllm_runtimes_with_realtime_support_checks() -> N
     assert "Path(numpy.__file__).is_relative_to('/opt/kotonoha-venv')" in (
         remote_dockerfile
     )
+    assert "distribution('nvidia-cufft')" in asr_stage
+    assert "--reinstall-package nvidia-cufft" in asr_stage
+    assert "--reinstall-package nvidia-nvjitlink" in asr_stage
+    assert "library.parent / 'libnvJitLink.so.13'" in asr_stage
+    assert "path.stat().st_size > 1048576" in asr_stage
+    assert 'ln -s "$cufft_library_directory" /opt/kotonoha-cufft' in asr_stage
+    assert "ENV LD_LIBRARY_PATH=/opt/kotonoha-cufft:${LD_LIBRARY_PATH}" in asr_stage
     remote_llm_stage = remote_dockerfile.split("FROM ${LLM_BASE_IMAGE} AS llm", 1)[1]
     remote_llm_stage = remote_llm_stage.split("FROM common AS asr-verify", 1)[0]
     jetson_llm_dockerfile = (PROJECT_ROOT / "docker" / "Dockerfile.llm").read_text(
@@ -269,7 +276,11 @@ def test_remote_lock_and_dockerfile_use_target_specific_python_environments() ->
     project_configuration = (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
     assert "platform_machine == 'x86_64' and sys_platform == 'linux'" in lock_text
-    assert 'a6000-asr = [\n  "mistral-common[audio]>=1.11.3",\n]' in project_configuration
+    assert '"mistral-common[audio]>=1.11.3"' in project_configuration
+    assert (
+        '"nvidia-cufft>=12,<13 ; platform_machine == \'x86_64\' and '
+        'sys_platform == \'linux\'"'
+    ) in project_configuration
     assert "UV_PYTHON=/opt/conda/bin/python" in dockerfile
     assert "UV_PYTHON=/opt/kotonoha-venv/bin/python" in dockerfile
     assert dockerfile.count("--extra a6000-asr") == 2

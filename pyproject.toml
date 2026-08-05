@@ -49,6 +49,7 @@ device = [
 # this target-specific so the Jetson Qwen3-ASR image does not install it.
 a6000-asr = [
   "mistral-common[audio]>=1.11.3",
+  "nvidia-cufft>=12,<13 ; platform_machine == 'x86_64' and sys_platform == 'linux'",
 ]
 
 # Development-only tools use a PEP 735 dependency group so they do not enter

@@ -51,12 +51,20 @@ RUN uv sync --active --frozen --no-dev --extra a6000-asr \
 COPY src ./src
 # BuildKit has no GPU runtime. Verify module presence without importing vLLM;
 # deployment performs the CUDA-aware import after Compose attaches the GPU.
-RUN uv sync --active --frozen --no-dev --extra a6000-asr --no-cache \
+RUN uv sync --active --frozen --no-dev --extra a6000-asr \
+      --reinstall-package nvidia-cufft --reinstall-package nvidia-nvjitlink --no-cache \
  && uv pip install --python "$UV_PYTHON" --no-cache --no-deps \
       --reinstall-package numpy "numpy>=2,<2.3" \
  && uv pip check --python "$UV_PYTHON" \
  && "$UV_PYTHON" -c \
  "import kotonoha, mistral_common, numpy, scipy, sklearn, soundfile, soxr; from importlib.util import find_spec; from pathlib import Path; from transformers import GenerationMixin; numpy_release = tuple(map(int, numpy.__version__.split('.')[:2])); assert (2, 0) <= numpy_release < (2, 3), numpy.__version__; assert Path(numpy.__file__).is_relative_to('/opt/kotonoha-venv'), numpy.__file__; spec = find_spec('vllm'); assert spec and spec.submodule_search_locations, 'vLLM package missing'; root = Path(next(iter(spec.submodule_search_locations))); realtime = list(root.rglob('voxtral_realtime.py')); connection = list(root.rglob('realtime/connection.py')); assert realtime, 'Voxtral realtime module missing'; assert connection, 'vLLM realtime connection missing'; print('ASR dependencies ok | NumPy', numpy.__version__, '| SciPy', scipy.__version__, '| Voxtral module', realtime[0], '| realtime connection', connection[0])"
+# NVIDIA inference images intentionally ship a cuFFT stub. Voxtral executes a
+# CUDA STFT while building its mel spectrogram, so expose the full locked
+# nvidia-cufft library before the image's stub directory.
+RUN cufft_library_directory=$("$UV_PYTHON" -c \
+ "from importlib.metadata import distribution; from pathlib import Path; root = Path(distribution('nvidia-cufft').locate_file('')); libraries = list(root.glob('nvidia/**/lib/libcufft.so.12')); assert len(libraries) == 1, libraries; library = libraries[0]; runtime_libraries = (library, library.parent / 'libnvJitLink.so.13'); assert all(path.is_file() and path.stat().st_size > 1048576 for path in runtime_libraries), f'CUDA stub or missing runtime library: {runtime_libraries}'; print(library.parent)") \
+ && ln -s "$cufft_library_directory" /opt/kotonoha-cufft
+ENV LD_LIBRARY_PATH=/opt/kotonoha-cufft:${LD_LIBRARY_PATH}
 CMD ["uvicorn", "kotonoha.services._asr_server:app", "--host", "0.0.0.0", "--port", "8001", "--loop", "uvloop"]
 
 FROM ${LLM_BASE_IMAGE} AS llm
