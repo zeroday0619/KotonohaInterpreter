@@ -82,23 +82,21 @@ services:
 
   llm:
     <<: *a6000
-    # llama.cpp with CUDA for x86. Pin a verified tag present on the host.
-    image: ${LLM_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda}
+    image: ${LLM_IMAGE:-vllm/vllm-openai:v0.19.1}
     ports: ["8003:8003"]
     environment:
-      # The remote profile selects the 30B MoE at Q4_K_M. Deployment acceptance
-      # measures residency and generation rate on the A6000.
+      - KOTONOHA_SERVICE_TOKEN=${KOTONOHA_SERVICE_TOKEN:?set a token before starting}
+      - HF_HOME=/models/hf
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-0}
+      - HF_HUB_OFFLINE=${TRANSFORMERS_OFFLINE:-0}
       - LLM_PROFILE=${LLM_PROFILE:-moe}
-      - LLAMA_BIN=/app
-      - MODELS_DIR=/models/gguf
+      - LLM_MODELS_DIR=/models/llm
       - LLM_PORT=8003
-      - LLM_CTX=${LLM_CTX:-4096}
+      - LLM_MAX_MODEL_LEN=${LLM_MAX_MODEL_LEN:-4096}
+      - LLM_GPU_MEMORY_UTILIZATION=${LLM_GPU_MEMORY_UTILIZATION:-0.55}
       - KOTONOHA_LLM_CONFIG_ENV=/config/remote-llm.env
-      # Current llama.cpp server builds load libllama-server-impl.so from /app.
-      - LD_LIBRARY_PATH=/app
     volumes:
-      # Mounting the repository at /app would hide the image's /app/llama-server binary.
-      - ../scripts/run_llm.sh:/opt/kotonoha/run_llm.sh:ro
+      - ../scripts/run_vllm_llm.sh:/opt/kotonoha/run_vllm_llm.sh:ro
       - ../config:/config
       - ${MODELS_DIR:-../models}:/models
-    entrypoint: ["bash", "/opt/kotonoha/run_llm.sh"]
+    entrypoint: ["bash", "/opt/kotonoha/run_vllm_llm.sh"]

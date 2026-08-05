@@ -11,7 +11,7 @@ asr:
   model_id: /models/Qwen3-ASR-1.7B-hf
   vllm_model_id: /models/Qwen3-ASR-1.7B
   dtype: float16
-  vllm_gpu_memory_utilization: 0.80
+  vllm_gpu_memory_utilization: 0.20
   vllm_max_model_len: 4096
   vllm_enforce_eager: true
   n_best: 5
@@ -49,8 +49,9 @@ tts:
 
 llm:
   profile: moe
-  models_dir: /models/gguf
-  n_ctx: 4096
+  models_dir: /models/llm
+  max_model_len: 4096
+  gpu_memory_utilization: 0.55
   max_tokens: 768
 
 # Unused by the services, but the config schema requires them.

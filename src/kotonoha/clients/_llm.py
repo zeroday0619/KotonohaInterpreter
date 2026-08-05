@@ -1,4 +1,4 @@
-"""llama.cpp server client (OpenAI-compatible /v1/chat/completions, SSE streaming)."""
+"""vLLM translation client using the OpenAI-compatible streaming API."""
 
 from __future__ import annotations
 
@@ -79,7 +79,7 @@ class LanguageModelClient(BaseClient):
         self,
         /,
     ) -> dict:
-        """llama.cpp server exposes /health."""
+        """Return the vLLM server health state."""
         try:
             response = await self._client.get("/health", timeout=2.0)
             if response.status_code == 200:
@@ -113,13 +113,14 @@ class LanguageModelClient(BaseClient):
         """Yield content deltas one at a time."""
         generation_statistics = statistics or GenerationStatistics()
         payload = {
+            "model": self.config.served_model_name,
             "messages": messages,
             "temperature": self.config.temperature,
             "top_p": self.config.top_p,
-            "repeat_penalty": self.config.repeat_penalty,
+            "repetition_penalty": self.config.repetition_penalty,
             "max_tokens": max_tokens or self.config.max_tokens,
             "stream": True,
-            "cache_prompt": True,
+            "stream_options": {"include_usage": True},
         }
         try:
             timeout = httpx.Timeout(120.0, connect=2.0)
@@ -137,6 +138,11 @@ class LanguageModelClient(BaseClient):
                         decoded_event = json.loads(event_data)
                     except json.JSONDecodeError:
                         continue
+                    completion_tokens = (decoded_event.get("usage") or {}).get(
+                        "completion_tokens"
+                    )
+                    if isinstance(completion_tokens, int):
+                        generation_statistics.token_count = completion_tokens
                     choices = decoded_event.get("choices") or []
                     if not choices:
                         continue

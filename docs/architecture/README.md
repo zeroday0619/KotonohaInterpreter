@@ -20,7 +20,7 @@ Shared-memory audio ring
 Orchestrator (asyncio and uvloop)
     |-- :8001 primary ASR       Qwen3-ASR 1.7B, N-best 5, LID
     |-- :8002 verification ASR  faster-whisper large-v3, conditional
-    |-- :8003 translation LLM   llama.cpp, correction and translation
+    |-- :8003 translation LLM   vLLM, correction and translation
     `-- :8004 TTS               Qwen3-TTS 0.6B or MeloTTS
     |
     v
@@ -90,6 +90,10 @@ Each remote role retains a resident Jetson fallback. Transport failures retry lo
 HTTP 4xx application errors do not activate failover. Streaming roles fail over only
 before the first chunk because an active stream cannot be rewound.
 
+The ASR and translation services run separate vLLM engines. Their GPU memory utilization
+limits are independent and must leave capacity for verification ASR and TTS. The checked-in
+split is provisional until concurrent-residency measurements pass on each target.
+
 Remote services require a bearer token when `KOTONOHA_SERVICE_TOKEN` is set. Plain HTTP
 does not provide confidentiality. Restrict service ports to a trusted network or place a
 TLS reverse proxy in front of them.
@@ -101,9 +105,10 @@ TLS reverse proxy in front of them.
 | Primary ASR, vLLM | `Qwen/Qwen3-ASR-1.7B` |
 | Primary ASR, Transformers fallback | `Qwen/Qwen3-ASR-1.7B-hf` |
 | TTS | `Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice` |
-| MoE GGUF | `unsloth/Qwen3-30B-A3B-Instruct-2507-GGUF` |
-| Dense GGUF | `unsloth/Qwen3-14B-GGUF` |
+| MoE translation model | `ELVISIO/Qwen3-30B-A3B-Instruct-2507-AWQ` |
+| Dense translation model | `Qwen/Qwen3-14B-AWQ` |
 | Jetson vLLM image | `ghcr.io/nvidia-ai-iot/vllm:r36.4-tegra-aarch64-cu126-22.04` |
+| A6000 vLLM image | `vllm/vllm-openai:v0.19.1` |
 
 ## Scope Exclusions
 

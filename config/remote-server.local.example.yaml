@@ -9,7 +9,7 @@ asr_verify:
   model_id: /models/faster-whisper-large-v3
 
 llm:
-  models_dir: /models/gguf
+  models_dir: /models/llm
 
 tts:
   model_id: /models/Qwen3-TTS-0.6B

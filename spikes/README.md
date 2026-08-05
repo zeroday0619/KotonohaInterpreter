@@ -22,7 +22,7 @@ target, runtime environment, and benchmark conditions.
 |---|---|
 | `spike1_asr_load.py` | Measures Qwen3-ASR loading, N-best output, scores, and latency |
 | `spike2_flash_attn.py` | Executes FlashAttention and measures Qwen3-TTS backends |
-| `spike3_llm_tokrate.py` | Compares MoE and dense GGUF generation behavior |
+| `spike3_llm_tokrate.py` | Compares MoE and dense AWQ generation through vLLM |
 | `run_all.sh` | Runs probes supported by the current container |
 | `report.py` | Produces the target report and validated configuration values |
 
@@ -46,6 +46,8 @@ The A6000 runner accepts tuning conditions through environment variables:
 | `VLLM_ENFORCE_EAGER` | `1` | Spike 1 |
 | `LLM_CONTEXT` | `4096` | Spike 3 on A6000 |
 | `LLM_OUTPUT_TOKENS` | `60` | Spike 3 |
+| `LLM_GPU_MEMORY_UTILIZATION` | `0.80` | Spike 3 |
+| `LLM_MODELS_DIR` | `./models/llm` | Spike 3 |
 | `BENCHMARK_RUNS` | `3` | Spike 3 |
 | `ASR_ONLY` | `vllm` on A6000 | Spike 1 |
 | `OUT` | Target output directory | All probes |

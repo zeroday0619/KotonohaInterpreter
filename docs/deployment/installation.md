@@ -256,9 +256,9 @@ models/
 ├── Qwen3-ASR-1.7B/
 ├── Qwen3-TTS-0.6B/
 ├── faster-whisper-large-v3/
-├── gguf/
-│   ├── Qwen3-14B-Q4_K_M.gguf
-│   └── Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf
+├── llm/
+│   ├── Qwen3-14B-AWQ/
+│   └── Qwen3-30B-A3B-Instruct-2507-AWQ/
 └── silero_vad.onnx
 ```
 
@@ -272,8 +272,8 @@ TTS installation.
 test -s models/silero_vad.onnx
 test -d models/Qwen3-ASR-1.7B
 test -d models/faster-whisper-large-v3
-test -s models/gguf/Qwen3-14B-Q4_K_M.gguf
-test -s models/gguf/Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf
+test -s models/llm/Qwen3-14B-AWQ/config.json
+test -s models/llm/Qwen3-30B-A3B-Instruct-2507-AWQ/config.json
 ```
 
 If Qwen3 TTS is selected after Spike 2, also run:
@@ -357,7 +357,7 @@ KotonohaInterpreter/
 Create runtime directories before starting containers:
 
 ```bash
-mkdir -p data/logs models/gguf
+mkdir -p data/logs models/llm
 ```
 
 ### Create the Jetson override
@@ -380,7 +380,7 @@ asr_verify:
   model_id: /models/faster-whisper-large-v3
 
 llm:
-  models_dir: /models/gguf
+  models_dir: /models/llm
 
 tts:
   model_id: /models/Qwen3-TTS-0.6B
@@ -411,7 +411,6 @@ Confirm that these image families remain unchanged in the rendered configuration
 
 - `ghcr.io/nvidia-ai-iot/vllm:r36.4-tegra-aarch64-cu126-22.04`
 - `dustynv/faster-whisper:r36.4.0`
-- `dustynv/llama_cpp:r36.4.0`
 - `dustynv/pytorch:r36.4.0`
 
 ### Build Jetson images
@@ -585,7 +584,7 @@ test -s models/Qwen3-ASR-1.7B/config.json
 test -d models/faster-whisper-large-v3
 test -s models/faster-whisper-large-v3/config.json
 test -s models/Qwen3-TTS-0.6B/config.json
-test -s models/gguf/Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf
+test -s models/llm/Qwen3-30B-A3B-Instruct-2507-AWQ/config.json
 ```
 
 ### Create the remote service override
@@ -602,7 +601,7 @@ asr_verify:
   model_id: /models/faster-whisper-large-v3
 
 llm:
-  models_dir: /models/gguf
+  models_dir: /models/llm
 
 tts:
   model_id: /models/Qwen3-TTS-0.6B
@@ -623,9 +622,10 @@ MODELS_DIR=../models
 REMOTE_BASE=pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime
 REMOTE_ASR_BASE=vllm/vllm-openai:v0.19.1
 REMOTE_TTS_BUILD_BASE=pytorch/pytorch:2.6.0-cuda12.6-cudnn9-devel
-LLM_IMAGE=ghcr.io/ggml-org/llama.cpp:server-cuda
+LLM_IMAGE=vllm/vllm-openai:v0.19.1
 LLM_PROFILE=moe
-LLM_CTX=4096
+LLM_MAX_MODEL_LEN=4096
+LLM_GPU_MEMORY_UTILIZATION=0.55
 TRANSFORMERS_OFFLINE=1
 HF_HUB_OFFLINE=1
 ```
@@ -634,9 +634,15 @@ HF_HUB_OFFLINE=1
 chmod 600 .env
 ```
 
-The Python services receive `KOTONOHA_SERVICE_TOKEN`. The llama.cpp image does not use
-the project authentication middleware. Restrict port 8003 to the Jetson at the host
-firewall unless an authenticated reverse proxy protects it.
+Existing deployments must replace any `LLM_IMAGE` value containing `llama.cpp`, rename
+`LLM_CTX` to `LLM_MAX_MODEL_LEN`, and update host overrides from `/models/gguf` to
+`/models/llm`. The deployment script rejects an obsolete llama.cpp image selection.
+Existing GGUF files are not read by the vLLM service and can be archived after the AWQ
+snapshots pass target validation.
+
+The Python services receive `KOTONOHA_SERVICE_TOKEN`. The vLLM translation launcher
+passes the same token through `--api-key`. Restrict ports 8001-8004 to the Jetson even
+when bearer authentication is enabled.
 
 The TTS build uses the CUDA devel image to compile FlashAttention 2 against the same
 PyTorch and CUDA ABI as the runtime image. The compiler toolchain is not copied into the
@@ -676,15 +682,10 @@ core dependency therefore fails the image build instead of entering a restart lo
 
 The ASR image build checks that the vLLM package contains the Qwen3-ASR module without
 importing vLLM. Docker BuildKit does not attach the NVIDIA runtime, so CUDA-aware imports
-belong to deployment. `scripts/deploy.sh` starts a temporary ASR container with the
+belong to deployment. `scripts/deploy.sh` starts temporary ASR and LLM containers with the
 Compose GPU reservation and verifies PyTorch CUDA, the GPU identity, and vLLM before
-starting resident services.
-
-The llama.cpp image stores `llama-server` under `/app`. Its Compose service mounts only
-the launcher, configuration directory, and models. Do not restore the repository-wide
-`/app` bind mount on this service because it hides the image binary and causes exit code
-127. Flash Attention remains best-effort in the TTS target; its failure must appear in
-the build log and TTS health must report the backend that loaded.
+starting resident services. Flash Attention remains best-effort in the TTS target; its
+failure must appear in the build log and TTS health must report the backend that loaded.
 
 ### Start and verify the remote stack
 
@@ -813,7 +814,7 @@ backup, rollback, security controls, and troubleshooting. Use
 
 - [ ] Required model artifacts exist at the configured absolute paths.
 - [ ] All selected backends loaded; Python health responses contain `"ok": true`.
-- [ ] The llama.cpp health endpoint responds and the expected GGUF is loaded.
+- [ ] The vLLM translation health endpoint responds and the selected AWQ model is loaded.
 - [ ] CUDA is active in every GPU inference container.
 - [ ] Concurrent A6000 residency is confirmed with all services running.
 

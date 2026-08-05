@@ -130,19 +130,19 @@ def md_report(
         c = d.get("conditions", {})
         out = [
             "",
-            f"- 조건: ctx {c.get('n_ctx')}, 배치 {c.get('batch')}, 출력 {c.get('n_predict')}토큰",
+            f"- 조건: ctx {c.get('max_model_len')}, 배치 {c.get('batch')}, "
+            f"출력 {c.get('output_tokens')}토큰",
             "",
-            "| 프로필 | 모델 | llama-bench tg | 실 프롬프트 tok/s | TTFT(ms) |",
-            "|---|---|---|---|---|",
+            "| 프로필 | 모델 | 실 프롬프트 tok/s | TTFT(ms) |",
+            "|---|---|---|---|",
         ]
         for key in ("moe", "dense"):
             r = d.get(key)
             if not r:
                 continue
-            lb = (r.get("llama_bench") or {}).get("tg_tok_per_s", "—")
             best = ((r.get("server") or {}).get("best")) or {}
             out.append(
-                f"| {key} | {r.get('file', '')} | {lb} "
+                f"| {key} | {r.get('directory', '')} "
                 f"| {best.get('tok_per_s', '—')} | {best.get('ttft_ms', '—')} |"
             )
         out += [

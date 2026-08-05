@@ -437,7 +437,7 @@ def doctor(
         f"asr backend {settings.asr.backend} / llm profile {settings.llm.profile} / "
         f"tts {settings.tts.backend}"
     )
-    print(f"gguf        {settings.resolve(settings.llm.gguf_path)}")
+    print(f"llm model   {settings.resolve(settings.llm.model_path)}")
     placement = settings.resolved_placement()
     print(
         f"perf_mode   {settings.perf_mode}  "

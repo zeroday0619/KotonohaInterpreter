@@ -66,7 +66,7 @@ uv run ruff check .
 uv run pytest -q
 ```
 
-Current baseline: 215 tests and zero lint findings.
+Current baseline: 216 tests and zero lint findings.
 
 ## Non-negotiable constraints
 
@@ -106,9 +106,10 @@ Identifiers confirmed as of 2026-08:
 | Transformers fallback | `Qwen/Qwen3-ASR-1.7B-hf` |
 | TTS | `Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice` |
 | TTS API | `qwen_tts.Qwen3TTSModel.generate_custom_voice` |
-| MoE GGUF | `unsloth/Qwen3-30B-A3B-Instruct-2507-GGUF` |
-| Dense GGUF | `unsloth/Qwen3-14B-GGUF` |
+| MoE translation model | `ELVISIO/Qwen3-30B-A3B-Instruct-2507-AWQ` |
+| Dense translation model | `Qwen/Qwen3-14B-AWQ` |
 | Jetson vLLM image | `ghcr.io/nvidia-ai-iot/vllm:r36.4-tegra-aarch64-cu126-22.04` |
+| A6000 vLLM image | `vllm/vllm-openai:v0.19.1` |
 
 `VllmBackend` in `src/kotonoha/services/_asr_server.py` is the default. Spike 1 still
 verifies model loading, five-hypothesis output, and measured latency on sm_87. Do not
@@ -280,7 +281,7 @@ files.
 
 The remote allowlist contains only settings consumed by resident model services. Do not
 expose credentials, client policy, audio devices, or local storage. Remote model changes
-take effect after service restart. llama.cpp settings are mirrored to
+take effect after service restart. vLLM translation settings are mirrored to
 `config/remote-llm.env`.
 
 ## Localization

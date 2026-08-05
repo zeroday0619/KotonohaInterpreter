@@ -388,12 +388,14 @@ async def test_remote_target_loads_and_saves_through_the_admin_client(
         assert app.query_one("#category-asr").display
         assert not app.query_one("#category-session").display
 
-        row = next(row for row in app._rows if row.specification.path == "llm.n_ctx")
+        row = next(
+            row for row in app._rows if row.specification.path == "llm.max_model_len"
+        )
         row.editor.value = "8192"
         await app.action_save()
 
-        assert remote_client.changes == {"llm.n_ctx": 8192}
-        assert app.settings.llm.n_ctx == 8192
+        assert remote_client.changes == {"llm.max_model_len": 8192}
+        assert app.settings.llm.max_model_len == 8192
         assert not (tmp_path / "local.yaml").exists()
 
 

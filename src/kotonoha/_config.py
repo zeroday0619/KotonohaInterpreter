@@ -197,20 +197,24 @@ class AsrVerificationConfig(BaseModel):
 class LanguageModelProfile(BaseModel):
     __slots__: ClassVar[tuple[str, ...]] = ()
     repo: str
-    file: str
-    n_gpu_layers: int = -1
+    directory: str
+    quantization: str = "awq"
+    dtype: str = "half"
 
 
 class LanguageModelConfig(BaseModel):
     __slots__: ClassVar[tuple[str, ...]] = ()
     profile: Literal["moe", "dense"] = "dense"
     profiles: dict[str, LanguageModelProfile]
-    models_dir: Path = Path("./models/gguf")
-    n_ctx: int = 2048
-    n_batch: int = 512
+    models_dir: Path = Path("./models/llm")
+    served_model_name: str = "kotonoha-translation"
+    max_model_len: int = Field(2048, ge=512)
+    gpu_memory_utilization: float = Field(0.55, gt=0.0, le=1.0)
+    max_num_seqs: int = Field(1, ge=1)
+    enforce_eager: bool = True
     temperature: float = 0.2
     top_p: float = 0.9
-    repeat_penalty: float = 1.05
+    repetition_penalty: float = 1.05
     max_tokens: int = 512
     stream: bool = True
     timeout_s: float = 3.0
@@ -224,11 +228,11 @@ class LanguageModelConfig(BaseModel):
         return self.profiles[self.profile]
 
     @property
-    def gguf_path(
+    def model_path(
         self,
         /,
     ) -> Path:
-        return self.models_dir / self.active.file
+        return self.models_dir / self.active.directory
 
 
 class TextToSpeechConfig(BaseModel):

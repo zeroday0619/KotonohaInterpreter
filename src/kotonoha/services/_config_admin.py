@@ -36,11 +36,14 @@ REMOTE_EDITABLE_PATHS = frozenset(
         "asr_verify.compute_type",
         "asr_verify.device",
         "asr_verify.model_id",
+        "llm.enforce_eager",
+        "llm.gpu_memory_utilization",
+        "llm.max_model_len",
+        "llm.max_num_seqs",
         "llm.models_dir",
-        "llm.n_batch",
-        "llm.n_ctx",
         "llm.profile",
         "llm.profiles",
+        "llm.served_model_name",
         "tts.backend",
         "tts.chunk_ms",
         "tts.fallback",
@@ -70,19 +73,23 @@ def _write_llm_environment(
     settings: Settings,
     /,
 ) -> None:
-    """Write values consumed by run_llm.sh after the remote stack restarts."""
+    """Write values consumed by the vLLM launcher after the remote stack restarts."""
     target_raw = os.environ.get("KOTONOHA_LLM_CONFIG_ENV")
     if not target_raw:
         return
     target = Path(target_raw)
     target.parent.mkdir(parents=True, exist_ok=True)
     values = {
-        "LLM_BATCH": str(settings.llm.n_batch),
+        "LLM_DTYPE": settings.llm.active.dtype,
+        "LLM_ENFORCE_EAGER": "1" if settings.llm.enforce_eager else "0",
+        "LLM_GPU_MEMORY_UTILIZATION": str(settings.llm.gpu_memory_utilization),
+        "LLM_MAX_MODEL_LEN": str(settings.llm.max_model_len),
+        "LLM_MAX_NUM_SEQS": str(settings.llm.max_num_seqs),
         "LLM_PROFILE": settings.llm.profile,
-        "LLM_MODEL": str(settings.llm.gguf_path),
-        "MODELS_DIR": str(settings.llm.models_dir),
-        "LLM_CTX": str(settings.llm.n_ctx),
-        "LLM_NGL": str(settings.llm.active.n_gpu_layers),
+        "LLM_MODEL": str(settings.llm.model_path),
+        "LLM_MODELS_DIR": str(settings.llm.models_dir),
+        "LLM_QUANTIZATION": settings.llm.active.quantization,
+        "LLM_SERVED_MODEL_NAME": settings.llm.served_model_name,
     }
     content = "\n".join(f"export {key}={shlex.quote(value)}" for key, value in values.items())
     target.write_text(content + "\n", encoding="utf-8")

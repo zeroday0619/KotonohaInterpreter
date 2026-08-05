@@ -56,9 +56,9 @@ benchmark does not prove concurrent residency.
 
 ### Artifacts
 
-Run `scripts/fetch_models.sh` before either track. Spike 3 requires both GGUF files. Use a
-real recording of approximately six seconds for Spike 1. Synthetic audio provides timing
-data only and cannot validate transcription quality.
+Run `scripts/fetch_models.sh` before either track. Spike 3 requires both AWQ model
+snapshots. Use a real recording of approximately six seconds for Spike 1. Synthetic audio
+provides timing data only and cannot validate transcription quality.
 
 ## ASR Measurement
 
@@ -151,9 +151,10 @@ Jetson Phase 0 uses context 2048, batch 1, and 60 output tokens.
 ```bash
 python3 spikes/spike3_llm_tokrate.py \
   --target jetson \
-  --bin /opt/llama.cpp/build/bin \
-  --models-dir ./models/gguf \
+  --vllm-command vllm \
+  --models-dir ./models/llm \
   --context 2048 \
+  --gpu-memory-utilization 0.80 \
   --output-tokens 60 \
   --out spikes/out/spike3.json
 ```
@@ -163,16 +164,18 @@ The A6000 measurement uses the production 4096-token context:
 ```bash
 python3 spikes/spike3_llm_tokrate.py \
   --target a6000 \
-  --bin /app \
-  --models-dir /models/gguf \
+  --vllm-command vllm \
+  --models-dir /models/llm \
   --context 4096 \
+  --gpu-memory-utilization 0.80 \
   --output-tokens 60 \
   --runs 3 \
   --out spikes/out/a6000/spike3.json
 ```
 
-`llama-bench` records raw generation rate. `llama-server` records time to first token and
-generation rate under the production prompt shape. The server result governs selection.
+The probe starts one vLLM server per profile and records time to first token and generation
+rate under the production prompt shape. It terminates each server before loading the next
+profile so both measurements use the same available GPU capacity.
 
 The minimum rate is 5 tok/s. Select MoE only when it meets the threshold and is not slower
 than dense 14B. Translation quality remains a separate evaluation-set decision.

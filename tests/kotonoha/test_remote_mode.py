@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any, ClassVar, Final
 
+import httpx
 import numpy as np
 import pytest
 
 from kotonoha._config import RemoteConfig, load_settings
 from kotonoha._transport import AudioPayload, decode_pcm, encode_pcm, encoded_size
 from kotonoha.clients._base import ServiceError, ServiceTimeout, remote_transport_kwargs
+from kotonoha.clients._llm import LanguageModelClient
 from kotonoha.clients._router import AllEndpointsFailed, FailoverClient
 
 
@@ -113,6 +116,45 @@ def test_bearer_token_and_tls_flags_reach_httpx() -> None:
     tk = remote_transport_kwargs(RemoteConfig(token="secret", verify_tls=False))
     assert tk["headers"]["authorization"] == "Bearer secret"
     assert tk["verify"] is False
+
+
+async def test_vllm_translation_request_uses_openai_compatible_fields() -> None:
+    settings = load_settings()
+    captured_payload: dict[str, Any] = {}
+
+    def handle_request(
+        request: httpx.Request,
+        /,
+    ) -> httpx.Response:
+        captured_payload.update(json.loads(request.content))
+        stream = (
+            'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n'
+            "data: [DONE]\n\n"
+        )
+        return httpx.Response(200, text=stream)
+
+    client = LanguageModelClient("http://test", settings.llm)
+    await client._client.aclose()
+    client._client = httpx.AsyncClient(
+        base_url="http://test",
+        transport=httpx.MockTransport(handle_request),
+    )
+    try:
+        chunks = [
+            chunk
+            async for chunk in client.stream_chat(
+                [{"role": "user", "content": "Translate this."}]
+            )
+        ]
+    finally:
+        await client.aclose()
+
+    assert chunks == ["Hello"]
+    assert captured_payload["model"] == "kotonoha-translation"
+    assert captured_payload["repetition_penalty"] == 1.05
+    assert captured_payload["stream_options"] == {"include_usage": True}
+    assert "repeat_penalty" not in captured_payload
+    assert "cache_prompt" not in captured_payload
 
 
 # -- failover ---------------------------------------------------------------

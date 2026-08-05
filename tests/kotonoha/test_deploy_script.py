@@ -13,7 +13,7 @@ from kotonoha._config_store import validate_candidate
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEPLOY_SCRIPT = PROJECT_ROOT / "scripts" / "deploy.sh"
-LLM_SCRIPT = PROJECT_ROOT / "scripts" / "run_llm.sh"
+LLM_SCRIPT = PROJECT_ROOT / "scripts" / "run_vllm_llm.sh"
 
 
 def test_deploy_script_has_valid_shell_syntax_and_help() -> None:
@@ -78,7 +78,7 @@ def test_remote_services_default_to_mounted_offline_models() -> None:
     assert 'Qwen3-TTS-0.6B/config.json"' in deploy_script
 
 
-def test_remote_compose_uses_distinct_role_images_and_preserves_llama_binary() -> None:
+def test_remote_compose_uses_distinct_role_images_and_vllm_translation() -> None:
     compose = yaml.safe_load(
         (PROJECT_ROOT / "docker" / "compose.remote.yaml").read_text(encoding="utf-8")
     )
@@ -88,9 +88,15 @@ def test_remote_compose_uses_distinct_role_images_and_preserves_llama_binary() -
     assert len({services[role]["image"] for role in python_roles}) == len(python_roles)
     assert {services[role]["build"]["target"] for role in python_roles} == set(python_roles)
 
-    llama_volumes = services["llm"]["volumes"]
-    assert all(volume.split(":")[1] != "/app" for volume in llama_volumes)
-    assert services["llm"]["entrypoint"] == ["bash", "/opt/kotonoha/run_llm.sh"]
+    assert "vllm/vllm-openai:v0.19.1" in services["llm"]["image"]
+    assert services["llm"]["entrypoint"] == [
+        "bash",
+        "/opt/kotonoha/run_vllm_llm.sh",
+    ]
+    assert any(
+        "KOTONOHA_SERVICE_TOKEN=" in value
+        for value in services["llm"]["environment"]
+    )
 
 
 def test_asr_images_use_vllm_runtimes_with_qwen3_support_checks() -> None:
@@ -115,7 +121,9 @@ def test_asr_images_use_vllm_runtimes_with_qwen3_support_checks() -> None:
     assert "rglob('qwen3_asr.py')" in remote_dockerfile
     assert "import vllm" not in jetson_dockerfile
     assert "import vllm" not in remote_dockerfile
-    assert "import torch, vllm" in DEPLOY_SCRIPT.read_text(encoding="utf-8")
+    deploy_script = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+    assert "import torch, vllm" in deploy_script
+    assert 'verify_vllm_cuda_runtime "$compose_file" "$environment_file" llm' in deploy_script
     assert "ENTRYPOINT []" in remote_dockerfile
 
 
@@ -202,35 +210,30 @@ def _write_executable(
     path.chmod(0o755)
 
 
-def test_llama_launcher_adds_binary_directory_to_library_path(
+def test_vllm_launcher_builds_the_authenticated_server_command(
     _positional_only: object | None = None,
     /,
     *,
     tmp_path: Path,
 ) -> None:
-    binary_directory = tmp_path / "bin"
-    model_directory = tmp_path / "models"
+    model_path = tmp_path / "model"
+    model_path.mkdir()
+    (model_path / "config.json").write_text("{}", encoding="utf-8")
     tool_directory = tmp_path / "tools"
-    binary_directory.mkdir()
-    model_directory.mkdir()
     tool_directory.mkdir()
-    model_path = model_directory / "model.gguf"
-    model_path.touch()
-    capture_path = tmp_path / "environment.txt"
+    capture_path = tmp_path / "arguments.txt"
 
     _write_executable(
-        binary_directory / "llama-server",
-        '#!/bin/sh\nprintf "%s\\n" "$LD_LIBRARY_PATH" > "$CAPTURE_PATH"\n',
+        tool_directory / "vllm",
+        '#!/bin/sh\nprintf "%s\\n" "$@" > "$CAPTURE_PATH"\n',
     )
-    _write_executable(tool_directory / "ldd", "#!/bin/sh\nexit 0\n")
 
     environment = {
         **os.environ,
         "PATH": f"{tool_directory}:{os.environ['PATH']}",
-        "LLAMA_BIN": str(binary_directory),
         "LLM_MODEL": str(model_path),
         "CAPTURE_PATH": str(capture_path),
-        "LD_LIBRARY_PATH": "/existing/library/path",
+        "KOTONOHA_SERVICE_TOKEN": "test-secret",
         "KOTONOHA_LLM_CONFIG_ENV": str(tmp_path / "missing.env"),
     }
     result = subprocess.run(
@@ -243,33 +246,30 @@ def test_llama_launcher_adds_binary_directory_to_library_path(
     )
 
     assert result.returncode == 0, result.stderr
-    assert capture_path.read_text(encoding="utf-8").strip() == (
-        f"{binary_directory}:/existing/library/path"
-    )
+    arguments = capture_path.read_text(encoding="utf-8").splitlines()
+    assert arguments[:2] == ["serve", str(model_path)]
+    assert "--served-model-name" in arguments
+    assert "kotonoha-translation" in arguments
+    assert "--quantization" in arguments
+    assert "awq" in arguments
+    assert arguments[-2:] == ["--api-key", "test-secret"]
 
 
-def test_llama_launcher_rejects_unresolved_shared_libraries(
+def test_vllm_launcher_rejects_an_incomplete_model_snapshot(
     _positional_only: object | None = None,
     /,
     *,
     tmp_path: Path,
 ) -> None:
-    binary_directory = tmp_path / "bin"
-    binary_directory.mkdir()
-    model_path = tmp_path / "model.gguf"
-    model_path.touch()
-    _write_executable(binary_directory / "llama-server", "#!/bin/sh\nexit 0\n")
     tool_directory = tmp_path / "tools"
     tool_directory.mkdir()
-    _write_executable(
-        tool_directory / "ldd",
-        "#!/bin/sh\necho 'libllama-server-impl.so => not found'\n",
-    )
+    _write_executable(tool_directory / "vllm", "#!/bin/sh\nexit 0\n")
+    model_path = tmp_path / "model"
+    model_path.mkdir()
 
     environment = {
         **os.environ,
         "PATH": f"{tool_directory}:{os.environ['PATH']}",
-        "LLAMA_BIN": str(binary_directory),
         "LLM_MODEL": str(model_path),
         "KOTONOHA_LLM_CONFIG_ENV": str(tmp_path / "missing.env"),
     }
@@ -283,5 +283,4 @@ def test_llama_launcher_rejects_unresolved_shared_libraries(
     )
 
     assert result.returncode == 1
-    assert "libllama-server-impl.so" in result.stdout
-    assert "LD_LIBRARY_PATH" in result.stdout
+    assert "vLLM model snapshot is incomplete" in result.stdout

@@ -69,23 +69,29 @@ async def test_admin_api_validates_and_persists_overrides(
     ) as client:
         response = await client.put(
             "/admin/config",
-            json={"changes": {"llm.n_ctx": 8192, "asr_verify.compute_type": "float16"}},
+            json={
+                "changes": {
+                    "llm.max_model_len": 8192,
+                    "asr_verify.compute_type": "float16",
+                }
+            },
         )
     assert response.status_code == 200
     body = response.json()
-    assert body["config"]["llm"]["n_ctx"] == 8192
-    assert "llm.n_ctx" in body["editable_paths"]
+    assert body["config"]["llm"]["max_model_len"] == 8192
+    assert "llm.max_model_len" in body["editable_paths"]
     assert "remote.token" not in body["editable_paths"]
     assert body["restart_required"] is True
 
     written = yaml.safe_load(override.read_text(encoding="utf-8"))
-    assert written["llm"]["n_ctx"] == 8192
+    assert written["llm"]["max_model_len"] == 8192
     assert written["asr_verify"]["compute_type"] == "float16"
     environment = llm_environment.read_text(encoding="utf-8")
     assert "export LLM_PROFILE=moe" in environment
-    assert "export LLM_CTX=8192" in environment
-    assert "export LLM_BATCH=512" in environment
-    assert "export LLM_MODEL=/models/gguf/Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf" in environment
+    assert "export LLM_MAX_MODEL_LEN=8192" in environment
+    assert "export LLM_MAX_NUM_SEQS=1" in environment
+    assert "export LLM_MODEL=/models/llm/Qwen3-30B-A3B-Instruct-2507-AWQ" in environment
+    assert "export LLM_QUANTIZATION=awq" in environment
 
 
 async def test_admin_api_rejects_invalid_values_without_writing(
@@ -102,7 +108,7 @@ async def test_admin_api_rejects_invalid_values_without_writing(
         headers={"authorization": "Bearer test-secret"},
     ) as client:
         response = await client.put(
-            "/admin/config", json={"changes": {"llm.n_ctx": "many"}}
+            "/admin/config", json={"changes": {"llm.max_model_len": "many"}}
         )
     assert response.status_code == 422
     assert not override.exists()

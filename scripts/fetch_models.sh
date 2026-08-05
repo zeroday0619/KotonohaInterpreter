@@ -5,14 +5,14 @@
 # Repository IDs were confirmed by lookup in 2026-08:
 #   Qwen/Qwen3-ASR-1.7B                        vLLM format
 #   Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice       nine preset timbres
-#   unsloth/Qwen3-30B-A3B-Instruct-2507-GGUF   Q4_K_M ~ 18.6 GB
-#   unsloth/Qwen3-14B-GGUF                     Q4_K_M ~ 9 GB
+#   ELVISIO/Qwen3-30B-A3B-Instruct-2507-AWQ    4-bit MoE translation profile
+#   Qwen/Qwen3-14B-AWQ                         4-bit dense translation profile
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 MODELS=${MODELS_DIR:-./models}
-GGUF="$MODELS/gguf"
-mkdir -p "$GGUF"
+LLM_MODELS="$MODELS/llm"
+mkdir -p "$LLM_MODELS"
 
 need() { command -v "$1" >/dev/null || { echo "required: $1"; exit 1; }; }
 need curl
@@ -46,10 +46,10 @@ $HFCLI Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice --local-dir "$MODELS/Qwen3-TTS-0.6B"
 echo "== faster-whisper large-v3 =="
 $HFCLI Systran/faster-whisper-large-v3 --local-dir "$MODELS/faster-whisper-large-v3"
 
-echo "== GGUF (Spike 3 needs both) =="
-$HFCLI unsloth/Qwen3-14B-GGUF Qwen3-14B-Q4_K_M.gguf --local-dir "$GGUF"
-$HFCLI unsloth/Qwen3-30B-A3B-Instruct-2507-GGUF \
-       Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf --local-dir "$GGUF"
+echo "== vLLM translation models (Spike 3 needs both) =="
+$HFCLI Qwen/Qwen3-14B-AWQ --local-dir "$LLM_MODELS/Qwen3-14B-AWQ"
+$HFCLI ELVISIO/Qwen3-30B-A3B-Instruct-2507-AWQ \
+  --local-dir "$LLM_MODELS/Qwen3-30B-A3B-Instruct-2507-AWQ"
 
 echo
 echo "done. sizes:"

@@ -100,7 +100,8 @@ def test_default_config_loads_and_is_consistent() -> None:
     assert 200 <= s.frontend.vad.preroll_ms <= 500  # §5.1
     assert s.asr.n_best == 5  # §5.2
     assert s.session.mode == "push_to_talk"  # §4
-    assert s.llm.gguf_path.name.endswith(".gguf")
+    assert (s.llm.model_path / "config.json").name == "config.json"
+    assert s.llm.active.quantization == "awq"
     # The §6 stage budgets must add up to the stated total.
     b = s.budget_ms
     assert (

@@ -31,10 +31,12 @@ remain provisional until measured on their deployment hosts:
 | TTS backend | `tts.backend` | `melo` | Spike 2 |
 | Translation model class | `llm.profile` | `dense` | Spike 3 |
 
-The primary ASR service implements vLLM multimodal beam search and returns five scored
-hypotheses. Spike 1 must still verify model loading, latency, and sm_87 behavior on the
-Jetson. No target compatibility or performance result is claimed without target
-measurement. The [Implementation Plan](docs/planning/README.md) defines the phase gates.
+The primary ASR and translation services use resident vLLM engines. Translation retains
+the OpenAI-compatible clause stream and uses local AWQ model snapshots. Spikes 1 and 3
+must still verify model loading, concurrent residency, latency, throughput, and sm_87
+behavior on the Jetson. No target compatibility or performance result is claimed without
+target measurement. The [Implementation Plan](docs/planning/README.md) defines the phase
+gates.
 
 ## Quick Start
 
@@ -82,6 +84,8 @@ The [documentation index](docs/README.md) organizes project documentation by cat
 
 - Jetson Phase 0 and A6000 performance measurements remain pending.
 - Jetson vLLM model loading and latency remain unverified until Spike 1 runs on sm_87.
+- Translation AWQ loading and throughput remain unverified until Spike 3 runs on each
+  target.
 - Complete model inference cannot be validated on the macOS development workstation.
 - Push-to-talk is a terminal toggle because terminals do not expose key-release events.
 - Remote configuration changes do not reload resident models.

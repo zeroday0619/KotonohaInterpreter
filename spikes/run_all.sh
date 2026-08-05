@@ -65,20 +65,21 @@ python3 spikes/spike2_flash_attn.py --target "$TARGET" "${TTS_ARGUMENTS[@]}" \
   --out "$OUT/spike2.json" || echo "spike2 failed"
 
 echo "== Spike 3 =="
-LLAMA_BIN="${LLAMA_BIN:-/opt/llama.cpp/build/bin}"
-if [ -d "$LLAMA_BIN" ]; then
+if command -v "${VLLM_COMMAND:-vllm}" >/dev/null 2>&1; then
   if [ "$TARGET" = "a6000" ]; then
     DEFAULT_CONTEXT=4096
   else
     DEFAULT_CONTEXT=2048
   fi
-  python3 spikes/spike3_llm_tokrate.py --target "$TARGET" --bin "$LLAMA_BIN" \
-      --models-dir "${MODELS_DIR:-./models/gguf}" \
+  python3 spikes/spike3_llm_tokrate.py --target "$TARGET" \
+      --vllm-command "${VLLM_COMMAND:-vllm}" \
+      --models-dir "${LLM_MODELS_DIR:-./models/llm}" \
       --context "${LLM_CONTEXT:-$DEFAULT_CONTEXT}" \
       --output-tokens "${LLM_OUTPUT_TOKENS:-60}" \
+      --gpu-memory-utilization "${LLM_GPU_MEMORY_UTILIZATION:-0.80}" \
       --runs "${BENCHMARK_RUNS:-3}" --out "$OUT/spike3.json" || echo "spike3 failed"
 else
-  echo "llama.cpp bin not found: $LLAMA_BIN (set LLAMA_BIN)"
+  echo "vLLM command not found: ${VLLM_COMMAND:-vllm}"
 fi
 
 echo "== report =="

@@ -164,6 +164,9 @@ ensure_remote_environment() {
     case "$environment_token" in
       *'<'*|*'>'*) fail "replace the token placeholder in $environment_file" ;;
     esac
+    if grep -Eq '^LLM_IMAGE=.*llama\.cpp' "$environment_file"; then
+      fail "environment file still selects llama.cpp; set LLM_IMAGE=vllm/vllm-openai:v0.19.1"
+    fi
     if [ -n "${KOTONOHA_SERVICE_TOKEN:-}" ] \
       && [ "$KOTONOHA_SERVICE_TOKEN" != "$environment_token" ]; then
       fail "shell and environment-file service tokens differ"
@@ -184,9 +187,10 @@ ensure_remote_environment() {
     printf 'MODELS_DIR=../models\n'
     printf 'REMOTE_BASE=pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime\n'
     printf 'REMOTE_TTS_BUILD_BASE=pytorch/pytorch:2.6.0-cuda12.6-cudnn9-devel\n'
-    printf 'LLM_IMAGE=ghcr.io/ggml-org/llama.cpp:server-cuda\n'
+    printf 'LLM_IMAGE=vllm/vllm-openai:v0.19.1\n'
     printf 'LLM_PROFILE=moe\n'
-    printf 'LLM_CTX=4096\n'
+    printf 'LLM_MAX_MODEL_LEN=4096\n'
+    printf 'LLM_GPU_MEMORY_UTILIZATION=0.55\n'
     printf 'TRANSFORMERS_OFFLINE=1\n'
   } >"$environment_file"
   printf 'Created protected environment file: %s\n' "$environment_file"
@@ -234,7 +238,7 @@ check_jetson_host() {
     || fail "Jetson deployment requires L4T r36.4.x"
   [ -d /dev/snd ] || fail "audio device directory is missing: /dev/snd"
   require_file "$repository_root/models/silero_vad.onnx"
-  require_file "$repository_root/models/gguf/Qwen3-14B-Q4_K_M.gguf"
+  require_file "$repository_root/models/llm/Qwen3-14B-AWQ/config.json"
   check_nvidia_container_runtime
 
   require_command nvpmodel
@@ -256,7 +260,7 @@ check_a6000_host() {
   require_command nvidia-smi
   nvidia-smi >/dev/null 2>&1 || fail "nvidia-smi cannot access the A6000"
   check_nvidia_container_runtime
-  require_file "$models_path/gguf/Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf"
+  require_file "$models_path/llm/Qwen3-30B-A3B-Instruct-2507-AWQ/config.json"
   require_file "$models_path/Qwen3-TTS-0.6B/config.json"
 }
 
@@ -315,9 +319,10 @@ show_failed_health() {
   exit 1
 }
 
-verify_asr_cuda_runtime() {
+verify_vllm_cuda_runtime() {
   local compose_file=$1
   local compose_environment_file=$2
+  local service_name=$3
   local compose_arguments=(compose)
   if [ -n "$compose_environment_file" ]; then
     compose_arguments+=(--env-file "$compose_environment_file")
@@ -325,9 +330,9 @@ verify_asr_cuda_runtime() {
   compose_arguments+=(-f "$compose_file")
 
   "${docker_command[@]}" "${compose_arguments[@]}" run --rm --no-deps \
-    --entrypoint python3 asr -c \
-    'import torch, vllm; assert torch.cuda.is_available(), "CUDA is unavailable in the ASR container"; print("CUDA", torch.version.cuda, "| GPU", torch.cuda.get_device_name(0), "| vLLM", vllm.__version__)' \
-    || fail "ASR container cannot initialize the CUDA runtime and vLLM"
+    --entrypoint python3 "$service_name" -c \
+    'import torch, vllm; assert torch.cuda.is_available(), "CUDA is unavailable in the vLLM container"; print("CUDA", torch.version.cuda, "| GPU", torch.cuda.get_device_name(0), "| vLLM", vllm.__version__)' \
+    || fail "$service_name container cannot initialize the CUDA runtime and vLLM"
 }
 
 deploy_jetson() {
@@ -343,7 +348,8 @@ deploy_jetson() {
   if [ "$build_images" = true ]; then
     "${docker_command[@]}" compose -f "$compose_file" build asr asr-verify tts orchestrator
   fi
-  verify_asr_cuda_runtime "$compose_file" ""
+  verify_vllm_cuda_runtime "$compose_file" "" asr
+  verify_vllm_cuda_runtime "$compose_file" "" llm
   if [ "$build_images" = false ]; then
     "${docker_command[@]}" compose -f "$compose_file" \
       up -d --no-build asr asr-verify llm tts
@@ -380,7 +386,8 @@ deploy_a6000() {
   if [ "$build_images" = true ]; then
     "${compose_command[@]}" build asr asr-verify tts
   fi
-  verify_asr_cuda_runtime "$compose_file" "$environment_file"
+  verify_vllm_cuda_runtime "$compose_file" "$environment_file" asr
+  verify_vllm_cuda_runtime "$compose_file" "$environment_file" llm
   if [ "$build_images" = false ]; then
     "${compose_command[@]}" up -d --no-build asr asr-verify llm tts
   else
@@ -443,7 +450,7 @@ uninstall_a6000() {
     remove_project_image kotonohainterpreter-tts
   fi
 
-  printf 'Preserved: config/remote-server.local.yaml, config/remote-llm.env, .env, models/, and upstream llama.cpp image.\n'
+  printf 'Preserved: config/remote-server.local.yaml, config/remote-llm.env, .env, models/, and upstream vLLM image.\n'
 }
 
 case "$operation:$deployment_target" in

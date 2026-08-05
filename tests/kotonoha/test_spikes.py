@@ -12,6 +12,7 @@ PERFORMANCE_DOCUMENT = PROJECT_ROOT / "docs" / "performance" / "measurement.md"
 REPORT_SCRIPT = PROJECT_ROOT / "spikes" / "report.py"
 RUNNER_SCRIPT = PROJECT_ROOT / "spikes" / "run_all.sh"
 SPIKE_README = PROJECT_ROOT / "spikes" / "README.md"
+SPIKE3_SCRIPT = PROJECT_ROOT / "spikes" / "spike3_llm_tokrate.py"
 
 
 def test_a6000_report_generates_remote_configuration_patch(
@@ -81,11 +82,17 @@ def test_a6000_report_generates_remote_configuration_patch(
 
 def test_spike_runner_keeps_target_outputs_separate() -> None:
     source = RUNNER_SCRIPT.read_text(encoding="utf-8")
+    spike3_source = SPIKE3_SCRIPT.read_text(encoding="utf-8")
 
     assert "jetson|a6000" in source
     assert "spikes/out/a6000" in source
     assert "PERFORMANCE.md" in source
     assert "remote-server.local.yaml" in source
+    assert "--vllm-command" in source
+    assert "Qwen/Qwen3-14B-AWQ" in spike3_source
+    assert "ELVISIO/Qwen3-30B-A3B-Instruct-2507-AWQ" in spike3_source
+    assert '"stream_options": {"include_usage": True}' in spike3_source
+    assert "llama-server" not in spike3_source
 
 
 def test_performance_document_owns_measurement_procedure() -> None:

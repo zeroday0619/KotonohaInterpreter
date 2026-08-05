@@ -90,7 +90,9 @@ asr:
   model_id: Qwen/Qwen3-ASR-1.7B-hf
   vllm_model_id: Qwen/Qwen3-ASR-1.7B
   dtype: float16
-  vllm_gpu_memory_utilization: 0.80
+  # The ASR and translation vLLM engines share one GPU. Spike measurements must
+  # validate this provisional split before deployment acceptance.
+  vllm_gpu_memory_utilization: 0.25
   vllm_max_model_len: 4096
   # Eager mode avoids target-specific CUDA graph failures during initial deployment.
   vllm_enforce_eager: true
@@ -124,19 +126,25 @@ llm:
   profile: dense # moe | dense
   profiles:
     moe:
-      repo: unsloth/Qwen3-30B-A3B-Instruct-2507-GGUF
-      file: Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf
-      n_gpu_layers: -1
+      repo: ELVISIO/Qwen3-30B-A3B-Instruct-2507-AWQ
+      directory: Qwen3-30B-A3B-Instruct-2507-AWQ
+      quantization: awq
+      dtype: half
     dense:
-      repo: unsloth/Qwen3-14B-GGUF
-      file: Qwen3-14B-Q4_K_M.gguf
-      n_gpu_layers: -1
-  models_dir: ./models/gguf
-  n_ctx: 2048
-  n_batch: 512
+      repo: Qwen/Qwen3-14B-AWQ
+      directory: Qwen3-14B-AWQ
+      quantization: awq
+      dtype: half
+  models_dir: ./models/llm
+  served_model_name: kotonoha-translation
+  max_model_len: 2048
+  gpu_memory_utilization: 0.55
+  max_num_seqs: 1
+  # Eager mode remains enabled until CUDA graph behavior is measured on each target.
+  enforce_eager: true
   temperature: 0.2
   top_p: 0.9
-  repeat_penalty: 1.05
+  repetition_penalty: 1.05
   max_tokens: 512
   stream: true
   timeout_s: 3.0 # §10: on timeout, show the transcript only and skip TTS
