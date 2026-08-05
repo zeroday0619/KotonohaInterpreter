@@ -174,9 +174,14 @@ def test_asr_images_use_vllm_runtimes_with_qwen3_support_checks() -> None:
         remote_dockerfile
     )
     assert "uv sync --active --frozen --no-dev" in remote_dockerfile
+    assert remote_dockerfile.count("--no-install-package numpy") == 2
     assert "uv pip install --system" not in remote_dockerfile
     assert 'uv pip check --python "$UV_PYTHON"' in remote_dockerfile
-    assert "import kotonoha, numpy, soxr" in remote_dockerfile
+    assert "import kotonoha, numpy, scipy, sklearn, soxr" in remote_dockerfile
+    assert "from transformers import GenerationMixin" in remote_dockerfile
+    assert "not Path(numpy.__file__).is_relative_to('/opt/kotonoha-venv')" in (
+        remote_dockerfile
+    )
     deploy_script = DEPLOY_SCRIPT.read_text(encoding="utf-8")
     assert 'a6000_vllm_image="nvcr.io/nvidia/vllm:26.07-py3"' in deploy_script
     assert "must set REMOTE_ASR_BASE=$a6000_vllm_image" in deploy_script

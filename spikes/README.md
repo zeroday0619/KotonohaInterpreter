@@ -52,8 +52,10 @@ and vLLM environments for the default root runtime user. Jetson probes invoke
 `/opt/venv/bin/python` explicitly instead of falling back to the Ubuntu system Python.
 The prepared A6000 ASR image creates `/opt/kotonoha-venv` with access to the NGC system
 packages, then uses `uv sync --frozen` to install the locked project dependencies without
-modifying the externally managed system Python. Other A6000 probes use the Python
-executable supplied by their image. The container entrypoint returns result files and
+modifying the externally managed system Python. It excludes the lock's NumPy wheel so
+the NGC image's mutually compatible NumPy, SciPy, scikit-learn, Transformers, and vLLM
+stack remains intact. Other A6000 probes use the Python executable supplied by their
+image. The container entrypoint returns result files and
 their output directory to the invoking user's UID and GID before it exits. Image build
 failure stops the runner before any probe is started.
 
