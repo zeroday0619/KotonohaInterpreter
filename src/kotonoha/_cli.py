@@ -155,13 +155,11 @@ class ServiceName(str, Enum):
     __slots__: ClassVar[tuple[str, ...]] = ()
     asr: Final = "asr"
     verify: Final = "verify"
-    tts: Final = "tts"
 
 
 SERVICE_TARGETS = {
     ServiceName.asr: ("kotonoha.services._asr_server:app", 8001),
     ServiceName.verify: ("kotonoha.services._asr_verify_server:app", 8002),
-    ServiceName.tts: ("kotonoha.services._tts_server:app", 8004),
 }
 
 app = typer.Typer(
@@ -495,7 +493,7 @@ def doctor(
         ("onnxruntime", False), ("torch", False),
         ("vllm", settings.asr.backend == "vllm"),
         ("transformers", settings.asr.backend == "transformers"),
-        ("faster_whisper", False), ("df", False), ("qwen_tts", False), ("melo", False),
+        ("faster_whisper", False), ("df", False),
     ]
     for name, required in modules:
         try:

@@ -5,22 +5,27 @@ from __future__ import annotations
 import json
 import os
 import re
+import runpy
 import subprocess
 import sys
 from pathlib import Path
 
+import numpy as np
+import pytest
 import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ASR_DOCKERFILE = PROJECT_ROOT / "docker" / "Dockerfile.asr"
 PERFORMANCE_DOCUMENT = PROJECT_ROOT / "docs" / "performance" / "measurement.md"
+FETCH_MODELS_SCRIPT = PROJECT_ROOT / "scripts" / "fetch_models.sh"
 REPORT_SCRIPT = PROJECT_ROOT / "spikes" / "report.py"
 RUNNER_SCRIPT = PROJECT_ROOT / "spikes" / "run_all.sh"
 SPIKE_README = PROJECT_ROOT / "spikes" / "README.md"
+SPIKE1_SCRIPT = PROJECT_ROOT / "spikes" / "spike1_asr_load.py"
+SPIKE2_SCRIPT = PROJECT_ROOT / "spikes" / "spike2_flash_attn.py"
 SPIKE3_SCRIPT = PROJECT_ROOT / "spikes" / "spike3_llm_tokrate.py"
 SPIKE_COMPOSE = PROJECT_ROOT / "docker" / "compose.spikes.yaml"
 SPIKE_ENTRYPOINT = PROJECT_ROOT / "spikes" / "container_entrypoint.sh"
-TTS_DOCKERFILE = PROJECT_ROOT / "docker" / "Dockerfile.tts"
 PROJECT_CONFIGURATION = PROJECT_ROOT / "pyproject.toml"
 
 
@@ -194,6 +199,45 @@ exit 0
     assert "Building TTS spike image" not in completed.stdout
 
 
+def test_transformers_probe_uses_the_isolated_worker(
+    _positional_only: object | None = None,
+    /,
+    *,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worker = tmp_path / "transformers-worker"
+    worker.write_text(
+        """#!/bin/sh
+cat >/dev/null
+printf '%s\n' 'KOTONOHA_TRANSFORMERS_RESULT={"backend":"transformers","loaded":true}'
+""",
+        encoding="utf-8",
+    )
+    worker.chmod(0o755)
+    monkeypatch.setenv("SPIKE_TRANSFORMERS_PYTHON", str(worker))
+    run_transformers = runpy.run_path(str(SPIKE1_SCRIPT))["run_transformers"]
+
+    result = run_transformers(np.zeros(16000, dtype=np.float32), 1, "test-model")
+
+    assert result == {"backend": "transformers", "loaded": True}
+
+
+def test_vllm_omni_probe_uses_the_deployment_speech_api_contract() -> None:
+    namespace = runpy.run_path(str(SPIKE2_SCRIPT))
+    command = namespace["server_command"](
+        "/models/Qwen3-TTS-0.6B",
+        port=18004,
+        gpu_memory_utilization=0.25,
+        enforce_eager=True,
+    )
+
+    assert command[:4] == ["vllm", "serve", "/models/Qwen3-TTS-0.6B", "--omni"]
+    assert "--served-model-name" in command
+    assert "--stage-overrides" in command
+    assert "--enforce-eager" in command
+
+
 def test_performance_document_owns_measurement_procedure() -> None:
     performance_document = PERFORMANCE_DOCUMENT.read_text(encoding="utf-8")
     spike_readme = SPIKE_README.read_text(encoding="utf-8")
@@ -209,6 +253,8 @@ def test_hardware_spikes_use_target_specific_docker_images() -> None:
     asr_dockerfile = ASR_DOCKERFILE.read_text(encoding="utf-8")
     project_configuration = PROJECT_CONFIGURATION.read_text(encoding="utf-8")
     performance_document = PERFORMANCE_DOCUMENT.read_text(encoding="utf-8")
+    fetch_models_source = FETCH_MODELS_SCRIPT.read_text(encoding="utf-8")
+    spike2_source = SPIKE2_SCRIPT.read_text(encoding="utf-8")
     runner_source = RUNNER_SCRIPT.read_text(encoding="utf-8")
     compose_source = SPIKE_COMPOSE.read_text(encoding="utf-8")
     compose = yaml.safe_load(compose_source)
@@ -234,6 +280,14 @@ def test_hardware_spikes_use_target_specific_docker_images() -> None:
     assert 'uv pip install --python "$UV_PYTHON"' in asr_dockerfile
     assert "r36.4.tegra-aarch64-cu126-22.04" in compose_source
     assert "nvcr.io/nvidia/vllm:26.07-py3" in runner_source
+    assert "vllm/vllm-omni:v0.26.0" in runner_source
+    assert "prepare_tts_image()" in runner_source
+    assert 'pull "$SPIKE_TTS_IMAGE"' in runner_source
+    assert "SPIKE_TTS_PYTHON=$SPIKE_TTS_PYTHON" in runner_source
+    assert "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice" in fetch_models_source
+    assert '"/v1/audio/speech"' in spike2_source
+    assert '"stream_format": "audio"' in spike2_source
+    assert "probe_flash_attention" in spike2_source
     assert "bash scripts/manage.sh benchmark a6000 --only 1" in performance_document
 
 
@@ -247,10 +301,11 @@ def test_spike_entrypoint_restores_output_ownership_contract() -> None:
     assert 'exit "$command_status"' in source
 
 
-def test_jetson_tts_image_installs_native_audio_tools() -> None:
-    source = TTS_DOCKERFILE.read_text(encoding="utf-8")
+def test_tts_runtime_is_not_installed_into_the_project_environment() -> None:
+    project_configuration = PROJECT_CONFIGURATION.read_text(encoding="utf-8")
+    compose_source = SPIKE_COMPOSE.read_text(encoding="utf-8")
 
-    assert "libsndfile1 sox libsox-fmt-all" in source
-    assert "sox --version" in source
-    assert '"$UV_PYTHON" -c' in source
-    assert "import soxr, torch" in source
+    assert "vllm-omni" not in project_configuration
+    assert "qwen-tts" not in project_configuration
+    assert "melotts" not in project_configuration
+    assert "vllm/vllm-omni:v0.26.0" in compose_source

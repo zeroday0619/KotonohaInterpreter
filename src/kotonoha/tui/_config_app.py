@@ -238,7 +238,7 @@ FIELD_DESCRIPTIONS: dict[str, str] = {
             "Source language for typed input. auto reads it from the script."
     ),
     "tts.backend": N_(
-            "qwen3 requires successful Spike 2 validation; melo is the fallback."
+            "vllm_omni requires successful vLLM-Omni Spike 2 validation."
     ),
     "ui.language": N_("Interface language. auto follows the system locale."),
     "ui.refresh_hz": N_(

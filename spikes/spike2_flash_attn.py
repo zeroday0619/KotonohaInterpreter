@@ -1,243 +1,439 @@
 #!/usr/bin/env python3
-"""Spike 2 — does FlashAttention and Qwen3-TTS run on the selected GPU?
+"""Spike 2 — validate vLLM-Omni Qwen3-TTS on the selected GPU.
 
-What this decides:
-  · whether flash_attn imports AND its kernel actually runs. Import alone is
-    not enough: an aarch64 wheel can import fine and then die in the kernel.
-  · whether Qwen3-TTS loads with flash_attention_2, sdpa or eager
-  · how long synthesis takes in each configuration, against the 300 ms
-    first-packet budget in §6
-  · if it all fails, the evidence for starting on MeloTTS instead
-
-Run this probe through ``bash scripts/manage.sh benchmark <target>``. Set
-``SPIKE_TTS_IMAGE`` to a candidate FlashAttention image when validating a build other
-than the deployment TTS image.
+The probe executes a FlashAttention CUDA kernel, starts the same vLLM-Omni server used
+by deployment, and measures raw 24 kHz PCM streaming through ``/v1/audio/speech``.
 """
 
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import os
 import platform
-import sys
+import signal
+import statistics
+import subprocess
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
+from typing import BinaryIO
 
-TTS_MODEL = "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"
 PROBE_TEXT = {
     "Korean": "안녕하세요, 지금 통역기 성능을 확인하고 있습니다.",
     "English": "Hello, this is a latency probe for the interpreter.",
+    "Japanese": "こんにちは、通訳機の性能を確認しています。",
+    "Chinese": "您好，我们正在确认口译设备的性能。",
 }
+SAMPLE_RATE = 24000
+SAMPLE_WIDTH = 2
+SERVED_MODEL_NAME = "kotonoha-tts"
 
 
-def env_info() -> dict:
-    info = {
-        "python": sys.version.split()[0],
+def environment_info() -> dict:
+    information: dict = {
+        "platform": platform.platform(),
         "machine": platform.machine(),
-        "containerized": Path("/.dockerenv").exists(),
-        "container_image": os.environ.get("KOTONOHA_SPIKE_IMAGE"),
-        "gpu_selection": os.environ.get("NVIDIA_VISIBLE_DEVICES"),
+        "python": platform.python_version(),
+        "image": os.environ.get("KOTONOHA_SPIKE_IMAGE"),
     }
     try:
         import torch
 
-        info["torch"] = torch.__version__
-        info["cuda"] = torch.version.cuda
-        if torch.cuda.is_available():
-            cap = torch.cuda.get_device_capability(0)
-            info["device"] = torch.cuda.get_device_name(0)
-            info["capability"] = f"sm_{cap[0]}{cap[1]}"
-    except Exception as e:  # noqa: BLE001
-        info["torch_error"] = repr(e)
-    return info
-
-
-def probe_flash_attn() -> dict:
-    """Do not judge on the import alone; actually run the kernel once."""
-    out: dict = {}
+        information.update(
+            {
+                "torch": torch.__version__,
+                "cuda": torch.version.cuda,
+                "cuda_available": torch.cuda.is_available(),
+                "device": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
+                "capability": (
+                    ".".join(map(str, torch.cuda.get_device_capability(0)))
+                    if torch.cuda.is_available()
+                    else None
+                ),
+                "memory_total_gib": (
+                    round(torch.cuda.get_device_properties(0).total_memory / 2**30, 2)
+                    if torch.cuda.is_available()
+                    else None
+                ),
+            }
+        )
+    except Exception as error:  # noqa: BLE001
+        information["torch_error"] = repr(error)
     try:
-        import flash_attn
+        from importlib.metadata import version
 
-        out["import"] = True
-        out["version"] = getattr(flash_attn, "__version__", "?")
-    except Exception as e:  # noqa: BLE001
-        return {"import": False, "error": repr(e)}
+        information["vllm_omni"] = version("vllm-omni")
+        information["vllm"] = version("vllm")
+    except Exception as error:  # noqa: BLE001
+        information["version_error"] = repr(error)
+    return information
 
+
+def probe_flash_attention() -> dict:
+    result: dict = {"import": False, "kernel_ok": False}
     try:
         import torch
         from flash_attn import flash_attn_func
 
-        q = torch.randn(1, 128, 8, 64, dtype=torch.float16, device="cuda")
-        k = torch.randn_like(q)
-        v = torch.randn_like(q)
+        result["import"] = True
+        query = torch.randn(1, 32, 4, 64, device="cuda", dtype=torch.float16)
+        key = torch.randn_like(query)
+        value = torch.randn_like(query)
         torch.cuda.synchronize()
-        t0 = time.perf_counter()
-        o = flash_attn_func(q, k, v, causal=True)
+        started_at = time.perf_counter()
+        output = flash_attn_func(query, key, value, causal=False)
         torch.cuda.synchronize()
-        out["kernel_ok"] = bool(o.shape == q.shape) and bool(torch.isfinite(o).all())
-        out["kernel_ms"] = round((time.perf_counter() - t0) * 1000, 3)
-    except Exception as e:  # noqa: BLE001
-        out["kernel_ok"] = False
-        out["kernel_error"] = repr(e)
-    return out
+        result.update(
+            {
+                "kernel_ok": bool(torch.isfinite(output).all().item()),
+                "kernel_ms": round((time.perf_counter() - started_at) * 1000, 2),
+                "shape": list(output.shape),
+            }
+        )
+    except Exception as error:  # noqa: BLE001
+        result["error"] = repr(error)
+    return result
 
 
-def probe_qwen3_tts(
-    attn: str,
-    /,
-    runs: int,
-    model_identifier: str,
-) -> dict:
-    out: dict = {"attn_implementation": attn}
+def gpu_memory_usage_mib() -> float | None:
     try:
         import torch
-        from qwen_tts import Qwen3TTSModel
-    except Exception as e:  # noqa: BLE001
-        return {**out, "loaded": False, "error": f"import: {e!r}"}
 
-    try:
-        t0 = time.perf_counter()
-        model = Qwen3TTSModel.from_pretrained(
-            model_identifier,
-            device_map="cuda:0",
-            dtype=torch.bfloat16,
-            attn_implementation=attn,
-        )
-        out["load_s"] = round(time.perf_counter() - t0, 2)
-        out["loaded"] = True
-    except Exception as e:  # noqa: BLE001
-        return {**out, "loaded": False, "error": f"load: {e!r}"}
-
-    try:
-        for lang, text in PROBE_TEXT.items():
-            model.generate_custom_voice(text=text, language=lang, speaker="Vivian")  # warm-up
-            durs = []
-            for _ in range(runs):
-                t = time.perf_counter()
-                wavs, sr = model.generate_custom_voice(
-                    text=text, language=lang, speaker="Vivian"
-                )
-                durs.append(time.perf_counter() - t)
-            audio_s = len(wavs[0]) / sr
-            best = min(durs)
-            out[lang] = {
-                "synth_ms": round(best * 1000, 1),
-                "audio_s": round(audio_s, 2),
-                "rtf": round(best / audio_s, 3),
-            }
-    except Exception as e:  # noqa: BLE001
-        out["infer_error"] = repr(e)
-    return out
+        free_bytes, total_bytes = torch.cuda.mem_get_info()
+        return round((total_bytes - free_bytes) / 2**20, 1)
+    except Exception:  # noqa: BLE001
+        return None
 
 
-def probe_melo(
-    runs: int,
+def server_command(
+    model: str,
     /,
+    *,
+    port: int,
+    gpu_memory_utilization: float,
+    enforce_eager: bool,
+) -> list[str]:
+    command = [
+        "vllm",
+        "serve",
+        model,
+        "--omni",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        str(port),
+        "--served-model-name",
+        SERVED_MODEL_NAME,
+        "--gpu-memory-utilization",
+        str(gpu_memory_utilization),
+        "--stage-overrides",
+        '{"1":{"max_num_seqs":1}}',
+    ]
+    command.append("--enforce-eager" if enforce_eager else "--no-enforce-eager")
+    return command
+
+
+def wait_for_server(
+    process: subprocess.Popen[bytes],
+    /,
+    *,
+    port: int,
+    timeout_seconds: float,
+) -> tuple[bool, float, str | None]:
+    started_at = time.perf_counter()
+    deadline = started_at + timeout_seconds
+    last_error: str | None = None
+    while time.perf_counter() < deadline:
+        if process.poll() is not None:
+            return False, round(time.perf_counter() - started_at, 2), (
+                f"vLLM-Omni exited with status {process.returncode}"
+            )
+        try:
+            with urllib.request.urlopen(  # noqa: S310
+                f"http://127.0.0.1:{port}/health",
+                timeout=2.0,
+            ) as response:
+                if response.status == 200:
+                    return True, round(time.perf_counter() - started_at, 2), None
+        except (urllib.error.URLError, TimeoutError) as error:
+            last_error = repr(error)
+        time.sleep(2.0)
+    return False, round(time.perf_counter() - started_at, 2), last_error or "startup timeout"
+
+
+def request_speech(
+    text: str,
+    /,
+    *,
+    language: str,
+    port: int,
+    timeout_seconds: float,
 ) -> dict:
-    out: dict = {"backend": "melo"}
+    payload = json.dumps(
+        {
+            "input": text,
+            "model": SERVED_MODEL_NAME,
+            "voice": "vivian",
+            "language": language,
+            "task_type": "CustomVoice",
+            "response_format": "pcm",
+            "stream": True,
+            "stream_format": "audio",
+        }
+    ).encode()
+    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=timeout_seconds)
+    started_at = time.perf_counter()
+    first_audio_at: float | None = None
+    audio = bytearray()
     try:
-        from melo.api import TTS
-    except Exception as e:  # noqa: BLE001
-        return {**out, "loaded": False, "error": f"import: {e!r}"}
+        connection.request(
+            "POST",
+            "/v1/audio/speech",
+            body=payload,
+            headers={"content-type": "application/json"},
+        )
+        response = connection.getresponse()
+        if response.status != 200:
+            detail = response.read().decode(errors="replace")
+            raise RuntimeError(f"Speech API returned {response.status}: {detail[:2000]}")
+        while True:
+            chunk = response.read1(65536)
+            if not chunk:
+                break
+            if first_audio_at is None:
+                first_audio_at = time.perf_counter()
+            audio.extend(chunk)
+    finally:
+        connection.close()
+    finished_at = time.perf_counter()
+    if not audio or len(audio) % SAMPLE_WIDTH:
+        raise RuntimeError(f"invalid raw PCM byte count: {len(audio)}")
+    audio_seconds = len(audio) / (SAMPLE_RATE * SAMPLE_WIDTH)
+    return {
+        "bytes": len(audio),
+        "samples": len(audio) // SAMPLE_WIDTH,
+        "audio_seconds": round(audio_seconds, 3),
+        "ttfa_ms": (
+            round((first_audio_at - started_at) * 1000, 1)
+            if first_audio_at is not None
+            else None
+        ),
+        "e2e_ms": round((finished_at - started_at) * 1000, 1),
+        "rtf": round((finished_at - started_at) / audio_seconds, 3),
+    }
+
+
+def terminate_server(
+    process: subprocess.Popen[bytes],
+    /,
+) -> None:
+    if process.poll() is not None:
+        return
+    os.killpg(process.pid, signal.SIGTERM)
     try:
-        t0 = time.perf_counter()
-        m = TTS(language="KR", device="cuda:0")
-        out["load_s"] = round(time.perf_counter() - t0, 2)
-        out["loaded"] = True
-        spk = next(iter(m.hps.data.spk2id.values()))
-        m.tts_to_file(PROBE_TEXT["Korean"], spk, None, speed=1.0)
-        durs = []
-        for _ in range(runs):
-            t = time.perf_counter()
-            wav = m.tts_to_file(PROBE_TEXT["Korean"], spk, None, speed=1.0)
-            durs.append(time.perf_counter() - t)
-        audio_s = len(wav) / m.hps.data.sampling_rate
-        best = min(durs)
-        out["synth_ms"] = round(best * 1000, 1)
-        out["audio_s"] = round(audio_s, 2)
-        out["rtf"] = round(best / audio_s, 3)
-    except Exception as e:  # noqa: BLE001
-        out["infer_error"] = repr(e)
-    return out
+        process.wait(timeout=20)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.wait(timeout=10)
+
+
+def run_vllm_omni(
+    model: str,
+    /,
+    *,
+    port: int,
+    runs: int,
+    startup_timeout_seconds: float,
+    request_timeout_seconds: float,
+    gpu_memory_utilization: float,
+    enforce_eager: bool,
+    log_path: Path,
+) -> dict:
+    result: dict = {
+        "backend": "vllm_omni",
+        "model": model,
+        "served_model_name": SERVED_MODEL_NAME,
+        "loaded": False,
+        "languages": {},
+        "log": str(log_path),
+        "gpu_memory_samples_mib": [],
+    }
+    command = server_command(
+        model,
+        port=port,
+        gpu_memory_utilization=gpu_memory_utilization,
+        enforce_eager=enforce_eager,
+    )
+    result["command"] = command
+    baseline_memory = gpu_memory_usage_mib()
+    if baseline_memory is not None:
+        result["gpu_memory_samples_mib"].append(baseline_memory)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_file: BinaryIO
+    with log_path.open("wb") as log_file:
+        try:
+            process = subprocess.Popen(
+                command,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+        except Exception as error:  # noqa: BLE001
+            result["error"] = f"server start: {error!r}"
+            return result
+        try:
+            ready, startup_seconds, startup_error = wait_for_server(
+                process,
+                port=port,
+                timeout_seconds=startup_timeout_seconds,
+            )
+            result["startup_s"] = startup_seconds
+            if not ready:
+                result["error"] = startup_error
+                return result
+            result["loaded"] = True
+            loaded_memory = gpu_memory_usage_mib()
+            if loaded_memory is not None:
+                result["gpu_memory_samples_mib"].append(loaded_memory)
+            for language, text in PROBE_TEXT.items():
+                measurements = []
+                try:
+                    warmup = request_speech(
+                        text,
+                        language=language,
+                        port=port,
+                        timeout_seconds=request_timeout_seconds,
+                    )
+                    for _ in range(runs):
+                        measurements.append(
+                            request_speech(
+                                text,
+                                language=language,
+                                port=port,
+                                timeout_seconds=request_timeout_seconds,
+                            )
+                        )
+                        current_memory = gpu_memory_usage_mib()
+                        if current_memory is not None:
+                            result["gpu_memory_samples_mib"].append(current_memory)
+                    result["languages"][language] = {
+                        "ok": True,
+                        "warmup": warmup,
+                        "runs": measurements,
+                        "median_ttfa_ms": round(
+                            statistics.median(
+                                measurement["ttfa_ms"] for measurement in measurements
+                            ),
+                            1,
+                        ),
+                        "median_e2e_ms": round(
+                            statistics.median(
+                                measurement["e2e_ms"] for measurement in measurements
+                            ),
+                            1,
+                        ),
+                        "median_rtf": round(
+                            statistics.median(
+                                measurement["rtf"] for measurement in measurements
+                            ),
+                            3,
+                        ),
+                    }
+                except Exception as error:  # noqa: BLE001
+                    result["languages"][language] = {
+                        "ok": False,
+                        "error": repr(error),
+                        "runs": measurements,
+                    }
+        finally:
+            terminate_server(process)
+    result["synthesized"] = bool(result["languages"]) and all(
+        measurement.get("ok") for measurement in result["languages"].values()
+    )
+    memory_samples = result["gpu_memory_samples_mib"]
+    if memory_samples:
+        result["gpu_memory_peak_mib"] = max(memory_samples)
+        result["gpu_memory_delta_mib"] = round(max(memory_samples) - memory_samples[0], 1)
+    return result
 
 
 def verdict(
-    fa: dict,
+    omni: dict,
     /,
-    qwen: list[dict],
-    melo: dict,
 ) -> dict:
-    working = [q for q in qwen if q.get("loaded") and "infer_error" not in q]
-    budget = 300
-    if working:
-        best = min(
-            working,
-            key=lambda q: min(
-                (v["synth_ms"] for v in q.values() if isinstance(v, dict) and "synth_ms" in v),
-                default=1e9,
-            ),
-        )
-        ms = min(
-            (v["synth_ms"] for v in best.values() if isinstance(v, dict) and "synth_ms" in v),
-            default=None,
-        )
-        return {
-            "tts_backend": "qwen3",
-            "attn_implementation": best["attn_implementation"],
-            "first_packet_ms_estimate": ms,
-            "within_budget": bool(ms and ms <= budget),
-            "flash_attn_usable": bool(fa.get("kernel_ok")),
-            "note": (
-                f"Qwen3-TTS 가 {best['attn_implementation']} 로 동작. "
-                f"절 하나 합성 {ms:.0f}ms (§6 예산 {budget}ms). "
-                + (
-                    "flash-attn 없이도 되므로 빌드에 시간 쓰지 말 것."
-                    if not fa.get("kernel_ok")
-                    else "flash-attn 사용 가능."
-                )
-            ),
-        }
+    korean = omni.get("languages", {}).get("Korean", {})
+    ready = bool(omni.get("loaded") and omni.get("synthesized"))
     return {
-        "tts_backend": "melo" if melo.get("loaded") else "none",
-        "flash_attn_usable": bool(fa.get("kernel_ok")),
-        "first_packet_ms_estimate": melo.get("synth_ms"),
+        "tts_backend": "vllm_omni" if ready else "none",
+        "ok": ready,
+        "first_packet_ms_estimate": korean.get("median_ttfa_ms"),
         "note": (
-            "Qwen3-TTS 를 어떤 attn 구현으로도 못 올렸다. MeloTTS 로 Phase 1~3 을 시작하고, "
-            "Qwen3-TTS 는 별도 트랙으로 분리할 것."
-            if melo.get("loaded")
-            else "Qwen3-TTS·MeloTTS 모두 실패. TTS 스택 재검토 필요."
+            "vLLM-Omni Speech API 로 Qwen3-TTS 4개 언어 PCM 스트리밍에 성공했다."
+            if ready
+            else "vLLM-Omni 시작 또는 Qwen3-TTS PCM 스트리밍에 실패했다. 로그를 확인할 것."
         ),
     }
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--target", choices=["jetson", "a6000"], default="jetson")
-    ap.add_argument("--runs", type=int, default=3)
-    ap.add_argument("--out", type=Path, default=Path("spikes/out/spike2.json"))
-    ap.add_argument("--skip-melo", action="store_true")
-    ap.add_argument("--model", default=TTS_MODEL)
-    a = ap.parse_args()
+    argument_parser = argparse.ArgumentParser()
+    argument_parser.add_argument("--target", choices=["jetson", "a6000"], default="jetson")
+    argument_parser.add_argument("--runs", type=int, default=3)
+    argument_parser.add_argument("--model", default="/models/Qwen3-TTS-0.6B")
+    argument_parser.add_argument("--port", type=int, default=18004)
+    argument_parser.add_argument("--startup-timeout", type=float, default=600.0)
+    argument_parser.add_argument("--request-timeout", type=float, default=120.0)
+    argument_parser.add_argument("--gpu-memory-utilization", type=float, default=0.25)
+    argument_parser.add_argument(
+        "--enforce-eager",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
+    argument_parser.add_argument("--out", type=Path, default=Path("spikes/out/spike2.json"))
+    argument_parser.add_argument(
+        "--log",
+        type=Path,
+        default=Path("spikes/out/spike2-vllm-omni.log"),
+    )
+    arguments = argument_parser.parse_args()
 
-    result: dict = {
+    result = {
         "spike": 2,
-        "target": a.target,
-        "question": f"{a.target} 에서 flash-attn 과 Qwen3-TTS 가 동작하는가",
-        "env": env_info(),
+        "target": arguments.target,
+        "question": f"{arguments.target} 에서 vLLM-Omni Qwen3-TTS 가 동작하는가",
+        "env": environment_info(),
+        "conditions": {
+            "runs": arguments.runs,
+            "sample_rate": SAMPLE_RATE,
+            "response_format": "pcm",
+            "stream_format": "audio",
+            "gpu_memory_utilization": arguments.gpu_memory_utilization,
+            "enforce_eager": arguments.enforce_eager,
+        },
+        "flash_attn": probe_flash_attention(),
     }
-    result["flash_attn"] = probe_flash_attn()
-    result["qwen3_tts"] = [
-        probe_qwen3_tts(attention, a.runs, a.model)
-        for attention in ("flash_attention_2", "sdpa", "eager")
-    ]
-    result["melo"] = {} if a.skip_melo else probe_melo(a.runs)
-    result["verdict"] = verdict(result["flash_attn"], result["qwen3_tts"], result["melo"])
+    result["vllm_omni"] = run_vllm_omni(
+        arguments.model,
+        port=arguments.port,
+        runs=arguments.runs,
+        startup_timeout_seconds=arguments.startup_timeout,
+        request_timeout_seconds=arguments.request_timeout,
+        gpu_memory_utilization=arguments.gpu_memory_utilization,
+        enforce_eager=arguments.enforce_eager,
+        log_path=arguments.log,
+    )
+    result["verdict"] = verdict(result["vllm_omni"])
 
-    a.out.parent.mkdir(parents=True, exist_ok=True)
-    a.out.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    arguments.out.parent.mkdir(parents=True, exist_ok=True)
+    arguments.out.write_text(
+        json.dumps(result, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    return 0
+    return 0 if result["verdict"]["ok"] else 1
 
 
 if __name__ == "__main__":

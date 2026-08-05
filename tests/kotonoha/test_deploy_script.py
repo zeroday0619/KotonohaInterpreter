@@ -116,7 +116,7 @@ def test_remote_services_default_to_mounted_offline_models() -> None:
 
     assert remote_config["asr"]["vllm_model_id"] == "/models/Qwen3-ASR-1.7B"
     assert remote_config["asr_verify"]["model_id"] == "/models/faster-whisper-large-v3"
-    assert remote_config["tts"]["model_id"] == "/models/Qwen3-TTS-0.6B"
+    assert "vllm/vllm-omni:v0.26.0" in compose
     assert "HF_HUB_OFFLINE=${TRANSFORMERS_OFFLINE:-0}" in compose
     assert 'Qwen3-ASR-1.7B/config.json"' in deploy_script
     assert 'faster-whisper-large-v3/config.json"' in deploy_script
@@ -128,10 +128,12 @@ def test_remote_compose_uses_distinct_role_images_and_vllm_translation() -> None
         (PROJECT_ROOT / "docker" / "compose.remote.yaml").read_text(encoding="utf-8")
     )
     services = compose["services"]
-    python_roles = ("asr", "asr-verify", "tts")
+    python_roles = ("asr", "asr-verify")
 
     assert len({services[role]["image"] for role in python_roles}) == len(python_roles)
     assert {services[role]["build"]["target"] for role in python_roles} == set(python_roles)
+    assert "vllm/vllm-omni:v0.26.0" in services["tts"]["image"]
+    assert "build" not in services["tts"]
 
     assert "nvcr.io/nvidia/vllm:26.07-py3" in services["llm"]["image"]
     assert services["llm"]["entrypoint"] == [
@@ -180,6 +182,13 @@ def test_asr_images_use_vllm_runtimes_with_qwen3_support_checks() -> None:
     assert "import torch, vllm" in deploy_script
     assert 'verify_vllm_cuda_runtime "$compose_file" "$environment_file" llm' in deploy_script
     assert "ENTRYPOINT []" in remote_dockerfile
+    assert "TRANSFORMERS_FALLBACK_VERSION=5.13.0" in jetson_dockerfile
+    assert "SPIKE_TRANSFORMERS_PYTHON=/opt/transformers-fallback/bin/python" in (
+        jetson_dockerfile
+    )
+    assert "from transformers import AutoModelForMultimodalLM, AutoProcessor" in (
+        jetson_dockerfile
+    )
 
 
 def test_jetson_images_use_pinned_r36_4_tegra_runtime() -> None:
@@ -192,12 +201,12 @@ def test_jetson_images_use_pinned_r36_4_tegra_runtime() -> None:
             "Dockerfile.asr",
             "Dockerfile.asr-verify",
             "Dockerfile.orchestrator",
-            "Dockerfile.tts",
         )
     )
 
     assert "Jetson Linux 39.2" in compose_source
-    assert compose_source.count(jetson_image) == 5
+    assert compose_source.count(jetson_image) == 4
+    assert "vllm/vllm-omni:v0.26.0" in compose_source
     assert "Jetson Linux 39.2" in deploy_source
     assert "R39.*REVISION: 2" in deploy_source
     assert all(jetson_image in source for source in dockerfiles)
@@ -219,7 +228,6 @@ def test_editable_container_installs_include_the_custom_build_hook() -> None:
         PROJECT_ROOT / "docker" / "Dockerfile.asr",
         PROJECT_ROOT / "docker" / "Dockerfile.asr-verify",
         PROJECT_ROOT / "docker" / "Dockerfile.orchestrator",
-        PROJECT_ROOT / "docker" / "Dockerfile.tts",
     )
     required_copy = "COPY pyproject.toml uv.lock README.md LICENSE hatch_build.py ./"
 
@@ -250,21 +258,26 @@ def test_editable_container_installs_include_the_custom_build_hook() -> None:
     assert asr_stage.index("COPY src ./src") < asr_stage.rindex("uv sync --active")
 
 
-def test_remote_tts_image_builds_and_verifies_required_dependencies() -> None:
+def test_tts_uses_the_official_vllm_omni_image_and_launcher() -> None:
     compose = yaml.safe_load(
         (PROJECT_ROOT / "docker" / "compose.remote.yaml").read_text(encoding="utf-8")
     )
-    remote_config = read_yaml(PROJECT_ROOT / "config" / "remote-server.yaml")
     dockerfile = (PROJECT_ROOT / "docker" / "Dockerfile.remote").read_text(encoding="utf-8")
+    launcher = (PROJECT_ROOT / "scripts" / "run_vllm_omni_tts.sh").read_text(
+        encoding="utf-8"
+    )
+    service = compose["services"]["tts"]
 
-    assert "sox libsox-fmt-all" in dockerfile
-    assert "FROM ${TTS_BUILD_IMAGE} AS tts-flash-builder" in dockerfile
-    assert '"flash-attn==${FLASH_ATTN_VERSION}"' in dockerfile
-    assert "import flash_attn, pydantic_settings, qwen_tts, sox, torch" in dockerfile
-    assert "melotts" not in dockerfile
-    assert "|| echo" not in dockerfile
-    assert "TTS_BUILD_IMAGE" in compose["services"]["tts"]["build"]["args"]
-    assert remote_config["tts"]["fallback"] == "none"
+    assert "vllm/vllm-omni:v0.26.0" in service["image"]
+    assert service["entrypoint"] == ["bash", "/opt/kotonoha/run_vllm_omni_tts.sh"]
+    assert "build" not in service
+    assert " AS tts" not in dockerfile
+    assert "qwen_tts" not in dockerfile
+    assert "serve \"$MODEL\"" in launcher
+    assert "--omni" in launcher
+    assert "--served-model-name \"$SERVED_MODEL_NAME\"" in launcher
+    assert "--api-key \"$KOTONOHA_SERVICE_TOKEN\"" in launcher
+    assert 'echo "auth.disabled service=tts"' in launcher
 
 
 def test_python_service_containers_force_uvloop() -> None:
@@ -274,13 +287,13 @@ def test_python_service_containers_force_uvloop() -> None:
     )
     for compose_path in compose_paths:
         compose = yaml.safe_load(compose_path.read_text(encoding="utf-8"))
-        for role in ("asr", "asr-verify", "tts"):
+        for role in ("asr", "asr-verify"):
             assert "--loop uvloop" in compose["services"][role]["command"]
+        assert "run_vllm_omni_tts.sh" in compose["services"]["tts"]["entrypoint"][-1]
 
     dockerfile_paths = (
         PROJECT_ROOT / "docker" / "Dockerfile.asr",
         PROJECT_ROOT / "docker" / "Dockerfile.asr-verify",
-        PROJECT_ROOT / "docker" / "Dockerfile.tts",
         PROJECT_ROOT / "docker" / "Dockerfile.remote",
     )
     for dockerfile_path in dockerfile_paths:

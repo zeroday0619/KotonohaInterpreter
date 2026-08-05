@@ -19,7 +19,7 @@ uv sync
 | `uv run kotonoha devices` | List audio devices |
 | `uv run kotonoha doctor` | Report environment and service health |
 | `uv run kotonoha netcheck` | Measure remote latency and upload throughput |
-| `uv run kotonoha serve <service>` | Start a Python model service |
+| `uv run kotonoha serve <service>` | Start a Python ASR service |
 
 ## Integrated TUI
 

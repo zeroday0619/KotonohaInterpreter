@@ -785,8 +785,8 @@ class Orchestrator:
                 async for chunk in self.text_to_speech.stream(stream_factory):
                     self.playback.enqueue(chunk, self.settings.tts.sample_rate)
             except (ServiceTimeout, ServiceError) as error:
-                # §10 TTS failure — reached only when the service's own MeloTTS
-                # fallback failed too.
+                # The router may retry a remote request against the resident
+                # onboard vLLM-Omni service before this failure reaches the turn.
                 log.error("tts.failed", error=repr(error), clause=clause[:40])
                 metrics.outcome = "tts_failed"
                 self.event_bus.emit("error", where="tts", message=str(error))

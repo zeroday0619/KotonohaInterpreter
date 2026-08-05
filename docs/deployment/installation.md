@@ -12,7 +12,8 @@ procedures for Kotonoha Interpreter. It covers three environments:
 | RTX A6000 server | Optional high-performance model services | Optional target |
 
 The deployment remains a validation deployment until Phase 0 has been executed on the
-Jetson. Phase 0 determines the ASR runtime, TTS backend, and translation model profile.
+Jetson. Phase 0 determines the ASR runtime and translation model profile, and validates
+the fixed vLLM-Omni TTS runtime.
 No latency or model-compatibility result in this document replaces target measurements.
 
 ## Deployment Topology
@@ -132,7 +133,7 @@ Platform references:
 | GPU | NVIDIA RTX A6000 48 GB, sm_86 |
 | Host architecture | x86_64 |
 | Container runtime | Docker Engine, Compose plugin, NVIDIA Container Toolkit |
-| Driver | Must execute the configured CUDA 13.3.1 vLLM and CUDA 12.6 TTS images |
+| Driver | Must initialize CUDA in the configured vLLM and vLLM-Omni images |
 | Network | Stable route from the Jetson to TCP 8001-8004 |
 
 The A6000 ASR and translation services pin `nvcr.io/nvidia/vllm:26.07-py3`. Its manifest
@@ -298,9 +299,8 @@ models/
 └── silero_vad.onnx
 ```
 
-The TTS download is best-effort because MeloTTS remains the fallback. A failed TTS
-download must be recorded before deployment; it is not equivalent to a successful Qwen3
-TTS installation.
+The Qwen3-TTS snapshot is required by the resident vLLM-Omni service on both deployment
+hosts. The service never downloads model artifacts at startup.
 
 ### Verify artifacts
 
@@ -308,14 +308,9 @@ TTS installation.
 test -s models/silero_vad.onnx
 test -d models/Qwen3-ASR-1.7B
 test -d models/faster-whisper-large-v3
+test -s models/Qwen3-TTS-0.6B/config.json
 test -s models/llm/Qwen3-14B-AWQ/config.json
 test -s models/llm/Qwen3-30B-A3B-Instruct-2507-AWQ/config.json
-```
-
-If Qwen3 TTS is selected after Spike 2, also run:
-
-```bash
-test -d models/Qwen3-TTS-0.6B
 ```
 
 `fetch_models.sh` uses Hugging Face local directories rather than a cache-only layout.
@@ -425,8 +420,6 @@ asr_verify:
 llm:
   models_dir: /models/llm
 
-tts:
-  model_id: /models/Qwen3-TTS-0.6B
 ```
 
 Protect host-specific configuration because it can later contain remote credentials:
@@ -450,14 +443,20 @@ therefore use the `kotonohainterpreter-<service>:latest` naming pattern regardle
 `docker/` directory name. The expected ASR image is
 `kotonohainterpreter-asr:latest`.
 
-Confirm that every Jetson role resolves to the pinned Arm64 image family:
+Confirm that the Jetson ASR, verification, translation, and orchestrator roles resolve to
+the pinned Tegra image family:
 
 - `ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04`
+
+TTS must resolve to `vllm/vllm-omni:v0.26.0`. Its multi-platform manifest digest is
+`sha256:5cba1538c6f8ee81e8bea6708c24e68d7b2640f466a9fbf2ef15e68f2168b48b` and includes
+Linux arm64 and amd64 variants. The manifest does not establish Jetson compatibility.
 
 ### Build Jetson images
 
 ```bash
-docker compose -f docker/compose.yaml build asr asr-verify tts orchestrator
+docker compose -f docker/compose.yaml build asr asr-verify orchestrator
+docker compose -f docker/compose.yaml pull tts
 ```
 
 Review the build output for the following conditions:
@@ -466,13 +465,13 @@ Review the build output for the following conditions:
 - vLLM reports version 0.19.0 in the ASR and translation images.
 - CTranslate2 and faster-whisper import in the verification image.
 - `onnxruntime` and DeepFilterNet installation status is explicit.
-- At least one TTS backend installs.
+- The official vLLM-Omni image resolves to the arm64 manifest.
 
-The orchestrator and TTS Dockerfiles currently permit selected target dependencies to
-fail during image construction. The AArch64 CTranslate2 wheel is published, but target
-execution must still verify its CUDA 12.6 GPU path. A successful image build does not
-prove faster-whisper GPU execution or TTS backend loading. Service health checks and
-target measurements remain mandatory.
+The orchestrator Dockerfile permits selected target dependencies to fail during image
+construction. The AArch64 CTranslate2 wheel is published, but target execution must still
+verify its CUDA 12.6 GPU path. An image pull or successful build does not prove
+faster-whisper GPU execution or vLLM-Omni TTS loading. Service health checks and target
+measurements remain mandatory.
 
 ### Start model services
 
@@ -646,8 +645,6 @@ asr_verify:
 llm:
   models_dir: /models/llm
 
-tts:
-  model_id: /models/Qwen3-TTS-0.6B
 ```
 
 ```bash
@@ -664,7 +661,7 @@ KOTONOHA_SERVICE_TOKEN=<64-hex-character-random-token>
 MODELS_DIR=../models
 REMOTE_BASE=pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime
 REMOTE_ASR_BASE=nvcr.io/nvidia/vllm:26.07-py3
-REMOTE_TTS_BUILD_BASE=pytorch/pytorch:2.6.0-cuda12.6-cudnn9-devel
+TTS_IMAGE=vllm/vllm-omni:v0.26.0
 LLM_IMAGE=nvcr.io/nvidia/vllm:26.07-py3
 LLM_PROFILE=moe
 LLM_MAX_MODEL_LEN=4096
@@ -676,6 +673,8 @@ LLM_GPU_MEMORY_MIB=27648
 ASR_GPU_MEMORY_MIB=10240
 ASR_VERIFY_GPU_MEMORY_MIB=6144
 TTS_GPU_MEMORY_MIB=3072
+TTS_GPU_MEMORY_UTILIZATION=0.25
+TTS_ENFORCE_EAGER=1
 TRANSFORMERS_OFFLINE=1
 HF_HUB_OFFLINE=1
 ```
@@ -728,19 +727,16 @@ TTS_GPU_DEVICE=GPU-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
 Use UUIDs instead of indexes because NVIDIA does not guarantee enumeration order across
 reboots. Manual assignments still undergo aggregate capacity validation.
 
-The Python services receive `KOTONOHA_SERVICE_TOKEN`. The vLLM translation launcher
-passes the same token through `--api-key`. Restrict ports 8001-8004 to the Jetson even
-when bearer authentication is enabled.
+The Python services receive `KOTONOHA_SERVICE_TOKEN`. Both the vLLM translation launcher
+and the vLLM-Omni TTS launcher pass the same token through `--api-key`. Restrict ports
+8001-8004 to the Jetson even when bearer authentication is enabled.
 
-The TTS build uses the CUDA devel image to compile FlashAttention 2 against the same
-PyTorch and CUDA ABI as the runtime image. The compiler toolchain is not copied into the
-final TTS image. The build fails if FlashAttention, Qwen3-TTS, SoX, or another required
-runtime dependency cannot be imported. The first TTS build can take several minutes.
-
-The remote TTS service does not load MeloTTS. A remote Qwen3-TTS startup or request
-failure is retried by the orchestrator against the resident Jetson TTS service, whose
-default backend is MeloTTS. This separation avoids loading Qwen3-TTS and MeloTTS into one
-Python environment with incompatible Transformers requirements.
+TTS uses the official multi-platform `vllm/vllm-omni:v0.26.0` image and mounts the local
+Qwen3-TTS snapshot at `/models/Qwen3-TTS-0.6B`. No project Dockerfile installs
+another TTS runtime or a second Transformers environment. A remote transport failure
+before the first PCM chunk is retried against the resident Jetson vLLM-Omni service.
+The image manifest contains both Linux arm64 and amd64 variants, but only Spike 2 model
+loading and CUDA kernel execution can establish compatibility on either target.
 
 ### Validate and build the remote stack
 
@@ -753,17 +749,18 @@ source config/remote-gpu.env
 set +a
 docker compose -f docker/compose.remote.yaml config --quiet
 docker compose -f docker/compose.remote.yaml config --images
-docker compose -f docker/compose.remote.yaml build asr asr-verify tts
-docker compose -f docker/compose.remote.yaml pull llm
+docker compose -f docker/compose.remote.yaml build asr asr-verify
+docker compose -f docker/compose.remote.yaml pull llm tts
 ```
 
-The build must produce three role-specific images:
+The build produces two project-specific Python service images. TTS uses the upstream
+vLLM-Omni image directly:
 
 | Service | Image | Dockerfile target |
 |---|---|---|
 | Primary ASR | `kotonohainterpreter-asr:latest` | `asr` |
 | Verification ASR | `kotonohainterpreter-asr-verify:latest` | `asr-verify` |
-| TTS | `kotonohainterpreter-tts:latest` | `tts` |
+| TTS | `vllm/vllm-omni:v0.26.0` | Upstream image |
 
 The targets share a cached application layer but install and verify role-specific runtime
 dependencies. The common layer imports `pydantic_settings` during the build. A missing
@@ -773,8 +770,9 @@ The ASR image build checks that the vLLM package contains the Qwen3-ASR module w
 importing vLLM. Docker BuildKit does not attach the NVIDIA runtime, so CUDA-aware imports
 belong to deployment. `scripts/deploy.sh` starts temporary ASR and LLM containers with the
 Compose GPU reservation and verifies PyTorch CUDA, the GPU identity, and vLLM before
-starting resident services. Flash Attention remains best-effort in the TTS target; its
-failure must appear in the build log and TTS health must report the backend that loaded.
+starting resident services. The same check imports vLLM-Omni and initializes CUDA in a
+temporary TTS container. Spike 2 remains responsible for model loading, FlashAttention
+kernel execution, and Speech API PCM measurements.
 
 ### Start and verify the remote stack
 

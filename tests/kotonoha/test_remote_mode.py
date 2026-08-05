@@ -14,6 +14,7 @@ from kotonoha._transport import AudioPayload, decode_pcm, encode_pcm, encoded_si
 from kotonoha.clients._base import ServiceError, ServiceTimeout, remote_transport_kwargs
 from kotonoha.clients._llm import LanguageModelClient
 from kotonoha.clients._router import AllEndpointsFailed, FailoverClient
+from kotonoha.clients._tts import TextToSpeechClient
 
 
 # -- placement -------------------------------------------------------------
@@ -155,6 +156,66 @@ async def test_vllm_translation_request_uses_openai_compatible_fields() -> None:
     assert captured_payload["stream_options"] == {"include_usage": True}
     assert "repeat_penalty" not in captured_payload
     assert "cache_prompt" not in captured_payload
+
+
+async def test_vllm_omni_tts_request_streams_openai_compatible_pcm() -> None:
+    settings = load_settings()
+    captured_payload: dict[str, Any] = {}
+
+    def handle_request(
+        request: httpx.Request,
+        /,
+    ) -> httpx.Response:
+        captured_payload.update(json.loads(request.content))
+        return httpx.Response(200, content=b"\x00\x00\xff\x7f")
+
+    client = TextToSpeechClient("http://test", settings.tts)
+    await client._client.aclose()
+    client._client = httpx.AsyncClient(
+        base_url="http://test",
+        transport=httpx.MockTransport(handle_request),
+    )
+    try:
+        chunks = [chunk async for chunk in client.synthesize("안녕하세요.", "ko")]
+    finally:
+        await client.aclose()
+
+    assert len(chunks) == 1
+    assert chunks[0].dtype == np.float32
+    assert chunks[0].tolist() == pytest.approx([0.0, 32767 / 32768])
+    assert captured_payload == {
+        "input": "안녕하세요.",
+        "model": "kotonoha-tts",
+        "voice": "vivian",
+        "language": "Korean",
+        "task_type": "CustomVoice",
+        "response_format": "pcm",
+        "stream": True,
+        "stream_format": "audio",
+    }
+
+
+async def test_vllm_omni_health_accepts_an_empty_success_response() -> None:
+    settings = load_settings()
+
+    def handle_request(
+        request: httpx.Request,
+        /,
+    ) -> httpx.Response:
+        return httpx.Response(200)
+
+    client = TextToSpeechClient("http://test", settings.tts)
+    await client._client.aclose()
+    client._client = httpx.AsyncClient(
+        base_url="http://test",
+        transport=httpx.MockTransport(handle_request),
+    )
+    try:
+        health = await client.health()
+    finally:
+        await client.aclose()
+
+    assert health == {"ok": True, "service": "tts", "status": 200, "side": "local"}
 
 
 # -- failover ---------------------------------------------------------------

@@ -10,6 +10,3 @@ asr_verify:
 
 llm:
   models_dir: /models/llm
-
-tts:
-  model_id: /models/Qwen3-TTS-0.6B

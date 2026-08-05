@@ -45,16 +45,16 @@ services:
 
   tts:
     <<: *spike-runtime
-    image: ${SPIKE_TTS_IMAGE:-kotonohainterpreter-tts}
+    image: ${SPIKE_TTS_IMAGE:-vllm/vllm-omni:v0.26.0}
     environment:
       HOME: /tmp/kotonoha-spike
       HF_HOME: /models/hf
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
       NVIDIA_VISIBLE_DEVICES: ${SPIKE_GPU_DEVICE:-all}
-      KOTONOHA_SPIKE_IMAGE: ${SPIKE_TTS_IMAGE:-kotonohainterpreter-tts}
+      KOTONOHA_SPIKE_IMAGE: ${SPIKE_TTS_IMAGE:-vllm/vllm-omni:v0.26.0}
       SPIKE_GROUP_ID: ${SPIKE_GROUP_ID:-0}
-      SPIKE_PYTHON: ${SPIKE_PYTHON:-python3}
+      SPIKE_PYTHON: ${SPIKE_TTS_PYTHON:-python3}
       SPIKE_USER_ID: ${SPIKE_USER_ID:-0}
     entrypoint: ["bash", "spikes/container_entrypoint.sh", "spikes/spike2_flash_attn.py"]
 

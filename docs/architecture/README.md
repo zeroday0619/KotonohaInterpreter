@@ -21,7 +21,7 @@ Orchestrator (asyncio and uvloop)
     |-- :8001 primary ASR       Qwen3-ASR 1.7B, N-best 5, LID
     |-- :8002 verification ASR  faster-whisper large-v3, conditional
     |-- :8003 translation LLM   vLLM, correction and translation
-    `-- :8004 TTS               Qwen3-TTS 0.6B or MeloTTS
+    `-- :8004 TTS               vLLM-Omni, Qwen3-TTS 0.6B
     |
     v
 [speaker and terminal UI]
@@ -115,6 +115,7 @@ TLS reverse proxy in front of them.
 | Dense translation model | `Qwen/Qwen3-14B-AWQ` |
 | Jetson vLLM image | `ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04` |
 | A6000 vLLM image | `nvcr.io/nvidia/vllm:26.07-py3` |
+| TTS runtime image | `vllm/vllm-omni:v0.26.0` |
 
 ## Scope Exclusions
 

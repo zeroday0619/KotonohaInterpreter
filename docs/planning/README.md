@@ -50,7 +50,7 @@ Resolve hardware-dependent runtime decisions before feature acceptance begins.
 
 - Load Qwen3-ASR through Jetson vLLM and return five scored hypotheses.
 - Measure the Transformers fallback when vLLM fails or does not satisfy N-best.
-- Execute FlashAttention on sm_87 and measure Qwen3-TTS alternatives.
+- Execute FlashAttention on sm_87 and measure vLLM-Omni Qwen3-TTS PCM streaming.
 - Measure MoE 30B-A3B and dense 14B AWQ generation through vLLM under the specified
   conditions.
 - Select configuration values from measured results.

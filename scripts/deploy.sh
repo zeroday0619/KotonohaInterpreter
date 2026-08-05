@@ -20,6 +20,7 @@ remove_images=false
 reallocate_gpus=false
 prepare_only=false
 a6000_vllm_image="nvcr.io/nvidia/vllm:26.07-py3"
+vllm_omni_image="vllm/vllm-omni:v0.26.0"
 docker_display_command="docker"
 docker_requires_sudo=false
 docker_environment_names=(
@@ -35,10 +36,11 @@ docker_environment_names=(
   ORCH_BASE
   REMOTE_ASR_BASE
   REMOTE_BASE
-  REMOTE_TTS_BUILD_BASE
   TRANSFORMERS_OFFLINE
-  TTS_BASE
+  TTS_ENFORCE_EAGER
   TTS_GPU_DEVICE
+  TTS_GPU_MEMORY_UTILIZATION
+  TTS_IMAGE
   VERIFY_BASE
 )
 
@@ -217,6 +219,7 @@ ensure_remote_environment() {
     local environment_token
     local configured_asr_image
     local configured_llm_image
+    local configured_tts_image
     environment_token=$(sed -n 's/^KOTONOHA_SERVICE_TOKEN=//p' "$environment_file" | tail -n 1)
     [ -n "$environment_token" ] \
       || fail "environment file does not define KOTONOHA_SERVICE_TOKEN: $environment_file"
@@ -225,10 +228,13 @@ ensure_remote_environment() {
     esac
     configured_asr_image=$(sed -n 's/^REMOTE_ASR_BASE=//p' "$environment_file" | tail -n 1)
     configured_llm_image=$(sed -n 's/^LLM_IMAGE=//p' "$environment_file" | tail -n 1)
+    configured_tts_image=$(sed -n 's/^TTS_IMAGE=//p' "$environment_file" | tail -n 1)
     [ -z "$configured_asr_image" ] || [ "$configured_asr_image" = "$a6000_vllm_image" ] \
       || fail "environment file must set REMOTE_ASR_BASE=$a6000_vllm_image"
     [ -z "$configured_llm_image" ] || [ "$configured_llm_image" = "$a6000_vllm_image" ] \
       || fail "environment file must set LLM_IMAGE=$a6000_vllm_image"
+    [ -z "$configured_tts_image" ] || [ "$configured_tts_image" = "$vllm_omni_image" ] \
+      || fail "environment file must set TTS_IMAGE=$vllm_omni_image"
     if [ -n "${KOTONOHA_SERVICE_TOKEN:-}" ] \
       && [ "$KOTONOHA_SERVICE_TOKEN" != "$environment_token" ]; then
       fail "shell and environment-file service tokens differ"
@@ -249,7 +255,7 @@ ensure_remote_environment() {
     printf 'MODELS_DIR=../models\n'
     printf 'REMOTE_BASE=pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime\n'
     printf 'REMOTE_ASR_BASE=%s\n' "$a6000_vllm_image"
-    printf 'REMOTE_TTS_BUILD_BASE=pytorch/pytorch:2.6.0-cuda12.6-cudnn9-devel\n'
+    printf 'TTS_IMAGE=%s\n' "$vllm_omni_image"
     printf 'LLM_IMAGE=%s\n' "$a6000_vllm_image"
     printf 'LLM_PROFILE=moe\n'
     printf 'LLM_MAX_MODEL_LEN=4096\n'
@@ -261,6 +267,8 @@ ensure_remote_environment() {
     printf 'ASR_GPU_MEMORY_MIB=10240\n'
     printf 'ASR_VERIFY_GPU_MEMORY_MIB=6144\n'
     printf 'TTS_GPU_MEMORY_MIB=3072\n'
+    printf 'TTS_GPU_MEMORY_UTILIZATION=0.25\n'
+    printf 'TTS_ENFORCE_EAGER=1\n'
     printf 'TRANSFORMERS_OFFLINE=1\n'
   } >"$environment_file"
   printf 'Created protected environment file: %s\n' "$environment_file"
@@ -273,6 +281,8 @@ check_speech_models() {
   require_file "$models_path/Qwen3-ASR-1.7B/config.json"
   require_directory "$models_path/faster-whisper-large-v3"
   require_file "$models_path/faster-whisper-large-v3/config.json"
+  require_directory "$models_path/Qwen3-TTS-0.6B"
+  require_file "$models_path/Qwen3-TTS-0.6B/config.json"
 }
 
 remote_models_path() {
@@ -331,7 +341,6 @@ check_a6000_host() {
   nvidia-smi >/dev/null 2>&1 || fail "nvidia-smi cannot access the A6000"
   check_nvidia_container_runtime
   require_file "$models_path/llm/Qwen3-30B-A3B-Instruct-2507-AWQ/config.json"
-  require_file "$models_path/Qwen3-TTS-0.6B/config.json"
 }
 
 load_gpu_environment() {
@@ -434,6 +443,21 @@ verify_vllm_cuda_runtime() {
     || fail "$service_name container cannot initialize the CUDA runtime and vLLM"
 }
 
+verify_vllm_omni_cuda_runtime() {
+  local compose_file=$1
+  local compose_environment_file=$2
+  local compose_arguments=(compose)
+  if [ -n "$compose_environment_file" ]; then
+    compose_arguments+=(--env-file "$compose_environment_file")
+  fi
+  compose_arguments+=(-f "$compose_file")
+
+  run_docker "${compose_arguments[@]}" run --rm --no-deps \
+    --entrypoint python3 tts -c \
+    'from importlib.metadata import version; import torch, vllm, vllm_omni; assert torch.cuda.is_available(), "CUDA is unavailable in the vLLM-Omni container"; print("CUDA", torch.version.cuda, "| GPU", torch.cuda.get_device_name(0), "| vLLM", vllm.__version__, "| vLLM-Omni", version("vllm-omni"))' \
+    || fail "tts container cannot initialize the CUDA runtime and vLLM-Omni"
+}
+
 deploy_jetson() {
   local compose_file="$repository_root/docker/compose.yaml"
   printf 'Deploying Jetson model services from %s\n' "$repository_root"
@@ -449,10 +473,11 @@ deploy_jetson() {
     return
   fi
   if [ "$build_images" = true ]; then
-    run_docker compose -f "$compose_file" build asr asr-verify tts orchestrator
+    run_docker compose -f "$compose_file" build asr asr-verify orchestrator
   fi
   verify_vllm_cuda_runtime "$compose_file" "" asr
   verify_vllm_cuda_runtime "$compose_file" "" llm
+  verify_vllm_omni_cuda_runtime "$compose_file" ""
   if [ "$build_images" = false ]; then
     run_docker compose -f "$compose_file" \
       up -d --no-build asr asr-verify llm tts
@@ -463,7 +488,7 @@ deploy_jetson() {
   wait_for_service asr http://127.0.0.1:8001 python \
     && wait_for_service asr-verify http://127.0.0.1:8002 python \
     && wait_for_service llm http://127.0.0.1:8003 http \
-    && wait_for_service tts http://127.0.0.1:8004 python \
+    && wait_for_service tts http://127.0.0.1:8004 http \
     || show_failed_health "$compose_file" "" asr asr-verify llm tts
 
   printf '\nJetson model services are ready. Start the interactive interpreter with:\n'
@@ -496,10 +521,11 @@ deploy_a6000() {
     return
   fi
   if [ "$build_images" = true ]; then
-    "${compose_command[@]}" build asr asr-verify tts
+    "${compose_command[@]}" build asr asr-verify
   fi
   verify_vllm_cuda_runtime "$compose_file" "$environment_file" asr
   verify_vllm_cuda_runtime "$compose_file" "$environment_file" llm
+  verify_vllm_omni_cuda_runtime "$compose_file" "$environment_file"
   if [ "$build_images" = false ]; then
     "${compose_command[@]}" up -d --no-build asr asr-verify llm tts
   else
@@ -509,7 +535,7 @@ deploy_a6000() {
   wait_for_service asr http://127.0.0.1:8001 python \
     && wait_for_service asr-verify http://127.0.0.1:8002 python \
     && wait_for_service llm http://127.0.0.1:8003 http \
-    && wait_for_service tts http://127.0.0.1:8004 python \
+    && wait_for_service tts http://127.0.0.1:8004 http \
     || show_failed_health "$compose_file" "$environment_file" asr asr-verify llm tts
 
   printf '\nA6000 model services are ready. Configure the Jetson with the token in:\n'
@@ -533,7 +559,6 @@ uninstall_jetson() {
   if [ "$remove_images" = true ]; then
     remove_project_image kotonohainterpreter-asr
     remove_project_image kotonohainterpreter-asr-verify
-    remove_project_image kotonohainterpreter-tts
     remove_project_image kotonohainterpreter-orchestrator
   fi
 
@@ -568,7 +593,6 @@ uninstall_a6000() {
   if [ "$remove_images" = true ]; then
     remove_project_image kotonohainterpreter-asr
     remove_project_image kotonohainterpreter-asr-verify
-    remove_project_image kotonohainterpreter-tts
   fi
 
   printf 'Preserved: config/remote-server.local.yaml, config/remote-llm.env, config/remote-gpu.env, .env, models/, and the NVIDIA NGC vLLM image.\n'

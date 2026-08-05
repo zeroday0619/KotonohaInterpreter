@@ -95,28 +95,35 @@ def md_report(
     ) -> list[str]:
         v = d.get("verdict", {})
         fa = d.get("flash_attn", {})
+        omni = d.get("vllm_omni", {})
         fa_err = str(fa.get("kernel_error") or fa.get("error"))[:70]
         out = [
             "",
             f"- 장치: {d['env'].get('device')} / {d['env'].get('capability')}",
+            f"- 이미지: {d['env'].get('image')} / vLLM-Omni {d['env'].get('vllm_omni')}",
             f"- flash-attn import: {'✅' if fa.get('import') else '❌'} "
             f"/ 커널 실행: {'✅' if fa.get('kernel_ok') else '❌ ' + fa_err}",
+            f"- vLLM-Omni 시작: {'✅' if omni.get('loaded') else '❌'} "
+            f"({omni.get('startup_s', '—')}초) / 로그: {omni.get('log', '—')}",
+            f"- GPU 메모리: peak {omni.get('gpu_memory_peak_mib', '—')} MiB "
+            f"/ baseline 대비 +{omni.get('gpu_memory_delta_mib', '—')} MiB",
             "",
-            "| attn 구현 | 로드 | 합성(ms) | RTF |",
-            "|---|---|---|---|",
+            "| 언어 | PCM 스트리밍 | 첫 패킷(ms) | 전체 합성(ms) | RTF |",
+            "|---|---|---|---|---|",
         ]
-        for q in d.get("qwen3_tts", []):
-            ko = q.get("Korean") or {}
-            out.append(
-                f"| {q['attn_implementation']} "
-                f"| {'✅' if q.get('loaded') else '❌ ' + str(q.get('error'))[:50]} "
-                f"| {ko.get('synth_ms', '—')} | {ko.get('rtf', '—')} |"
+        for language in ("Korean", "English", "Japanese", "Chinese"):
+            measurement = (omni.get("languages") or {}).get(language, {})
+            status = (
+                "✅"
+                if measurement.get("ok")
+                else "❌ " + str(measurement.get("error"))[:50]
             )
-        m = d.get("melo") or {}
-        if m:
             out.append(
-                f"| MeloTTS (폴백) | {'✅' if m.get('loaded') else '❌'} "
-                f"| {m.get('synth_ms', '—')} | {m.get('rtf', '—')} |"
+                f"| {language} "
+                f"| {status} "
+                f"| {measurement.get('median_ttfa_ms', '—')} "
+                f"| {measurement.get('median_e2e_ms', '—')} "
+                f"| {measurement.get('median_rtf', '—')} |"
             )
         out += ["", f"**판정: `tts.backend: {v.get('tts_backend')}`** — {v.get('note')}"]
         return out
@@ -154,7 +161,7 @@ def md_report(
         return out
 
     section("Spike 1 — vLLM 이 Qwen3-ASR 을 로드하는가", s1, b1)
-    section("Spike 2 — flash-attn 과 Qwen3-TTS 가 동작하는가", s2, b2)
+    section("Spike 2 — vLLM-Omni Qwen3-TTS 가 동작하는가", s2, b2)
     section("Spike 3 — MoE vs 밀집 14B 실측 tok/s", s3, b3)
 
     L += ["## 종합", ""]
@@ -213,7 +220,7 @@ def patch_yaml(
             lines.append("")
     if s2:
         t = (s2.get("verdict") or {}).get("tts_backend")
-        if t in ("qwen3", "melo"):
+        if t == "vllm_omni":
             lines += ["tts:", f"  backend: {t}", ""]
     if s3:
         p = (s3.get("verdict") or {}).get("llm_profile")

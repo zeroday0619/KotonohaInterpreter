@@ -85,7 +85,7 @@ Do not translate or rewrite:
 - Protocol and format names such as JSON, JSONL, YAML, WAV, and PCM
 - Model-role abbreviations such as ASR, LLM, TTS, VAD, PTT, and EOU
 - Enum values such as `onboard`, `hybrid`, `remote`, `conditional`, and `always`
-- Model and backend values such as `qwen3`, `melo`, `silero_onnx`, `s16le`, and `f32le`
+- Model and backend values such as `vllm_omni`, `silero_onnx`, `s16le`, and `f32le`
 
 Preserve placeholder names, repetition counts, conversions, and format specifications.
 Preserve leading whitespace, trailing whitespace, tabs, and explicit newlines exactly.

@@ -28,25 +28,6 @@ asr_verify:
   beam_size: 5
   timeout_s: 5.0
 
-tts:
-  backend: qwen3
-  model_id: /models/Qwen3-TTS-0.6B
-  sample_rate: 24000
-  chunk_ms: 200
-  timeout_s: 8.0
-  # Remote failures are retried against the resident Jetson MeloTTS service.
-  fallback: none
-  voices:
-    ko: Vivian
-    en: Vivian
-    zh-TW: Vivian
-    ja: Vivian
-  melo_speakers:
-    ko: KR
-    en: EN-US
-    zh-TW: ZH
-    ja: JP
-
 llm:
   profile: moe
   models_dir: /models/llm

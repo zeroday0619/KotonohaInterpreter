@@ -152,24 +152,18 @@ llm:
   min_tok_per_s: 5.0
 
 tts:
-  # [SPIKE-2] Use backend: qwen3 if Qwen3-TTS comes up without flash-attn.
-  backend: melo # qwen3 | melo
-  model_id: Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice
+  # vLLM-Omni serves the offline CustomVoice snapshot through /v1/audio/speech.
+  backend: vllm_omni
+  served_model_name: kotonoha-tts
+  task_type: CustomVoice
   sample_rate: 24000
-  chunk_ms: 200
   timeout_s: 5.0
-  fallback: melo # §10
   # Preset timbres from Qwen3-TTS CustomVoice (Vivian / Ryan / Aiden and six more).
   voices:
     ko: Vivian
     en: Vivian
     zh-TW: Vivian
     ja: Vivian
-  melo_speakers:
-    ko: KR
-    en: EN-US
-    zh-TW: ZH
-    ja: JP
 
 zh:
   opencc_config: s2twp # Simplified -> Traditional with Taiwanese usage (§5)

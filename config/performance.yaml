@@ -44,9 +44,8 @@ asr_verify:
   compute_type: float16 # int8 was an Orin memory-bandwidth concession
 
 tts:
-  # The remote image build requires flash-attn. The health endpoint reports the
-  # attention implementation loaded by Qwen3-TTS.
-  backend: qwen3
+  # Both resident endpoints expose the same vLLM-Omni Speech API contract.
+  backend: vllm_omni
 
 # Deliberately unchanged: VAD preroll, the 800 ms EOU wait and the clause
 # streaming thresholds. Those are frontend properties and the frontend still

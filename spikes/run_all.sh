@@ -95,9 +95,10 @@ configure_target() {
   if [ "$deployment_target" = "jetson" ]; then
     : "${SPIKE_VLLM_IMAGE:=ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04}"
     : "${SPIKE_ASR_IMAGE:=kotonohainterpreter-spike-asr:jetson}"
-    : "${SPIKE_TTS_IMAGE:=kotonohainterpreter-spike-tts:jetson}"
+    : "${SPIKE_TTS_IMAGE:=vllm/vllm-omni:v0.26.0}"
     : "${SPIKE_GPU_DEVICE:=all}"
     : "${SPIKE_PYTHON:=/opt/venv/bin/python}"
+    : "${SPIKE_TTS_PYTHON:=python3}"
     : "${OUT:=spikes/out}"
     default_context=2048
     report_name=PHASE0.md
@@ -105,9 +106,10 @@ configure_target() {
   else
     : "${SPIKE_VLLM_IMAGE:=nvcr.io/nvidia/vllm:26.07-py3}"
     : "${SPIKE_ASR_IMAGE:=kotonohainterpreter-spike-asr:a6000}"
-    : "${SPIKE_TTS_IMAGE:=kotonohainterpreter-spike-tts:a6000}"
+    : "${SPIKE_TTS_IMAGE:=vllm/vllm-omni:v0.26.0}"
     : "${SPIKE_GPU_DEVICE:=0}"
     : "${SPIKE_PYTHON:=python3}"
+    : "${SPIKE_TTS_PYTHON:=python3}"
     : "${OUT:=spikes/out/a6000}"
     default_context=4096
     report_name=PERFORMANCE.md
@@ -127,7 +129,7 @@ configure_target() {
   : "${SPIKE_USER_ID:=$(id -u)}"
   : "${SPIKE_GROUP_ID:=$(id -g)}"
   export MODELS_DIR OUT SPIKE_ASR_IMAGE SPIKE_GPU_DEVICE SPIKE_GROUP_ID
-  export SPIKE_PYTHON SPIKE_TTS_IMAGE SPIKE_USER_ID SPIKE_VLLM_IMAGE
+  export SPIKE_PYTHON SPIKE_TTS_IMAGE SPIKE_TTS_PYTHON SPIKE_USER_ID SPIKE_VLLM_IMAGE
 }
 
 build_asr_image() {
@@ -163,7 +165,7 @@ build_asr_image() {
   fi
 }
 
-build_tts_image() {
+prepare_tts_image() {
   if [ "$tts_image_was_configured" = true ]; then
     "${docker_command[@]}" image inspect "$SPIKE_TTS_IMAGE" >/dev/null 2>&1 || {
       printf 'Configured TTS spike image is missing: %s\n' "$SPIKE_TTS_IMAGE" >&2
@@ -179,21 +181,10 @@ build_tts_image() {
     return
   fi
 
-  printf 'Building TTS spike image: %s\n' "$SPIKE_TTS_IMAGE"
-  if [ "$deployment_target" = "jetson" ]; then
-    "${docker_command[@]}" build \
-      --build-arg "BASE_IMAGE=$SPIKE_VLLM_IMAGE" \
-      --file docker/Dockerfile.tts \
-      --tag "$SPIKE_TTS_IMAGE" \
-      .
-  else
-    "${docker_command[@]}" build \
-      --build-arg "ASR_BASE_IMAGE=$SPIKE_VLLM_IMAGE" \
-      --file docker/Dockerfile.remote \
-      --target tts \
-      --tag "$SPIKE_TTS_IMAGE" \
-      .
-  fi
+  "${docker_command[@]}" image inspect "$SPIKE_TTS_IMAGE" >/dev/null 2>&1 || {
+    printf 'Pulling vLLM-Omni TTS image: %s\n' "$SPIKE_TTS_IMAGE"
+    "${docker_command[@]}" pull "$SPIKE_TTS_IMAGE"
+  }
 }
 
 require_model_snapshot() {
@@ -245,8 +236,8 @@ if [ "$selected_spike" = "1" ] || [ "$selected_spike" = "all" ]; then
   }
 fi
 if [ "$selected_spike" = "2" ] || [ "$selected_spike" = "all" ]; then
-  build_tts_image || {
-    printf 'TTS spike image build failed: %s\n' "$SPIKE_TTS_IMAGE" >&2
+  prepare_tts_image || {
+    printf 'TTS spike image preparation failed: %s\n' "$SPIKE_TTS_IMAGE" >&2
     exit 1
   }
 fi
@@ -260,6 +251,7 @@ compose_environment=(
   "SPIKE_GROUP_ID=$SPIKE_GROUP_ID"
   "SPIKE_PYTHON=$SPIKE_PYTHON"
   "SPIKE_TTS_IMAGE=$SPIKE_TTS_IMAGE"
+  "SPIKE_TTS_PYTHON=$SPIKE_TTS_PYTHON"
   "SPIKE_USER_ID=$SPIKE_USER_ID"
   "SPIKE_VLLM_IMAGE=$SPIKE_VLLM_IMAGE"
 )
@@ -332,16 +324,14 @@ if [ "$selected_spike" = "1" ] || [ "$selected_spike" = "all" ]; then
     --out "/workspace/$OUT/spike1.json" || failure_count=$((failure_count + 1))
 fi
 
-tts_arguments=()
-if [ "$deployment_target" = "a6000" ]; then
-  tts_arguments=(--skip-melo)
-fi
 if [ "$selected_spike" = "2" ] || [ "$selected_spike" = "all" ]; then
-  printf '== Spike 2: FlashAttention and TTS ==\n'
+  printf '== Spike 2: FlashAttention and vLLM-Omni TTS ==\n'
   "${compose_command[@]}" run --rm tts \
     --target "$deployment_target" \
     --model /models/Qwen3-TTS-0.6B \
-    "${tts_arguments[@]}" \
+    --runs "${BENCHMARK_RUNS:-3}" \
+    --gpu-memory-utilization "${TTS_GPU_MEMORY_UTILIZATION:-0.25}" \
+    --log "/workspace/$OUT/spike2-vllm-omni.log" \
     --out "/workspace/$OUT/spike2.json" || failure_count=$((failure_count + 1))
 fi
 

@@ -154,9 +154,10 @@ async def test_remote_config_client_reads_and_updates(
     try:
         before = await client.read()
         assert before.config["llm"]["profile"] == "moe"
-        assert "tts.chunk_ms" in before.editable_paths
-        after = await client.update({"tts.chunk_ms": 320})
-        assert after.config["tts"]["chunk_ms"] == 320
-        assert after.overrides["tts"]["chunk_ms"] == 320
+        assert "llm.max_num_seqs" in before.editable_paths
+        assert not any(path.startswith("tts.") for path in before.editable_paths)
+        after = await client.update({"llm.max_num_seqs": 2})
+        assert after.config["llm"]["max_num_seqs"] == 2
+        assert after.overrides["llm"]["max_num_seqs"] == 2
     finally:
         await client.aclose()

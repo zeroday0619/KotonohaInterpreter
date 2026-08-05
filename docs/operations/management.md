@@ -99,6 +99,7 @@ the standard sudo policy removes exported shell variables.
 | `SPIKE_VLLM_IMAGE` | Hardware Spike vendor vLLM image override |
 | `SPIKE_ASR_IMAGE` | Hardware Spike prepared ASR image override |
 | `SPIKE_TTS_IMAGE` | Hardware Spike TTS image override |
+| `TTS_IMAGE` | Resident vLLM-Omni TTS image override |
 | `SPIKE_GPU_DEVICE` | GPU exposed to Spike containers |
 | `OUT` | Hardware Spike output directory |
 

@@ -124,6 +124,7 @@ SQLite backup is mandatory before changes that affect storage models.
 | Python service inference endpoints | Bearer token when `KOTONOHA_SERVICE_TOKEN` is set |
 | ASR `/admin/config` | Bearer token when `KOTONOHA_SERVICE_TOKEN` is set |
 | vLLM port 8003 | Bearer token enforced through the vLLM `--api-key` option |
+| vLLM-Omni port 8004 | Bearer token enforced through the vLLM `--api-key` option |
 
 An `auth.disabled` startup warning means a Python service is accepting unauthenticated
 requests. Treat this as a deployment failure on the A6000.
@@ -133,14 +134,14 @@ requests. Treat this as a deployment failure on the A6000.
 | Symptom | Inspection | Corrective action |
 |---|---|---|
 | Service returns `ok: false` | Service log and `error` field | Correct model path, dependency, CUDA, or memory failure; restart the service |
-| Python services restart with missing `pydantic_settings` | Inspect x86_64 markers in `uv.lock` and the common image build check | Regenerate the lock with Linux x86_64 support and rebuild all three Python images |
+| Python services restart with missing `pydantic_settings` | Inspect x86_64 markers in `uv.lock` and the common image build check | Regenerate the lock with Linux x86_64 support and rebuild the ASR Python images |
 | LLM reports that `vllm` is unavailable | Inspect the selected LLM image | Restore the pinned vLLM image and recreate the container |
 | ASR cannot find the model offline | Inspect `asr.vllm_model_id` | Set `/models/Qwen3-ASR-1.7B` in the host override |
 | Verification downloads `large-v3` | Inspect `asr_verify.model_id` | Set `/models/faster-whisper-large-v3` |
 | LLM reports an incomplete model snapshot | Inspect `/models/llm` and `remote-llm.env` | Correct `LLM_MODELS_DIR`, profile, or model directory; restart `llm` |
-| TTS image cannot build FlashAttention | Inspect the devel image tag, CUDA version, memory, and build log | Restore matching build and runtime images; use SDPA only after target loading and Spike 2 evidence |
-| TTS reports `sox: not found` | Run `sox --version` in the TTS container | Rebuild the TTS image with `sox` and `libsox-fmt-all` |
-| Remote TTS reports Qwen failure | Inspect TTS health and orchestrator `failovers` | Correct remote Qwen; the turn retries Jetson MeloTTS before the first audio chunk |
+| vLLM-Omni TTS does not start | Inspect the selected image, CUDA initialization, model path, and Spike 2 log | Restore the pinned Omni image or correct the offline snapshot; do not infer compatibility from the manifest |
+| Speech API returns an application error | Inspect the full response and TTS service log | Correct the model, voice, or language request; HTTP 4xx responses do not activate failover |
+| Remote TTS transport fails before audio | Inspect TTS health and orchestrator `failovers` | Correct the remote endpoint; the turn retries the resident Jetson vLLM-Omni service before the first PCM chunk |
 | CUDA is absent in a container | Inspect image output and `torch.version.cuda` | Restore the pinned CUDA base image; do not install a CPU PyTorch wheel |
 | Docker cannot select the `nvidia` driver | Inspect `docker info --format '{{json .Runtimes}}'` | Install NVIDIA Container Toolkit, configure `nvidia-ctk`, and restart Docker |
 | GPU allocation reports insufficient capacity | Inspect `.env` reservations, `config/remote-gpu.env`, and `nvidia-smi` | Stop competing workloads, correct reservations, then run `bash scripts/manage.sh deploy a6000 --reallocate-gpus` |

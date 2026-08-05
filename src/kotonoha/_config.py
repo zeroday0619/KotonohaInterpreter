@@ -237,14 +237,12 @@ class LanguageModelConfig(BaseModel):
 
 class TextToSpeechConfig(BaseModel):
     __slots__: ClassVar[tuple[str, ...]] = ()
-    backend: Literal["qwen3", "melo"] = "melo"
-    model_id: str = "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"
-    sample_rate: int = 24000
-    chunk_ms: int = 200
+    backend: Literal["vllm_omni"] = "vllm_omni"
+    served_model_name: str = "kotonoha-tts"
+    task_type: Literal["CustomVoice"] = "CustomVoice"
+    sample_rate: int = Field(24000, ge=24000, le=24000)
     timeout_s: float = 5.0
-    fallback: Literal["melo", "none"] = "melo"
     voices: dict[str, str] = {}
-    melo_speakers: dict[str, str] = {}
 
 
 class TraditionalChineseConfig(BaseModel):

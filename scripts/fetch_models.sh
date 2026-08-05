@@ -39,9 +39,8 @@ $HFCLI Qwen/Qwen3-ASR-1.7B --local-dir "$MODELS/Qwen3-ASR-1.7B"
 echo "== Qwen3-ASR 1.7B Transformers fallback =="
 $HFCLI Qwen/Qwen3-ASR-1.7B-hf --local-dir "$MODELS/Qwen3-ASR-1.7B-hf"
 
-echo "== Qwen3-TTS 0.6B (used depending on the Spike 2 result) =="
-$HFCLI Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice --local-dir "$MODELS/Qwen3-TTS-0.6B" || \
-  echo "  skipped — not needed if we start on MeloTTS"
+echo "== Qwen3-TTS 0.6B for vLLM-Omni =="
+$HFCLI Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice --local-dir "$MODELS/Qwen3-TTS-0.6B"
 
 echo "== faster-whisper large-v3 =="
 $HFCLI Systran/faster-whisper-large-v3 --local-dir "$MODELS/faster-whisper-large-v3"

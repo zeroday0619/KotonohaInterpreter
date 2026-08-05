@@ -23,7 +23,7 @@ gating.
 | Spike | Measurement | Configuration decision |
 |---|---|---|
 | 1 | Qwen3-ASR load, N-best 5, log-probabilities, six-second latency | `asr.*` |
-| 2 | FlashAttention execution and Qwen3-TTS synthesis latency | `tts.*` |
+| 2 | FlashAttention execution and vLLM-Omni Qwen3-TTS PCM streaming | `tts.*` |
 | 3 | MoE and dense LLM generation rate and time to first token | `llm.profile` |
 
 Do not compare measurements from different hosts as one runtime result. Every retained
@@ -129,26 +129,29 @@ A path without five hypotheses fails the accuracy contract regardless of latency
 bash scripts/manage.sh benchmark jetson --only 2
 ```
 
-Set `SPIKE_TTS_IMAGE` to the image produced by the jetson-containers FlashAttention build
-when validating that candidate. The default TTS spike image validates the deployment
-fallback path and does not prove a separate FlashAttention build.
+The default `vllm/vllm-omni:v0.26.0` image has an arm64 manifest. The probe must still
+start it on the Jetson Linux 39.2 host, initialize CUDA, execute a FlashAttention kernel,
+load the local model, and stream audio before the path is accepted.
 
 ### RTX A6000
 
-Run in the target-specific TTS spike image. The A6000 image does not contain MeloTTS.
+Run the same API and model probe through the amd64 variant of the official image.
 
 ```bash
 bash scripts/manage.sh benchmark a6000 --only 2
 ```
 
-The probe executes a FlashAttention kernel and measures Qwen3-TTS with
-`flash_attention_2`, `sdpa`, and `eager`.
+The probe executes a FlashAttention kernel, starts `vllm serve --omni`, waits for
+`/health`, and records 24 kHz signed 16-bit PCM streaming measurements for Korean,
+English, Japanese, and Chinese. The full vLLM-Omni server log is retained beside the JSON
+result.
 
 | Criterion | Requirement |
 |---|---|
-| TTS backend | Qwen3-TTS on A6000; Qwen3-TTS or MeloTTS on Jetson |
-| Single-clause synthesis | 300 ms or less |
-| Kernel result | Finite output with the expected shape |
+| TTS backend | vLLM-Omni Qwen3-TTS on both targets |
+| First PCM packet | 300 ms or less after a warm request |
+| Language output | Non-empty PCM for all four languages |
+| Kernel result | FlashAttention returns finite output with the expected shape |
 
 ## Translation Measurement
 

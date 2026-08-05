@@ -21,7 +21,7 @@ target, runtime environment, and benchmark conditions.
 | File | Role |
 |---|---|
 | `spike1_asr_load.py` | Measures Qwen3-ASR loading, N-best output, scores, and latency |
-| `spike2_flash_attn.py` | Executes FlashAttention and measures Qwen3-TTS backends |
+| `spike2_flash_attn.py` | Executes FlashAttention and measures vLLM-Omni Qwen3-TTS streaming |
 | `spike3_llm_tokrate.py` | Compares MoE and dense AWQ generation through vLLM |
 | `run_all.sh` | Selects target images and runs each probe through Docker Compose |
 | `report.py` | Produces the target report and validated configuration values |
@@ -40,10 +40,10 @@ The management script delegates hardware measurements to `run_all.sh`. The runne
 accesses Docker directly when the current account has daemon permission and falls back to
 `sudo docker` when elevated access is required. The runner passes target-specific Compose
 variables through an explicit `sudo env` invocation because standard sudo policy removes
-exported shell variables. It refreshes the default target-specific ASR and TTS images
-through the Docker build cache before starting the selected probes. User-configured image
-tags are inspected but never rebuilt. The runner always regenerates the target report
-from the available result files.
+exported shell variables. It refreshes the target-specific ASR image through the Docker
+build cache and pulls the official vLLM-Omni TTS image when absent. User-configured image
+tags are inspected but never rebuilt or pulled. The runner always regenerates the target
+report from the available result files.
 
 The harness does not install or execute vLLM in the host Python environment. The source
 tree remains mounted at `/workspace`, and model snapshots are mounted read-only at
@@ -61,20 +61,22 @@ failure stops the runner before any probe is started.
 
 | Target | Default ASR image | LLM and report image | Default TTS image |
 |---|---|---|---|
-| Jetson | `kotonohainterpreter-spike-asr:jetson` | `ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04` | `kotonohainterpreter-spike-tts:jetson` |
-| A6000 | `kotonohainterpreter-spike-asr:a6000` | `nvcr.io/nvidia/vllm:26.07-py3` | `kotonohainterpreter-spike-tts:a6000` |
+| Jetson | `kotonohainterpreter-spike-asr:jetson` | `ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04` | `vllm/vllm-omni:v0.26.0` |
+| A6000 | `kotonohainterpreter-spike-asr:a6000` | `nvcr.io/nvidia/vllm:26.07-py3` | `vllm/vllm-omni:v0.26.0` |
 
 The default ASR image derives from the target vLLM image and adds the locked application
-runtime dependencies required by the probe, including `soxr`. The Jetson TTS image adds
-the native SoX command and format libraries required by MeloTTS.
+runtime dependencies required by the probe, including `soxr`. The native Hugging Face
+ASR fallback remains isolated because it requires Transformers 5.13 or newer. TTS runs
+directly in the official vLLM-Omni image and invokes the same `vllm serve --omni`
+contract used by deployment. No TTS runtime package enters the project uv environment.
 
 The Jetson vLLM image targets CUDA architecture 8.7, but its r36.4 runtime predates the
 Jetson Linux 39.2 host contract. Successful container and kernel execution on Orin sm_87
-remain required Spike 1 results. Set `SPIKE_TTS_IMAGE` to a separately built
-FlashAttention candidate before Spike 2 when testing an image other than the deployment
-TTS image. Set `SPIKE_SKIP_BUILD=1` to use existing default ASR and TTS images without
-refreshing them, while still rejecting a missing image. A configured candidate image must
-already exist; the harness never builds deployment contents under a user-supplied tag.
+remain required Spike 1 results. The vLLM-Omni 0.26.0 manifest contains Linux arm64 and
+amd64 variants; this does not establish Jetson Linux, CUDA, model, or kernel compatibility.
+Spike 2 starts the server, executes a FlashAttention kernel, and requests four-language
+raw PCM before accepting the path. Set `SPIKE_SKIP_BUILD=1` to use existing ASR and TTS
+images without building or pulling them. A configured candidate image must already exist.
 
 The A6000 NGC image advertises CUDA architecture 8.6 and vLLM `0.24.0+092c4842`.
 Manifest metadata does not replace Spike 1 and Spike 3 execution on the A6000.
@@ -89,7 +91,7 @@ The A6000 runner accepts tuning conditions through environment variables:
 | `SPIKE_ASR_IMAGE` | Target-specific local image from the table above | Spike 1 |
 | `SPIKE_TTS_IMAGE` | Target-specific image from the table above | Spike 2 |
 | `SPIKE_GPU_DEVICE` | `all` on Jetson; `0` on A6000 | NVIDIA container runtime |
-| `SPIKE_SKIP_BUILD` | `0` | Default ASR and TTS image preparation |
+| `SPIKE_SKIP_BUILD` | `0` | ASR build and TTS image preparation |
 | `MODELS_DIR` | `./models` | Read-only `/models` mount |
 | `WAV` | `samples/ko_6s.wav` | Spike 1 |
 | `VLLM_GPU_MEMORY_UTILIZATION` | `0.80` | Spike 1 |
@@ -99,7 +101,8 @@ The A6000 runner accepts tuning conditions through environment variables:
 | `LLM_OUTPUT_TOKENS` | `60` | Spike 3 |
 | `LLM_GPU_MEMORY_UTILIZATION` | `0.80` | Spike 3 |
 | `LLM_MODELS_DIR` | `./models/llm` | Spike 3 |
-| `BENCHMARK_RUNS` | `3` | Spike 3 |
+| `BENCHMARK_RUNS` | `3` | Spikes 2 and 3 |
+| `TTS_GPU_MEMORY_UTILIZATION` | `0.25` | Spike 2 |
 | `ASR_ONLY` | `vllm` on A6000 | Spike 1 |
 | `OUT` | Target output directory | All probes |
 
@@ -114,6 +117,7 @@ performance procedure.
 
 - Run `bash scripts/manage.sh models fetch` before the harness. The wrapper rejects
   incomplete model snapshots before starting Docker.
+- Qwen3-TTS reads `/models/Qwen3-TTS-0.6B`; runtime downloads remain disabled.
 - Run model probes on the named deployment hardware.
 - Use a real six-second recording when evaluating ASR content.
 - Treat synthetic audio as timing-only input.

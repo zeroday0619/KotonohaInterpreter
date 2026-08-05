@@ -109,11 +109,13 @@ Identifiers confirmed as of 2026-08:
 | ASR runtime | vLLM 0.19 or newer, multimodal beam search |
 | Transformers fallback | `Qwen/Qwen3-ASR-1.7B-hf` |
 | TTS | `Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice` |
-| TTS API | `qwen_tts.Qwen3TTSModel.generate_custom_voice` |
+| TTS runtime | vLLM-Omni 0.26.0 Speech API |
+| TTS API | `POST /v1/audio/speech`, streaming signed 16-bit 24 kHz PCM |
 | MoE translation model | `ELVISIO/Qwen3-30B-A3B-Instruct-2507-AWQ` |
 | Dense translation model | `Qwen/Qwen3-14B-AWQ` |
 | Jetson vLLM image | `ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04` |
 | A6000 vLLM image | `nvcr.io/nvidia/vllm:26.07-py3` |
+| TTS image | `vllm/vllm-omni:v0.26.0` |
 
 The Jetson image manifest is Linux arm64/v8. Its build metadata reports Ubuntu 22.04,
 Python 3.10, CUDA 12.6, vLLM 0.19.0, and CUDA architecture 8.7. The image targets Jetson
@@ -412,7 +414,8 @@ KOTONOHA__FRONTEND__VAD__BACKEND=energy \
 The `energy` backend is workstation-only and does not validate the target VAD.
 
 A complete turn requires real services or a local harness implementing `/health`,
-`/transcribe`, `/transcribe/upload`, `/echo`, `/v1/chat/completions`, and `/synthesize`.
+`/transcribe`, `/transcribe/upload`, `/echo`, `/v1/chat/completions`, and
+`/v1/audio/speech`.
 No mock service harness is committed.
 
 | Output | Path |

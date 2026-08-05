@@ -124,7 +124,7 @@ def build_tool_command(
         command.append("devices")
     elif operation == "serve":
         service = values.get("service", "")
-        if service not in {"asr", "verify", "tts"}:
+        if service not in {"asr", "verify"}:
             raise ToolInputError(_("Select a valid service."))
         host = values.get("host", "").strip()
         if not host:
@@ -191,7 +191,7 @@ OPERATION_DESCRIPTIONS: dict[str, str] = {
     "glossary_list": N_("Print every term stored in the local glossary."),
     "netcheck": N_("Measure remote service latency and audio upload throughput."),
     "replay": N_("Run the full pipeline from a 16-bit PCM WAV file."),
-    "serve": N_("Start one ASR, verification ASR, or TTS service."),
+    "serve": N_("Start one Python ASR service."),
 }
 
 FIELD_LABELS: dict[str, str] = {
@@ -292,7 +292,7 @@ class ToolsApp(App[None]):
                 with Container(id="field-service", classes="tool-field"):
                     yield Label(_("Service"), classes="field-label")
                     yield Select(
-                        [("ASR", "asr"), (_("Verification ASR"), "verify"), ("TTS", "tts")],
+                        [("ASR", "asr"), (_("Verification ASR"), "verify")],
                         value="asr",
                         allow_blank=False,
                         id="service",

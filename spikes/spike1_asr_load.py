@@ -20,6 +20,7 @@ import json
 import os
 import platform
 import statistics
+import subprocess
 import sys
 import time
 import wave
@@ -30,6 +31,7 @@ import numpy as np
 TRANSFORMERS_ID = "Qwen/Qwen3-ASR-1.7B-hf"
 VLLM_ID = "Qwen/Qwen3-ASR-1.7B"
 N_BEST = 5
+TRANSFORMERS_WORKER_MARKER = "KOTONOHA_TRANSFORMERS_RESULT="
 
 
 def load_wav(
@@ -89,7 +91,7 @@ def env_info() -> dict:
 
 
 # -- the transformers path ------------------------------------------------
-def run_transformers(
+def _run_transformers_in_process(
     audio: np.ndarray,
     /,
     runs: int,
@@ -167,6 +169,54 @@ def run_transformers(
     except Exception as e:  # noqa: BLE001
         out["infer_error"] = repr(e)
     return out
+
+
+def run_transformers(
+    audio: np.ndarray,
+    /,
+    runs: int,
+    model_identifier: str,
+) -> dict:
+    fallback_python = os.environ.get("SPIKE_TRANSFORMERS_PYTHON")
+    if not fallback_python or Path(fallback_python).resolve() == Path(sys.executable).resolve():
+        return _run_transformers_in_process(audio, runs, model_identifier)
+
+    completed = subprocess.run(
+        [
+            fallback_python,
+            str(Path(__file__).resolve()),
+            "--transformers-worker",
+            "--runs",
+            str(runs),
+            "--model",
+            model_identifier,
+        ],
+        input=audio.astype(np.float32, copy=False).tobytes(),
+        check=False,
+        capture_output=True,
+    )
+    for line in reversed(completed.stdout.decode("utf-8", errors="replace").splitlines()):
+        if line.startswith(TRANSFORMERS_WORKER_MARKER):
+            return json.loads(line.removeprefix(TRANSFORMERS_WORKER_MARKER))
+    error = completed.stderr.decode("utf-8", errors="replace").strip()
+    return {
+        "backend": "transformers",
+        "model": model_identifier,
+        "loaded": False,
+        "error": f"worker exited {completed.returncode}: {error[-2000:]}",
+    }
+
+
+def transformers_worker_main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--transformers-worker", action="store_true")
+    parser.add_argument("--runs", type=int, required=True)
+    parser.add_argument("--model", required=True)
+    arguments = parser.parse_args()
+    audio = np.frombuffer(sys.stdin.buffer.read(), dtype=np.float32).copy()
+    result = _run_transformers_in_process(audio, arguments.runs, arguments.model)
+    print(f"{TRANSFORMERS_WORKER_MARKER}{json.dumps(result, ensure_ascii=False)}")
+    return 0
 
 
 # -- the vLLM path ---------------------------------------------------------
@@ -276,6 +326,9 @@ def verdict(
 
 
 def main() -> int:
+    if "--transformers-worker" in sys.argv:
+        return transformers_worker_main()
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--target", choices=["jetson", "a6000"], default="jetson")
     ap.add_argument("--wav", type=Path, default=None, help="a real ~6 s recording, 16-bit PCM")

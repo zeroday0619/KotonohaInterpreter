@@ -102,6 +102,7 @@ def test_glossary_import_requires_and_passes_an_existing_file(
         ("replay", {"wav": "missing.wav", "replay-seconds": "30"}),
         ("replay", {"wav": __file__, "replay-seconds": "0"}),
         ("serve", {"service": "llm", "host": "0.0.0.0", "port": ""}),
+        ("serve", {"service": "tts", "host": "0.0.0.0", "port": ""}),
         ("serve", {"service": "asr", "host": "", "port": ""}),
         ("serve", {"service": "asr", "host": "0.0.0.0", "port": "70000"}),
         ("netcheck", {"samples": "0", "netcheck-seconds": "6"}),

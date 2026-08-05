@@ -39,7 +39,7 @@ device = [
   "onnxruntime>=1.18",          # silero-vad
   "deepfilternet>=0.5.6",       # DeepFilterNet3
   "faster-whisper>=1.0.3",      # CTranslate2 backend
-  "transformers>=4.57",         # Qwen3-ASR / Qwen3-TTS
+  "transformers>=4.57",         # Qwen3-ASR Transformers fallback
   "accelerate>=0.33",
   "soundfile>=0.12",
 ]

@@ -44,10 +44,6 @@ REMOTE_EDITABLE_PATHS = frozenset(
         "llm.profile",
         "llm.profiles",
         "llm.served_model_name",
-        "tts.backend",
-        "tts.chunk_ms",
-        "tts.fallback",
-        "tts.model_id",
     }
 )
 
