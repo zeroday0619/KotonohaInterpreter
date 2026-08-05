@@ -45,9 +45,11 @@ absent, then starts short-lived containers for the selected probes. It always re
 the target report from the available result files.
 
 The harness does not install or execute vLLM in the host Python environment. The source
-tree remains mounted at `/workspace`, model snapshots are mounted read-only at `/models`,
-and result files are written through `/workspace/spikes/out` with the invoking user's UID
-and GID.
+tree remains mounted at `/workspace`, and model snapshots are mounted read-only at
+`/models`. Short-lived probes run as root because the vendor images install their Python
+and vLLM environment under `/opt/venv` for the default root runtime user. The container
+entrypoint returns result files and their output directory to the invoking user's UID and
+GID before it exits.
 
 ## Images
 

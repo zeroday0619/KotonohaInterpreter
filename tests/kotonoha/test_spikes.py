@@ -18,6 +18,7 @@ RUNNER_SCRIPT = PROJECT_ROOT / "spikes" / "run_all.sh"
 SPIKE_README = PROJECT_ROOT / "spikes" / "README.md"
 SPIKE3_SCRIPT = PROJECT_ROOT / "spikes" / "spike3_llm_tokrate.py"
 SPIKE_COMPOSE = PROJECT_ROOT / "docker" / "compose.spikes.yaml"
+SPIKE_ENTRYPOINT = PROJECT_ROOT / "spikes" / "container_entrypoint.sh"
 PROJECT_CONFIGURATION = PROJECT_ROOT / "pyproject.toml"
 
 
@@ -163,14 +164,28 @@ def test_hardware_spikes_use_target_specific_docker_images() -> None:
     assert "spike-vllm" not in project_configuration
     assert set(compose["services"]) == {"asr", "tts", "llm", "report"}
     assert all(service["runtime"] == "nvidia" for service in compose["services"].values())
-    assert compose["services"]["asr"]["entrypoint"] == [
+    assert all(service["user"] == "0:0" for service in compose["services"].values())
+    assert compose["services"]["asr"]["entrypoint"][-2:] == [
         "python3",
         "spikes/spike1_asr_load.py",
     ]
-    assert compose["services"]["tts"]["entrypoint"] == [
+    assert compose["services"]["tts"]["entrypoint"][-2:] == [
         "python3",
         "spikes/spike2_flash_attn.py",
     ]
+    assert all(
+        service["entrypoint"][:2] == ["bash", "spikes/container_entrypoint.sh"]
+        for service in compose["services"].values()
+    )
     assert "r36.4.tegra-aarch64-cu126-22.04" in compose_source
     assert "nvcr.io/nvidia/vllm:26.07-py3" in runner_source
     assert "bash scripts/manage.sh benchmark a6000 --only 1" in performance_document
+
+
+def test_spike_entrypoint_restores_output_ownership_contract() -> None:
+    source = SPIKE_ENTRYPOINT.read_text(encoding="utf-8")
+
+    assert "--out|--md|--patch" in source
+    assert 'chown "${SPIKE_USER_ID}:${SPIKE_GROUP_ID}" "$output_directory"' in source
+    assert 'chown "${SPIKE_USER_ID}:${SPIKE_GROUP_ID}" "$output_path"' in source
+    assert 'exit "$command_status"' in source

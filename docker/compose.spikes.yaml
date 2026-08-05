@@ -8,7 +8,10 @@ x-spike-runtime: &spike-runtime
   ipc: host
   network_mode: host
   restart: "no"
-  user: "${SPIKE_USER_ID:-0}:${SPIKE_GROUP_ID:-0}"
+  # The vendor vLLM images install their Python environment under /opt/venv and
+  # support root as their runtime user. The entrypoint wrapper returns generated
+  # files to the invoking host user after each short-lived probe.
+  user: "0:0"
   working_dir: /workspace
   environment:
     HOME: /tmp/kotonoha-spike
@@ -17,6 +20,8 @@ x-spike-runtime: &spike-runtime
     TRANSFORMERS_OFFLINE: "1"
     NVIDIA_VISIBLE_DEVICES: ${SPIKE_GPU_DEVICE:-all}
     KOTONOHA_SPIKE_IMAGE: ${SPIKE_VLLM_IMAGE:-ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04}
+    SPIKE_GROUP_ID: ${SPIKE_GROUP_ID:-0}
+    SPIKE_USER_ID: ${SPIKE_USER_ID:-0}
   volumes:
     - ../:/workspace
     - ${MODELS_DIR:-../models}:/models:ro
@@ -25,7 +30,7 @@ services:
   asr:
     <<: *spike-runtime
     image: ${SPIKE_VLLM_IMAGE:-ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04}
-    entrypoint: ["python3", "spikes/spike1_asr_load.py"]
+    entrypoint: ["bash", "spikes/container_entrypoint.sh", "python3", "spikes/spike1_asr_load.py"]
 
   tts:
     <<: *spike-runtime
@@ -37,14 +42,16 @@ services:
       TRANSFORMERS_OFFLINE: "1"
       NVIDIA_VISIBLE_DEVICES: ${SPIKE_GPU_DEVICE:-all}
       KOTONOHA_SPIKE_IMAGE: ${SPIKE_TTS_IMAGE:-kotonohainterpreter-tts}
-    entrypoint: ["python3", "spikes/spike2_flash_attn.py"]
+      SPIKE_GROUP_ID: ${SPIKE_GROUP_ID:-0}
+      SPIKE_USER_ID: ${SPIKE_USER_ID:-0}
+    entrypoint: ["bash", "spikes/container_entrypoint.sh", "python3", "spikes/spike2_flash_attn.py"]
 
   llm:
     <<: *spike-runtime
     image: ${SPIKE_VLLM_IMAGE:-ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04}
-    entrypoint: ["python3", "spikes/spike3_llm_tokrate.py"]
+    entrypoint: ["bash", "spikes/container_entrypoint.sh", "python3", "spikes/spike3_llm_tokrate.py"]
 
   report:
     <<: *spike-runtime
     image: ${SPIKE_VLLM_IMAGE:-ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04}
-    entrypoint: ["python3", "spikes/report.py"]
+    entrypoint: ["bash", "spikes/container_entrypoint.sh", "python3", "spikes/report.py"]
