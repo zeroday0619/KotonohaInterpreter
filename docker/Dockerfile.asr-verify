@@ -1,8 +1,9 @@
-# Cross-verification ASR — faster-whisper large-v3 (CTranslate2)
-# If the aarch64 CUDA build of CTranslate2 is broken, fall back to whisper.cpp
-# with CUDA (§7): set asr_verify.backend: whisper_cpp and supply WHISPER_CPP_URL.
-ARG BASE_IMAGE=dustynv/faster-whisper:r36.4.0
+# Cross-verification ASR — faster-whisper large-v3 (CTranslate2).
+# JetPack 7.2 uses an SBSA-compatible Arm64 base. If CTranslate2 cannot use
+# CUDA 13 on sm_87, fall back to whisper.cpp and supply WHISPER_CPP_URL.
+ARG BASE_IMAGE=ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04
 FROM ${BASE_IMAGE}
+ENTRYPOINT []
 
 COPY --from=ghcr.io/astral-sh/uv:0.12 /uv /uvx /bin/
 
@@ -17,10 +18,11 @@ RUN uv export --frozen --no-dev --no-emit-project --no-hashes -o /tmp/req.txt \
  && uv pip install --no-cache -r /tmp/req.txt
 
 COPY src ./src
-RUN uv pip install --no-cache --no-deps -e .
+RUN uv pip install --no-cache --no-deps -e . \
+ && uv pip install --no-cache soundfile faster-whisper
 
-# Use the base image's aarch64 CUDA build of CTranslate2 as-is. Pulling it from
-# PyPI again could swap in a CPU build, so only check that it is present.
+# PyPI publishes AArch64 wheels, but target execution still determines whether
+# the wheel can load its GPU libraries under the JetPack 7.2 CUDA 13 runtime.
 RUN python3 -c "import ctranslate2, faster_whisper; print('ct2', ctranslate2.__version__, '| fw', faster_whisper.__version__)"
 
 EXPOSE 8002

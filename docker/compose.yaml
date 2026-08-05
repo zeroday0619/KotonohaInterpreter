@@ -6,9 +6,8 @@
 #                      into an HTTP body, costing 100-200 ms per turn.
 #   network_mode: host  127.0.0.1:800x means the same thing inside and out.
 #
-# Base image tags are not bumped casually (§2). Pin to the r36.4.0 family and
-# confirm the tags that actually exist on the device with jetson-containers'
-# autotag, then record them in .env.
+# JetPack 7.2 allows Orin to run Arm64 SBSA containers. The selected NVIDIA
+# r38.2 Ubuntu 24.04 image is shared as the CUDA 13 application base.
 
 name: kotonohainterpreter
 
@@ -35,7 +34,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.asr
       args:
-        BASE_IMAGE: ${ASR_BASE:-ghcr.io/nvidia-ai-iot/vllm:r36.4-tegra-aarch64-cu126-22.04}
+        BASE_IMAGE: ${ASR_BASE:-ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04}
     command: uvicorn kotonoha.services._asr_server:app --host 0.0.0.0 --port 8001 --loop uvloop
 
   asr-verify:
@@ -44,12 +43,12 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.asr-verify
       args:
-        BASE_IMAGE: ${VERIFY_BASE:-dustynv/faster-whisper:r36.4.0}
+        BASE_IMAGE: ${VERIFY_BASE:-ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04}
     command: uvicorn kotonoha.services._asr_verify_server:app --host 0.0.0.0 --port 8002 --loop uvloop
 
   llm:
     <<: *jetson
-    image: ${LLM_IMAGE:-ghcr.io/nvidia-ai-iot/vllm:r36.4-tegra-aarch64-cu126-22.04}
+    image: ${LLM_IMAGE:-ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04}
     environment:
       - KOTONOHA_CONFIG=/app/config/default.yaml
       - HF_HOME=/models/hf
@@ -68,7 +67,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.tts
       args:
-        BASE_IMAGE: ${TTS_BASE:-dustynv/pytorch:r36.4.0}
+        BASE_IMAGE: ${TTS_BASE:-ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04}
     command: uvicorn kotonoha.services._tts_server:app --host 0.0.0.0 --port 8004 --loop uvloop
 
   orchestrator:
@@ -77,7 +76,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.orchestrator
       args:
-        BASE_IMAGE: ${ORCH_BASE:-dustynv/pytorch:r36.4.0}
+        BASE_IMAGE: ${ORCH_BASE:-ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04}
     depends_on: [asr, asr-verify, llm, tts]
     devices:
       - /dev/snd:/dev/snd # no browser microphone (§12); open the device directly

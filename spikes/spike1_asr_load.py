@@ -8,22 +8,16 @@ What this decides:
   · if it fails, how long the transformers path takes instead (needed to
     recompute the latency budget)
 
-On an A6000 Linux host managed by uv:
-    uv run --group spike-vllm spikes/spike1_asr_load.py \
-        --target a6000 --wav samples/ko_6s.wav --out spikes/out/a6000/spike1.json
-
-Inside a target vLLM container:
-    python3 spikes/spike1_asr_load.py --wav samples/ko_6s.wav --out spikes/out/spike1.json
-
-Run the vLLM part inside
-    ghcr.io/nvidia-ai-iot/vllm:r36.4-tegra-aarch64-cu126-22.04
-and the transformers part in an r36.4.0 image from dustynv/jetson-containers.
+Run this probe through ``bash spikes/run_all.sh <target>``. The host wrapper selects the
+target vLLM image, mounts model snapshots read-only, and executes this script inside the
+container.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import platform
 import statistics
 import sys
@@ -73,7 +67,13 @@ def synthetic_6s(
 
 
 def env_info() -> dict:
-    info = {"python": sys.version.split()[0], "machine": platform.machine()}
+    info = {
+        "python": sys.version.split()[0],
+        "machine": platform.machine(),
+        "containerized": Path("/.dockerenv").exists(),
+        "container_image": os.environ.get("KOTONOHA_SPIKE_IMAGE"),
+        "gpu_selection": os.environ.get("NVIDIA_VISIBLE_DEVICES"),
+    }
     try:
         import torch
 
@@ -93,8 +93,9 @@ def run_transformers(
     audio: np.ndarray,
     /,
     runs: int,
+    model_identifier: str,
 ) -> dict:
-    out: dict = {"backend": "transformers", "model": TRANSFORMERS_ID}
+    out: dict = {"backend": "transformers", "model": model_identifier}
     try:
         import torch
         from transformers import AutoModelForMultimodalLM, AutoProcessor
@@ -103,9 +104,9 @@ def run_transformers(
 
     try:
         t0 = time.perf_counter()
-        proc = AutoProcessor.from_pretrained(TRANSFORMERS_ID)
+        proc = AutoProcessor.from_pretrained(model_identifier)
         model = AutoModelForMultimodalLM.from_pretrained(
-            TRANSFORMERS_ID, dtype=torch.float16, device_map="auto"
+            model_identifier, dtype=torch.float16, device_map="auto"
         )
         model.eval()
         out["load_s"] = round(time.perf_counter() - t0, 2)
@@ -176,6 +177,7 @@ def run_vllm(
     gpu_memory_utilization: float,
     max_model_len: int,
     enforce_eager: bool,
+    model_identifier: str,
 ) -> dict:
     """First: does vLLM recognise this architecture at all?
 
@@ -183,7 +185,7 @@ def run_vllm(
     Transcription without N-best does not satisfy §5.2, so that path cannot be
     adopted.
     """
-    out: dict = {"backend": "vllm", "model": VLLM_ID}
+    out: dict = {"backend": "vllm", "model": model_identifier}
     try:
         from vllm import LLM
         from vllm.sampling_params import BeamSearchParams
@@ -193,7 +195,7 @@ def run_vllm(
     try:
         t0 = time.perf_counter()
         llm = LLM(
-            model=VLLM_ID,
+            model=model_identifier,
             max_model_len=max_model_len,
             dtype="float16",
             gpu_memory_utilization=gpu_memory_utilization,
@@ -279,6 +281,8 @@ def main() -> int:
     ap.add_argument("--wav", type=Path, default=None, help="a real ~6 s recording, 16-bit PCM")
     ap.add_argument("--runs", type=int, default=3)
     ap.add_argument("--only", choices=["vllm", "transformers"], default=None)
+    ap.add_argument("--vllm-model", default=VLLM_ID)
+    ap.add_argument("--transformers-model", default=TRANSFORMERS_ID)
     ap.add_argument("--gpu-memory-utilization", type=float, default=0.80)
     ap.add_argument("--max-model-len", type=int, default=4096)
     ap.add_argument(
@@ -316,12 +320,15 @@ def main() -> int:
             a.gpu_memory_utilization,
             a.max_model_len,
             a.enforce_eager,
+            a.vllm_model,
         )
         if a.only in (None, "vllm")
         else {"skipped": True}
     )
     result["transformers"] = (
-        run_transformers(audio, a.runs) if a.only in (None, "transformers") else {"skipped": True}
+        run_transformers(audio, a.runs, a.transformers_model)
+        if a.only in (None, "transformers")
+        else {"skipped": True}
     )
     result["verdict"] = verdict(result["vllm"], result["transformers"])
 

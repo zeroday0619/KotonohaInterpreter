@@ -23,45 +23,56 @@ target, runtime environment, and benchmark conditions.
 | `spike1_asr_load.py` | Measures Qwen3-ASR loading, N-best output, scores, and latency |
 | `spike2_flash_attn.py` | Executes FlashAttention and measures Qwen3-TTS backends |
 | `spike3_llm_tokrate.py` | Compares MoE and dense AWQ generation through vLLM |
-| `run_all.sh` | Runs probes supported by the current container |
+| `run_all.sh` | Selects target images and runs each probe through Docker Compose |
 | `report.py` | Produces the target report and validated configuration values |
+| `../docker/compose.spikes.yaml` | Defines isolated ASR, TTS, LLM, and report containers |
 
-## Batch Interface
+## Docker Interface
 
 ```bash
 bash spikes/run_all.sh jetson
 bash spikes/run_all.sh a6000
+bash spikes/run_all.sh jetson --only 1
+bash spikes/run_all.sh a6000 --only 3
 ```
 
-The probes can require different model images. Repeated execution in role-specific
-containers is expected. `run_all.sh` preserves target separation even when an individual
-container supports only one probe.
+`run_all.sh` accesses Docker directly when the current account has daemon permission. It
+falls back to `sudo docker` when elevated access is required. The wrapper builds the
+target-specific TTS spike image when it is absent, then starts short-lived containers for
+the selected probes. It always regenerates the target report from the available result
+files.
 
-## uv Environment
+The harness does not install or execute vLLM in the host Python environment. The source
+tree remains mounted at `/workspace`, model snapshots are mounted read-only at `/models`,
+and result files are written through `/workspace/spikes/out` with the invoking user's UID
+and GID.
 
-The A6000 host can execute Spike 1 from the locked project environment:
+## Images
 
-```bash
-uv run --group spike-vllm spikes/spike1_asr_load.py \
-  --target a6000 \
-  --wav samples/ko_6s.wav \
-  --only vllm \
-  --out spikes/out/a6000/spike1.json
-```
+| Target | ASR, LLM, report image | Default TTS image |
+|---|---|---|
+| Jetson | `ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04` | `kotonohainterpreter-spike-tts:jetson` |
+| A6000 | `vllm/vllm-openai:v0.19.1` | `kotonohainterpreter-spike-tts:a6000` |
 
-The `spike-vllm` dependency group is limited to Linux x86_64 and pins the same vLLM
-version as the remote deployment image. It conflicts with the `device` extra because
-DeepFilterNet and FlashInfer require incompatible `packaging` versions. It also conflicts
-with the `eval` group because COMET and vLLM require incompatible `protobuf` versions.
-Run COMET in its separate development-workstation environment.
+The Jetson vLLM image advertises CUDA architecture 11.0, so successful kernel execution
+on Orin sm_87 remains a required Spike 1 result. Set `SPIKE_TTS_IMAGE` to a separately
+built FlashAttention candidate before Spike 2 when testing an image other than the
+deployment TTS image. Set `SPIKE_SKIP_BUILD=1` to reject a missing TTS image instead of
+building the default. A configured candidate image must already exist; the harness never
+builds deployment contents under a user-supplied candidate tag.
 
-Jetson does not install vLLM from PyPI. Run Spike 1 with `python3` inside the configured
-NVIDIA vLLM image so the script uses the image-provided aarch64 CUDA runtime.
+## Configuration
 
 The A6000 runner accepts tuning conditions through environment variables:
 
 | Variable | Default | Consumer |
 |---|---:|---|
+| `SPIKE_VLLM_IMAGE` | Target-specific image from the table above | Spikes 1 and 3, report |
+| `SPIKE_TTS_IMAGE` | Target-specific image from the table above | Spike 2 |
+| `SPIKE_GPU_DEVICE` | `all` on Jetson; `0` on A6000 | NVIDIA container runtime |
+| `SPIKE_SKIP_BUILD` | `0` | TTS image preparation |
+| `MODELS_DIR` | `./models` | Read-only `/models` mount |
+| `WAV` | `samples/ko_6s.wav` | Spike 1 |
 | `VLLM_GPU_MEMORY_UTILIZATION` | `0.80` | Spike 1 |
 | `VLLM_MAX_MODEL_LEN` | `4096` | Spike 1 |
 | `VLLM_ENFORCE_EAGER` | `1` | Spike 1 |
@@ -73,34 +84,17 @@ The A6000 runner accepts tuning conditions through environment variables:
 | `ASR_ONLY` | `vllm` on A6000 | Spike 1 |
 | `OUT` | Target output directory | All probes |
 
-## Report Interface
+## Report Output
 
-Jetson report:
-
-```bash
-python3 spikes/report.py \
-  --target jetson \
-  --dir spikes/out \
-  --md spikes/out/PHASE0.md \
-  --patch spikes/out/local.yaml
-```
-
-A6000 report:
-
-```bash
-python3 spikes/report.py \
-  --target a6000 \
-  --dir spikes/out/a6000 \
-  --md spikes/out/a6000/PERFORMANCE.md \
-  --patch spikes/out/a6000/remote-server.local.yaml
-```
-
-`report.py` rejects result files whose recorded target differs from `--target`. It does
-not combine server inference measurements with network estimates. Link acceptance remains
-a separate operation in the performance procedure.
+The report container runs after every invocation. `report.py` rejects result files whose
+recorded target differs from the selected target. It does not combine server inference
+measurements with network estimates. Link acceptance remains a separate operation in the
+performance procedure.
 
 ## Constraints
 
+- Run `scripts/fetch_models.sh` before the harness. The wrapper rejects incomplete model
+  snapshots before starting Docker.
 - Run model probes on the named deployment hardware.
 - Use a real six-second recording when evaluating ASR content.
 - Treat synthetic audio as timing-only input.

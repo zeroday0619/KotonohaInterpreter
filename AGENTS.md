@@ -16,7 +16,7 @@ defines Jetson Phase 0 validation and A6000 performance acceptance.
 | Environment | Constraint |
 |---|---|
 | Development workstation | macOS, Python 3.12, no target GPU |
-| Target device | JetPack 6.2, L4T r36.4.x, CUDA 12.6, aarch64, Python 3.10 |
+| Target device | JetPack 7.2, Jetson Linux 39.2, CUDA 13.2.1, aarch64, Python 3.12 |
 | External server | RTX A6000, x86_64 |
 | Runtime | Offline for ASR, translation, and TTS |
 
@@ -54,7 +54,7 @@ does not verify Jetson behavior.
 | Typed turn | `uv run kotonoha text "<utterance>"` |
 | WAV replay | `uv run kotonoha replay <wav> --seconds 12` |
 | External link measurement | `uv run kotonoha netcheck` |
-| A6000 ASR spike | `uv run --group spike-vllm spikes/spike1_asr_load.py --target a6000` |
+| Hardware spikes | `bash spikes/run_all.sh <jetson|a6000>` |
 | Deploy Jetson | `bash scripts/deploy.sh jetson` |
 | Deploy A6000 | `bash scripts/deploy.sh a6000` |
 | Reallocate A6000 GPUs | `bash scripts/deploy.sh a6000 --reallocate-gpus` |
@@ -68,7 +68,7 @@ uv run ruff check .
 uv run pytest -q
 ```
 
-Current baseline: 228 tests and zero lint findings.
+Current baseline: 229 tests and zero lint findings.
 
 ## Non-negotiable constraints
 
@@ -92,7 +92,7 @@ Do not introduce:
 - Browser microphone capture
 - Per-request model loading
 - Vector databases or embedding models for the glossary
-- Unvalidated JetPack, CUDA, L4T, or base-image upgrades
+- Unvalidated JetPack, CUDA, Jetson Linux, or base-image upgrades
 
 Apply accuracy work in this order: audio frontend, prompt and context, N-best correction,
 then model size.
@@ -110,8 +110,12 @@ Identifiers confirmed as of 2026-08:
 | TTS API | `qwen_tts.Qwen3TTSModel.generate_custom_voice` |
 | MoE translation model | `ELVISIO/Qwen3-30B-A3B-Instruct-2507-AWQ` |
 | Dense translation model | `Qwen/Qwen3-14B-AWQ` |
-| Jetson vLLM image | `ghcr.io/nvidia-ai-iot/vllm:r36.4-tegra-aarch64-cu126-22.04` |
+| Jetson vLLM image | `ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04` |
 | A6000 vLLM image | `vllm/vllm-openai:v0.19.1` |
+
+The Jetson image manifest is Linux arm64. Its build metadata advertises CUDA architecture
+11.0, while AGX Orin uses sm_87. Treat the image as unverified until Spike 1 executes its
+CUDA kernels on the target device.
 
 `VllmBackend` in `src/kotonoha/services/_asr_server.py` is the default. Spike 1 still
 verifies model loading, five-hypothesis output, and measured latency on sm_87. Do not

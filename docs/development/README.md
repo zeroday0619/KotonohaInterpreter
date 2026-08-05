@@ -8,9 +8,9 @@ Install dependencies with uv:
 uv sync
 ```
 
-The source targets Python 3.10 for JetPack containers. Development workstations can run
-newer Python versions. Tests run without models, microphones, target hardware, or network
-access.
+JetPack 7.2 containers use Python 3.12. Source syntax remains compatible with Python 3.10
+for service images that use an older interpreter. Tests run without models, microphones,
+target hardware, or network access.
 
 ## Quality Gates
 

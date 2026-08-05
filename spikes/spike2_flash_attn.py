@@ -9,17 +9,16 @@ What this decides:
     first-packet budget in §6
   · if it all fails, the evidence for starting on MeloTTS instead
 
-On the Jetson:
-    python3 spikes/spike2_flash_attn.py --out spikes/out/spike2.json
-
-Try the flash-attention image from jetson-containers first:
-    jetson-containers run $(autotag flash-attention)
+Run this probe through ``bash spikes/run_all.sh <target>``. Set ``SPIKE_TTS_IMAGE`` to a
+candidate FlashAttention image when validating a build other than the deployment TTS
+image.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import platform
 import sys
 import time
@@ -33,7 +32,13 @@ PROBE_TEXT = {
 
 
 def env_info() -> dict:
-    info = {"python": sys.version.split()[0], "machine": platform.machine()}
+    info = {
+        "python": sys.version.split()[0],
+        "machine": platform.machine(),
+        "containerized": Path("/.dockerenv").exists(),
+        "container_image": os.environ.get("KOTONOHA_SPIKE_IMAGE"),
+        "gpu_selection": os.environ.get("NVIDIA_VISIBLE_DEVICES"),
+    }
     try:
         import torch
 
@@ -82,6 +87,7 @@ def probe_qwen3_tts(
     attn: str,
     /,
     runs: int,
+    model_identifier: str,
 ) -> dict:
     out: dict = {"attn_implementation": attn}
     try:
@@ -93,7 +99,10 @@ def probe_qwen3_tts(
     try:
         t0 = time.perf_counter()
         model = Qwen3TTSModel.from_pretrained(
-            TTS_MODEL, device_map="cuda:0", dtype=torch.bfloat16, attn_implementation=attn
+            model_identifier,
+            device_map="cuda:0",
+            dtype=torch.bfloat16,
+            attn_implementation=attn,
         )
         out["load_s"] = round(time.perf_counter() - t0, 2)
         out["loaded"] = True
@@ -208,6 +217,7 @@ def main() -> int:
     ap.add_argument("--runs", type=int, default=3)
     ap.add_argument("--out", type=Path, default=Path("spikes/out/spike2.json"))
     ap.add_argument("--skip-melo", action="store_true")
+    ap.add_argument("--model", default=TTS_MODEL)
     a = ap.parse_args()
 
     result: dict = {
@@ -218,7 +228,7 @@ def main() -> int:
     }
     result["flash_attn"] = probe_flash_attn()
     result["qwen3_tts"] = [
-        probe_qwen3_tts(attention, a.runs)
+        probe_qwen3_tts(attention, a.runs, a.model)
         for attention in ("flash_attention_2", "sdpa", "eager")
     ]
     result["melo"] = {} if a.skip_melo else probe_melo(a.runs)

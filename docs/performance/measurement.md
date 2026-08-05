@@ -69,38 +69,35 @@ provides timing data only and cannot validate transcription quality.
 
 ### Jetson
 
-Run the vLLM path in the configured Jetson image:
+Run the vLLM path through the hardware spike container:
 
 ```bash
-jetson-containers run ghcr.io/nvidia-ai-iot/vllm:r36.4-tegra-aarch64-cu126-22.04
-python3 spikes/spike1_asr_load.py \
-  --target jetson \
-  --wav samples/ko_6s.wav \
-  --only vllm \
-  --out spikes/out/spike1.json
+ASR_ONLY=vllm bash spikes/run_all.sh jetson --only 1
 ```
 
-Run the Transformers fallback in its compatible r36.4.0 image when comparison is
-required. Preserve both backend results in the final `spike1.json`.
+The selected image tag targets r38.2, while the host contract is Jetson Linux 39.2. Its
+build metadata advertises CUDA architecture 11.0. A successful image pull validates only
+registry access and the arm64 manifest. Spike 1 must execute CUDA kernels on sm_87; reject
+the image if the runtime reports an unsupported compute capability or no compatible
+kernel image.
+
+Run the Transformers fallback in a separately validated JetPack 7.2 Arm64 image when
+comparison is required. Preserve both backend results in the final `spike1.json`.
 
 ### RTX A6000
 
-Run directly on a Linux x86_64 A6000 host through the locked uv dependency group:
+Run through the x86_64 vLLM container on the A6000 host:
 
 ```bash
-uv run --group spike-vllm spikes/spike1_asr_load.py \
-  --target a6000 \
-  --wav samples/ko_6s.wav \
-  --only vllm \
-  --gpu-memory-utilization 0.80 \
-  --max-model-len 4096 \
-  --enforce-eager \
-  --out spikes/out/a6000/spike1.json
+ASR_ONLY=vllm \
+VLLM_GPU_MEMORY_UTILIZATION=0.80 \
+VLLM_MAX_MODEL_LEN=4096 \
+VLLM_ENFORCE_EAGER=1 \
+bash spikes/run_all.sh a6000 --only 1
 ```
 
-When the host exposes only the containerized runtime, run the same script with `python3`
-inside the remote ASR image. Do not install the PyPI wheel into that image because the
-base image already supplies the CUDA-matched vLLM runtime.
+The harness never installs the PyPI vLLM wheel into the host environment. The selected
+container image supplies the CUDA-matched runtime.
 
 Tune one variable per run. Store candidates under distinct names, then copy the accepted
 result to `spike1.json` before report generation.
@@ -127,21 +124,19 @@ A path without five hypotheses fails the accuracy contract regardless of latency
 ### Jetson
 
 ```bash
-jetson-containers run $(autotag flash-attention)
-python3 spikes/spike2_flash_attn.py \
-  --target jetson \
-  --out spikes/out/spike2.json
+bash spikes/run_all.sh jetson --only 2
 ```
+
+Set `SPIKE_TTS_IMAGE` to the image produced by the jetson-containers FlashAttention build
+when validating that candidate. The default TTS spike image validates the deployment
+fallback path and does not prove a separate FlashAttention build.
 
 ### RTX A6000
 
-Run inside `kotonohainterpreter-tts`. The remote image does not contain MeloTTS.
+Run in the target-specific TTS spike image. The A6000 image does not contain MeloTTS.
 
 ```bash
-python3 spikes/spike2_flash_attn.py \
-  --target a6000 \
-  --skip-melo \
-  --out spikes/out/a6000/spike2.json
+bash spikes/run_all.sh a6000 --only 2
 ```
 
 The probe executes a FlashAttention kernel and measures Qwen3-TTS with
@@ -158,28 +153,20 @@ The probe executes a FlashAttention kernel and measures Qwen3-TTS with
 Jetson Phase 0 uses context 2048, batch 1, and 60 output tokens.
 
 ```bash
-python3 spikes/spike3_llm_tokrate.py \
-  --target jetson \
-  --vllm-command vllm \
-  --models-dir ./models/llm \
-  --context 2048 \
-  --gpu-memory-utilization 0.80 \
-  --output-tokens 60 \
-  --out spikes/out/spike3.json
+LLM_CONTEXT=2048 \
+LLM_GPU_MEMORY_UTILIZATION=0.80 \
+LLM_OUTPUT_TOKENS=60 \
+bash spikes/run_all.sh jetson --only 3
 ```
 
 The A6000 measurement uses the production 4096-token context:
 
 ```bash
-python3 spikes/spike3_llm_tokrate.py \
-  --target a6000 \
-  --vllm-command vllm \
-  --models-dir /models/llm \
-  --context 4096 \
-  --gpu-memory-utilization 0.80 \
-  --output-tokens 60 \
-  --runs 3 \
-  --out spikes/out/a6000/spike3.json
+LLM_CONTEXT=4096 \
+LLM_GPU_MEMORY_UTILIZATION=0.80 \
+LLM_OUTPUT_TOKENS=60 \
+BENCHMARK_RUNS=3 \
+bash spikes/run_all.sh a6000 --only 3
 ```
 
 The probe starts one vLLM server per profile and records time to first token and generation
@@ -231,25 +218,9 @@ available memory and contention profile.
 
 ## Reporting
 
-### Jetson Phase 0
-
-```bash
-python3 spikes/report.py \
-  --target jetson \
-  --dir spikes/out \
-  --md spikes/out/PHASE0.md \
-  --patch spikes/out/local.yaml
-```
-
-### RTX A6000
-
-```bash
-python3 spikes/report.py \
-  --target a6000 \
-  --dir spikes/out/a6000 \
-  --md spikes/out/a6000/PERFORMANCE.md \
-  --patch spikes/out/a6000/remote-server.local.yaml
-```
+`run_all.sh` executes `report.py` in the report container after every selected probe. A
+single-spike run retains the other accepted result files and regenerates the combined
+target report. Remove obsolete candidate files before generating an acceptance report.
 
 | Output | Content |
 |---|---|

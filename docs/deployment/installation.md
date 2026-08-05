@@ -97,15 +97,31 @@ Deployment acceptance requires the verification checklist in this document and
 |---|---|
 | Device | NVIDIA Jetson AGX Orin 64GB |
 | Architecture | aarch64 |
-| JetPack | 6.2 |
-| L4T | r36.4.x |
-| CUDA | 12.6 |
+| JetPack | 7.2 |
+| Jetson Linux | 39.2 |
+| Distribution | Ubuntu 24.04 |
+| Kernel | 6.8 |
+| CUDA | 13.2.1 |
+| Python | 3.12 |
 | Container runtime | Docker with NVIDIA runtime |
 | Power mode | MAXN during validation and operation |
 | Clocks | Locked with `jetson_clocks` during measurement |
 
-The Compose file pins the `dustynv` images to the `r36.4.0` family. Do not change the
-JetPack, CUDA, L4T, or base-image family without a separate compatibility validation.
+JetPack 7.2 allows Orin to run Arm64 SBSA containers. The Jetson Compose file pins
+`ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04`. The registry manifest is Linux
+arm64 with digest `sha256:b587dd56b4cb076209ad5156a626ac75f5a976d0e8e7d1e6a9fccd56d1bd65e8`.
+The image contains Ubuntu 24.04, CUDA 13.0, Python 3.12, and vLLM 0.19.0.
+
+The image tag targets r38.2, while the host contract is Jetson Linux 39.2. Its build
+metadata advertises CUDA architecture 11.0, while AGX Orin uses sm_87. Treat this pairing
+as a deployment exception until Phase 0 confirms CUDA kernel execution. Do not change the
+JetPack, CUDA, Jetson Linux, or base-image family without a separate compatibility
+validation.
+
+Platform references:
+
+- [NVIDIA JetPack SDK Downloads and Notes](https://developer.nvidia.com/embedded/jetpack/downloads)
+- [NVIDIA JetPack 7.2 Orin validation thread](https://forums.developer.nvidia.com/t/jetpack-7-2-jetson-linux-r39-2-on-jetson-agx-orin-developer-kit-getting-started-and-feedback-thread/372156)
 
 ### A6000 host
 
@@ -309,6 +325,13 @@ After transfer, bind the destination to the repository `models` path or set the 
 
 ## Jetson Installation
 
+### Install JetPack 7.2
+
+Install JetPack 7.2 through the NVIDIA unified ISO or the matching Jetson Linux 39.2
+Yocto image. Do not treat this migration as an in-place package update from JetPack 6.
+Complete the NVIDIA flashing workflow, reboot, and verify Jetson Linux 39.2 before
+deploying Kotonoha.
+
 ### Validate the host
 
 Run before building containers:
@@ -325,7 +348,7 @@ ls -la /dev/snd
 Expected results:
 
 - `uname -m` returns `aarch64`.
-- `/etc/nv_tegra_release` identifies L4T r36.4.x.
+- `/etc/nv_tegra_release` identifies Jetson Linux 39.2.
 - Docker reports the NVIDIA runtime.
 - `/dev/snd` contains the intended capture and playback devices.
 
@@ -414,11 +437,9 @@ therefore use the `kotonohainterpreter-<service>:latest` naming pattern regardle
 `docker/` directory name. The expected ASR image is
 `kotonohainterpreter-asr:latest`.
 
-Confirm that these image families remain unchanged in the rendered configuration:
+Confirm that every Jetson role resolves to the pinned Arm64 image family:
 
-- `ghcr.io/nvidia-ai-iot/vllm:r36.4-tegra-aarch64-cu126-22.04`
-- `dustynv/faster-whisper:r36.4.0`
-- `dustynv/pytorch:r36.4.0`
+- `ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04`
 
 ### Build Jetson images
 
@@ -429,14 +450,16 @@ docker compose -f docker/compose.yaml build asr asr-verify tts orchestrator
 Review the build output for the following conditions:
 
 - PyTorch reports a CUDA build.
-- Transformers is 4.57 or later in the ASR image.
+- vLLM reports version 0.19.0 in the ASR and translation images.
 - CTranslate2 and faster-whisper import in the verification image.
 - `onnxruntime` and DeepFilterNet installation status is explicit.
 - At least one TTS backend installs.
 
 The orchestrator and TTS Dockerfiles currently permit selected target dependencies to
-fail during image construction. A successful image build does not prove those backends
-loaded. The service health checks remain mandatory.
+fail during image construction. The AArch64 CTranslate2 wheel is published, but its GPU
+path documents CUDA 12 rather than CUDA 13. A successful image build therefore does not
+prove faster-whisper GPU execution or TTS backend loading. Service health checks and
+target measurements remain mandatory.
 
 ### Start model services
 
@@ -866,7 +889,7 @@ backup, rollback, security controls, and troubleshooting. Use
 - [ ] Working trees contain no unexplained changes.
 - [ ] Host-specific files are ignored by Git and protected with mode 600.
 - [ ] `docker compose config --quiet` succeeds on each host.
-- [ ] No unvalidated JetPack, CUDA, L4T, or base-image change is present.
+- [ ] No unvalidated JetPack, CUDA, Jetson Linux, or base-image change is present.
 
 ### Models and services
 

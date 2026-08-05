@@ -4,8 +4,8 @@ version = "0.1.0"
 description = "Consecutive (non-simultaneous) 4-language offline speech interpreter for Jetson AGX Orin"
 readme = "README.md"
 license = { file = "LICENSE" }
-# JetPack 6.2 containers provide Python 3.10. Development workstations can use
-# newer interpreters, but source syntax must remain compatible with Python 3.10.
+# JetPack 7.2 containers provide Python 3.12. The A6000 service images can use
+# older interpreters, so source syntax remains compatible with Python 3.10.
 requires-python = ">=3.10"
 
 dependencies = [
@@ -60,10 +60,6 @@ eval = [
   "unbabel-comet>=2.2",
   "pandas>=2.2",
 ]
-spike-vllm = [
-  "vllm==0.19.1 ; platform_machine == 'x86_64' and sys_platform == 'linux'",
-]
-
 [project.scripts]
 kotonoha = "kotonoha._cli:main"
 
@@ -82,19 +78,7 @@ path = "hatch_build.py"
 [tool.uv]
 # `uv sync` installs development tools by default. Add `--group eval` for evaluation.
 default-groups = ["dev"]
-# The PyPI vLLM runtime conflicts with the device audio stack and COMET.
-# Target images obtain their resident vLLM from the CUDA base image, while
-# source-based A6000 spike runs activate the dedicated dependency group.
-conflicts = [
-  [
-    { group = "spike-vllm" },
-    { extra = "device" },
-  ],
-  [
-    { group = "spike-vllm" },
-    { group = "eval" },
-  ],
-]
+# Hardware spikes obtain vLLM from target-specific CUDA container images.
 # Keep the lock scoped to the development workstation and both deployment architectures.
 environments = [
   "sys_platform == 'darwin' and platform_machine == 'arm64'",

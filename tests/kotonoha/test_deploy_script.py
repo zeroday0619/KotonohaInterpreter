@@ -116,7 +116,7 @@ def test_asr_images_use_vllm_runtimes_with_qwen3_support_checks() -> None:
 
     jetson_base = jetson_compose["services"]["asr"]["build"]["args"]["BASE_IMAGE"]
     remote_base = remote_compose["services"]["asr"]["build"]["args"]["ASR_BASE_IMAGE"]
-    assert "nvidia-ai-iot/vllm" in jetson_base
+    assert "ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04" in jetson_base
     assert "vllm/vllm-openai:v0.19.1" in remote_base
     assert "rglob('qwen3_asr.py')" in jetson_dockerfile
     assert "rglob('qwen3_asr.py')" in remote_dockerfile
@@ -126,6 +126,28 @@ def test_asr_images_use_vllm_runtimes_with_qwen3_support_checks() -> None:
     assert "import torch, vllm" in deploy_script
     assert 'verify_vllm_cuda_runtime "$compose_file" "$environment_file" llm' in deploy_script
     assert "ENTRYPOINT []" in remote_dockerfile
+
+
+def test_jetson_images_target_jetpack_7_2_sbsa_runtime() -> None:
+    jetson_image = "ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04"
+    compose_source = (PROJECT_ROOT / "docker" / "compose.yaml").read_text(encoding="utf-8")
+    deploy_source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+    dockerfiles = tuple(
+        (PROJECT_ROOT / "docker" / name).read_text(encoding="utf-8")
+        for name in (
+            "Dockerfile.asr",
+            "Dockerfile.asr-verify",
+            "Dockerfile.orchestrator",
+            "Dockerfile.tts",
+        )
+    )
+
+    assert "JetPack 7.2" in compose_source
+    assert compose_source.count(jetson_image) == 5
+    assert "Jetson Linux 39.2" in deploy_source
+    assert "R39.*REVISION: 2" in deploy_source
+    assert all(jetson_image in source for source in dockerfiles)
+    assert all("ENTRYPOINT []" in source for source in dockerfiles)
 
 
 def test_remote_lock_and_dockerfile_install_into_x86_conda_python() -> None:

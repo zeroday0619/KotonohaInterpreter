@@ -1,6 +1,7 @@
 # Orchestrator, audio frontend and TUI (CPU)
-ARG BASE_IMAGE=dustynv/pytorch:r36.4.0
+ARG BASE_IMAGE=ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04
 FROM ${BASE_IMAGE}
+ENTRYPOINT []
 
 # uv is a single static binary, so it leaves the base image's Python alone.
 # Pin the tag rather than using latest (§12: no unverified version bumps).

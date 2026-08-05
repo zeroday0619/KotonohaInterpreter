@@ -1,0 +1,50 @@
+# Isolated hardware spike containers for Jetson AGX Orin and RTX A6000 hosts.
+# The host wrapper selects the target image and keeps all model access offline.
+
+name: kotonoha-spikes
+
+x-spike-runtime: &spike-runtime
+  runtime: nvidia
+  ipc: host
+  network_mode: host
+  restart: "no"
+  user: "${SPIKE_USER_ID:-0}:${SPIKE_GROUP_ID:-0}"
+  working_dir: /workspace
+  environment:
+    HOME: /tmp/kotonoha-spike
+    HF_HOME: /models/hf
+    HF_HUB_OFFLINE: "1"
+    TRANSFORMERS_OFFLINE: "1"
+    NVIDIA_VISIBLE_DEVICES: ${SPIKE_GPU_DEVICE:-all}
+    KOTONOHA_SPIKE_IMAGE: ${SPIKE_VLLM_IMAGE:-ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04}
+  volumes:
+    - ../:/workspace
+    - ${MODELS_DIR:-../models}:/models:ro
+
+services:
+  asr:
+    <<: *spike-runtime
+    image: ${SPIKE_VLLM_IMAGE:-ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04}
+    entrypoint: ["python3", "spikes/spike1_asr_load.py"]
+
+  tts:
+    <<: *spike-runtime
+    image: ${SPIKE_TTS_IMAGE:-kotonohainterpreter-tts}
+    environment:
+      HOME: /tmp/kotonoha-spike
+      HF_HOME: /models/hf
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      NVIDIA_VISIBLE_DEVICES: ${SPIKE_GPU_DEVICE:-all}
+      KOTONOHA_SPIKE_IMAGE: ${SPIKE_TTS_IMAGE:-kotonohainterpreter-tts}
+    entrypoint: ["python3", "spikes/spike2_flash_attn.py"]
+
+  llm:
+    <<: *spike-runtime
+    image: ${SPIKE_VLLM_IMAGE:-ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04}
+    entrypoint: ["python3", "spikes/spike3_llm_tokrate.py"]
+
+  report:
+    <<: *spike-runtime
+    image: ${SPIKE_VLLM_IMAGE:-ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04}
+    entrypoint: ["python3", "spikes/report.py"]

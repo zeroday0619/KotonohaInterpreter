@@ -250,9 +250,9 @@ check_nvidia_container_runtime() {
 
 check_jetson_host() {
   [ "$(uname -m)" = "aarch64" ] || fail "Jetson deployment requires aarch64"
-  [ -r /etc/nv_tegra_release ] || fail "Jetson L4T release file is missing"
-  grep -Eq 'R36.*REVISION: 4' /etc/nv_tegra_release \
-    || fail "Jetson deployment requires L4T r36.4.x"
+  [ -r /etc/nv_tegra_release ] || fail "Jetson Linux release file is missing"
+  grep -Eq 'R39.*REVISION: 2' /etc/nv_tegra_release \
+    || fail "Jetson deployment requires Jetson Linux 39.2"
   [ -d /dev/snd ] || fail "audio device directory is missing: /dev/snd"
   require_file "$repository_root/models/silero_vad.onnx"
   require_file "$repository_root/models/llm/Qwen3-14B-AWQ/config.json"

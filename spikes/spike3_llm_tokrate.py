@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import platform
 import subprocess
 import sys
 import time
@@ -52,6 +53,29 @@ USER_PROMPT = """## Conversation so far
 5. 다음 주 화요일까지 소프트웨어 정보를 정리해서 보내주시면 감사하겠습니다요.
 
 Now output the English translation."""
+
+
+def environment_info() -> dict[str, Any]:
+    information: dict[str, Any] = {
+        "python": sys.version.split()[0],
+        "machine": platform.machine(),
+        "containerized": Path("/.dockerenv").exists(),
+        "container_image": os.environ.get("KOTONOHA_SPIKE_IMAGE"),
+        "gpu_selection": os.environ.get("NVIDIA_VISIBLE_DEVICES"),
+    }
+    try:
+        import torch
+
+        information["torch"] = torch.__version__
+        information["cuda"] = torch.version.cuda
+        information["cuda_available"] = torch.cuda.is_available()
+        if torch.cuda.is_available():
+            information["device"] = torch.cuda.get_device_name(0)
+            capability = torch.cuda.get_device_capability(0)
+            information["capability"] = f"{capability[0]}.{capability[1]}"
+    except Exception as error:  # noqa: BLE001
+        information["torch_error"] = repr(error)
+    return information
 
 
 def _request_headers() -> dict[str, str]:
@@ -296,6 +320,7 @@ def main() -> int:
         "spike": 3,
         "target": arguments.target,
         "question": "MoE(활성 3B) vs 밀집 14B 실측 tok/s",
+        "env": environment_info(),
         "conditions": {
             "max_model_len": arguments.context,
             "batch": 1,

@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Merge hardware spike results into a host-specific report and settings patch.
 
-    python3 spikes/report.py --dir spikes/out \\
-        --md spikes/out/PHASE0.md --patch spikes/out/local.yaml
+    bash spikes/run_all.sh jetson
 
 Jetson results produce a local device overlay. A6000 results produce a remote service
 overlay. Host-specific measurements remain separate.

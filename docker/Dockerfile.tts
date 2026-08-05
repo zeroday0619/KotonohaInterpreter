@@ -1,8 +1,9 @@
 # TTS — Qwen3-TTS 0.6B with a MeloTTS fallback
 # The Qwen3-TTS model card uses flash_attention_2. Whether that builds for sm_87
 # is what Spike 2 asks, so flash-attn is not forced here.
-ARG BASE_IMAGE=dustynv/pytorch:r36.4.0
+ARG BASE_IMAGE=ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04
 FROM ${BASE_IMAGE}
+ENTRYPOINT []
 
 COPY --from=ghcr.io/astral-sh/uv:0.12 /uv /uvx /bin/
 
