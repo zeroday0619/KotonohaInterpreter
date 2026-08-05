@@ -112,12 +112,13 @@ Identifiers confirmed as of 2026-08:
 | TTS API | `qwen_tts.Qwen3TTSModel.generate_custom_voice` |
 | MoE translation model | `ELVISIO/Qwen3-30B-A3B-Instruct-2507-AWQ` |
 | Dense translation model | `Qwen/Qwen3-14B-AWQ` |
-| Jetson vLLM image | `ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04` |
+| Jetson vLLM image | `ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04` |
 | A6000 vLLM image | `nvcr.io/nvidia/vllm:26.07-py3` |
 
-The Jetson image manifest is Linux arm64. Its build metadata advertises CUDA architecture
-11.0, while AGX Orin uses sm_87. Treat the image as unverified until Spike 1 executes its
-CUDA kernels on the target device.
+The Jetson image manifest is Linux arm64/v8. Its build metadata reports Ubuntu 22.04,
+Python 3.10, CUDA 12.6, vLLM 0.19.0, and CUDA architecture 8.7. The image targets Jetson
+Linux r36.4, while the host contract uses r39.2. Treat the cross-release pairing as
+unverified until Spike 1 executes its CUDA kernels on the target device.
 
 The A6000 image manifest includes Linux amd64. Its metadata reports Python 3.12, CUDA
 13.3.1, vLLM `0.24.0+092c4842`, and compute capability 8.6. Target execution must still
@@ -439,6 +440,7 @@ Do not mix application logs and turn metrics in one file.
 | gettext catalogs | Compile after `.po` changes; stale `.mo` files serve old text |
 | History search | Escape `%` and `_` before SQL LIKE matching |
 | Test isolation | Keep `KOTONOHA_SKIP_LOCAL_CONFIG`; local config contains device secrets |
+| Privileged Compose | Pass the interpolation allowlist through `sudo env`; sudo removes exported variables |
 
 ## Documentation and reporting
 

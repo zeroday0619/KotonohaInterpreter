@@ -16,7 +16,7 @@ x-spike-runtime: &spike-runtime
     HF_HUB_OFFLINE: "1"
     TRANSFORMERS_OFFLINE: "1"
     NVIDIA_VISIBLE_DEVICES: ${SPIKE_GPU_DEVICE:-all}
-    KOTONOHA_SPIKE_IMAGE: ${SPIKE_VLLM_IMAGE:-ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04}
+    KOTONOHA_SPIKE_IMAGE: ${SPIKE_VLLM_IMAGE:-ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04}
   volumes:
     - ../:/workspace
     - ${MODELS_DIR:-../models}:/models:ro
@@ -24,7 +24,7 @@ x-spike-runtime: &spike-runtime
 services:
   asr:
     <<: *spike-runtime
-    image: ${SPIKE_VLLM_IMAGE:-ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04}
+    image: ${SPIKE_VLLM_IMAGE:-ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04}
     entrypoint: ["python3", "spikes/spike1_asr_load.py"]
 
   tts:
@@ -41,10 +41,10 @@ services:
 
   llm:
     <<: *spike-runtime
-    image: ${SPIKE_VLLM_IMAGE:-ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04}
+    image: ${SPIKE_VLLM_IMAGE:-ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04}
     entrypoint: ["python3", "spikes/spike3_llm_tokrate.py"]
 
   report:
     <<: *spike-runtime
-    image: ${SPIKE_VLLM_IMAGE:-ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04}
+    image: ${SPIKE_VLLM_IMAGE:-ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04}
     entrypoint: ["python3", "spikes/report.py"]

@@ -75,11 +75,11 @@ Run the vLLM path through the hardware spike container:
 ASR_ONLY=vllm bash scripts/manage.sh benchmark jetson --only 1
 ```
 
-The selected image tag targets r38.2, while the host contract is Jetson Linux 39.2. Its
-build metadata advertises CUDA architecture 11.0. A successful image pull validates only
-registry access and the arm64 manifest. Spike 1 must execute CUDA kernels on sm_87; reject
-the image if the runtime reports an unsupported compute capability or no compatible
-kernel image.
+The selected image tag targets Jetson Linux r36.4, while the host contract is Jetson
+Linux 39.2. Its build metadata targets CUDA architecture 8.7. A successful image pull
+validates only registry access and the arm64/v8 manifest. Spike 1 must execute CUDA
+kernels on sm_87; reject the image if the container cannot use the host driver or the
+runtime reports an unsupported compute capability or no compatible kernel image.
 
 Run the Transformers fallback in a separately validated JetPack 7.2 Arm64 image when
 comparison is required. Preserve both backend results in the final `spike1.json`.

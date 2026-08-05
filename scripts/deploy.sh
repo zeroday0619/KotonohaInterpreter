@@ -20,8 +20,27 @@ remove_images=false
 reallocate_gpus=false
 prepare_only=false
 a6000_vllm_image="nvcr.io/nvidia/vllm:26.07-py3"
-docker_command=(docker)
 docker_display_command="docker"
+docker_requires_sudo=false
+docker_environment_names=(
+  ASR_BASE
+  ASR_GPU_DEVICE
+  ASR_VERIFY_GPU_DEVICE
+  LLM_GPU_DEVICE
+  LLM_GPU_MEMORY_UTILIZATION
+  LLM_IMAGE
+  LLM_MAX_MODEL_LEN
+  LLM_PROFILE
+  MODELS_DIR
+  ORCH_BASE
+  REMOTE_ASR_BASE
+  REMOTE_BASE
+  REMOTE_TTS_BUILD_BASE
+  TRANSFORMERS_OFFLINE
+  TTS_BASE
+  TTS_GPU_DEVICE
+  VERIFY_BASE
+)
 
 usage() {
   cat <<'EOF'
@@ -141,19 +160,35 @@ esac
 
 require_command docker
 
+run_docker() {
+  if [ "$docker_requires_sudo" = false ]; then
+    docker "$@"
+    return
+  fi
+
+  local docker_environment=()
+  local variable_name
+  for variable_name in "${docker_environment_names[@]}"; do
+    if [ "${!variable_name+x}" = x ]; then
+      docker_environment+=("$variable_name=${!variable_name}")
+    fi
+  done
+  sudo env "${docker_environment[@]}" docker "$@"
+}
+
 configure_docker_access() {
   if docker info >/dev/null 2>&1; then
-    docker_command=(docker)
+    docker_requires_sudo=false
     docker_display_command="docker"
   else
     require_command sudo
     sudo docker info >/dev/null 2>&1 \
       || fail "Docker daemon is not available through docker or sudo docker"
-    docker_command=(sudo docker)
+    docker_requires_sudo=true
     docker_display_command="sudo docker"
     printf 'Docker requires elevated access; using sudo docker.\n'
   fi
-  "${docker_command[@]}" compose version >/dev/null 2>&1 \
+  run_docker compose version >/dev/null 2>&1 \
     || fail "Docker Compose plugin is not available"
 }
 
@@ -262,7 +297,7 @@ run_privileged() {
 }
 
 check_nvidia_container_runtime() {
-  "${docker_command[@]}" info --format '{{json .Runtimes}}' | grep -q '"nvidia"' \
+  run_docker info --format '{{json .Runtimes}}' | grep -q '"nvidia"' \
     || fail "NVIDIA Container Toolkit is not configured for Docker; run nvidia-ctk runtime configure --runtime=docker and restart Docker"
 }
 
@@ -375,10 +410,10 @@ show_failed_health() {
   shift 2
   printf '\nService startup failed. Recent logs:\n' >&2
   if [ -n "$compose_environment_file" ]; then
-    "${docker_command[@]}" compose --env-file "$compose_environment_file" -f "$compose_file" \
+    run_docker compose --env-file "$compose_environment_file" -f "$compose_file" \
       logs --tail=120 "$@" >&2 || true
   else
-    "${docker_command[@]}" compose -f "$compose_file" logs --tail=120 "$@" >&2 || true
+    run_docker compose -f "$compose_file" logs --tail=120 "$@" >&2 || true
   fi
   exit 1
 }
@@ -393,7 +428,7 @@ verify_vllm_cuda_runtime() {
   fi
   compose_arguments+=(-f "$compose_file")
 
-  "${docker_command[@]}" "${compose_arguments[@]}" run --rm --no-deps \
+  run_docker "${compose_arguments[@]}" run --rm --no-deps \
     --entrypoint python3 "$service_name" -c \
     'import torch, vllm; assert torch.cuda.is_available(), "CUDA is unavailable in the vLLM container"; print("CUDA", torch.version.cuda, "| GPU", torch.cuda.get_device_name(0), "| vLLM", vllm.__version__)' \
     || fail "$service_name container cannot initialize the CUDA runtime and vLLM"
@@ -408,21 +443,21 @@ deploy_jetson() {
     "$repository_root/config/jetson.local.example.yaml" \
     "$repository_root/config/local.yaml"
 
-  "${docker_command[@]}" compose -f "$compose_file" config --quiet
+  run_docker compose -f "$compose_file" config --quiet
   if [ "$prepare_only" = true ]; then
     printf 'Jetson host configuration is prepared. No images or services were changed.\n'
     return
   fi
   if [ "$build_images" = true ]; then
-    "${docker_command[@]}" compose -f "$compose_file" build asr asr-verify tts orchestrator
+    run_docker compose -f "$compose_file" build asr asr-verify tts orchestrator
   fi
   verify_vllm_cuda_runtime "$compose_file" "" asr
   verify_vllm_cuda_runtime "$compose_file" "" llm
   if [ "$build_images" = false ]; then
-    "${docker_command[@]}" compose -f "$compose_file" \
+    run_docker compose -f "$compose_file" \
       up -d --no-build asr asr-verify llm tts
   else
-    "${docker_command[@]}" compose -f "$compose_file" up -d asr asr-verify llm tts
+    run_docker compose -f "$compose_file" up -d asr asr-verify llm tts
   fi
 
   wait_for_service asr http://127.0.0.1:8001 python \
@@ -438,7 +473,7 @@ deploy_jetson() {
 deploy_a6000() {
   local compose_file="$repository_root/docker/compose.remote.yaml"
   local compose_command=(
-    "${docker_command[@]}" compose --env-file "$environment_file" -f "$compose_file"
+    run_docker compose --env-file "$environment_file" -f "$compose_file"
   )
   local models_path
   printf 'Deploying A6000 model services from %s\n' "$repository_root"
@@ -483,8 +518,8 @@ deploy_a6000() {
 
 remove_project_image() {
   local image_name=$1
-  if "${docker_command[@]}" image inspect "$image_name" >/dev/null 2>&1; then
-    "${docker_command[@]}" image rm "$image_name"
+  if run_docker image inspect "$image_name" >/dev/null 2>&1; then
+    run_docker image rm "$image_name"
   else
     printf 'Image not present: %s\n' "$image_name"
   fi
@@ -493,7 +528,7 @@ remove_project_image() {
 uninstall_jetson() {
   local compose_file="$repository_root/docker/compose.yaml"
   printf 'Removing Jetson project containers and network.\n'
-  "${docker_command[@]}" compose -f "$compose_file" down --remove-orphans
+  run_docker compose -f "$compose_file" down --remove-orphans
 
   if [ "$remove_images" = true ]; then
     remove_project_image kotonohainterpreter-asr
@@ -508,18 +543,27 @@ uninstall_jetson() {
 uninstall_a6000() {
   local compose_file="$repository_root/docker/compose.remote.yaml"
   local environment_arguments=()
+  local generated_environment_file=""
   if [ -e "$environment_file" ]; then
     environment_arguments=(--env-file "$environment_file")
-  elif [ -z "${KOTONOHA_SERVICE_TOKEN:-}" ]; then
+  else
     # Compose requires token interpolation even though down does not start a service.
-    export KOTONOHA_SERVICE_TOKEN="uninstall-only"
+    generated_environment_file=$(mktemp "${TMPDIR:-/tmp}/kotonoha-uninstall.XXXXXX")
+    chmod 600 "$generated_environment_file"
+    printf 'KOTONOHA_SERVICE_TOKEN=uninstall-only\n' >"$generated_environment_file"
+    environment_arguments=(--env-file "$generated_environment_file")
   fi
   local compose_command=(
-    "${docker_command[@]}" compose "${environment_arguments[@]}" -f "$compose_file"
+    run_docker compose "${environment_arguments[@]}" -f "$compose_file"
   )
 
   printf 'Removing A6000 project containers and network.\n'
-  "${compose_command[@]}" down --remove-orphans
+  local compose_status=0
+  "${compose_command[@]}" down --remove-orphans || compose_status=$?
+  if [ -n "$generated_environment_file" ]; then
+    rm -f "$generated_environment_file"
+  fi
+  [ "$compose_status" -eq 0 ] || return "$compose_status"
 
   if [ "$remove_images" = true ]; then
     remove_project_image kotonohainterpreter-asr

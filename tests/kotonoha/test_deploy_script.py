@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -41,6 +42,29 @@ def test_deploy_script_has_valid_shell_syntax_and_help() -> None:
     assert "--reallocate-gpus" in help_result.stdout
     assert "--prepare-only" in help_result.stdout
     assert os.access(DEPLOY_SCRIPT, os.X_OK)
+
+
+def test_deploy_script_preserves_compose_variables_through_sudo() -> None:
+    source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+    match = re.search(
+        r"docker_environment_names=\(\n(?P<variables>.*?)\n\)",
+        source,
+        flags=re.DOTALL,
+    )
+
+    assert match is not None
+    preserved_variables = set(match.group("variables").split())
+    compose_variables: set[str] = set()
+    for compose_name in ("compose.yaml", "compose.remote.yaml"):
+        compose_source = (PROJECT_ROOT / "docker" / compose_name).read_text(
+            encoding="utf-8"
+        )
+        compose_variables.update(re.findall(r"\$\{([A-Z][A-Z0-9_]*)", compose_source))
+
+    assert compose_variables - {"KOTONOHA_SERVICE_TOKEN"} <= preserved_variables
+    assert "KOTONOHA_SERVICE_TOKEN" not in preserved_variables
+    assert 'sudo env "${docker_environment[@]}" docker "$@"' in source
+    assert "docker_command" not in source
 
 
 def test_remove_images_requires_uninstall() -> None:
@@ -136,7 +160,7 @@ def test_asr_images_use_vllm_runtimes_with_qwen3_support_checks() -> None:
 
     jetson_base = jetson_compose["services"]["asr"]["build"]["args"]["BASE_IMAGE"]
     remote_base = remote_compose["services"]["asr"]["build"]["args"]["ASR_BASE_IMAGE"]
-    assert "ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04" in jetson_base
+    assert "ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04" in jetson_base
     assert "nvcr.io/nvidia/vllm:26.07-py3" in remote_base
     assert "rglob('qwen3_asr.py')" in jetson_dockerfile
     assert "rglob('qwen3_asr.py')" in remote_dockerfile
@@ -152,8 +176,8 @@ def test_asr_images_use_vllm_runtimes_with_qwen3_support_checks() -> None:
     assert "ENTRYPOINT []" in remote_dockerfile
 
 
-def test_jetson_images_target_jetpack_7_2_sbsa_runtime() -> None:
-    jetson_image = "ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04"
+def test_jetson_images_use_pinned_r36_4_tegra_runtime() -> None:
+    jetson_image = "ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04"
     compose_source = (PROJECT_ROOT / "docker" / "compose.yaml").read_text(encoding="utf-8")
     deploy_source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
     dockerfiles = tuple(
@@ -166,7 +190,7 @@ def test_jetson_images_target_jetpack_7_2_sbsa_runtime() -> None:
         )
     )
 
-    assert "JetPack 7.2" in compose_source
+    assert "Jetson Linux 39.2" in compose_source
     assert compose_source.count(jetson_image) == 5
     assert "Jetson Linux 39.2" in deploy_source
     assert "R39.*REVISION: 2" in deploy_source
@@ -255,6 +279,75 @@ def _write_executable(
 ) -> None:
     path.write_text(source, encoding="utf-8")
     path.chmod(0o755)
+
+
+def test_privileged_uninstall_forwards_generated_compose_token(
+    _positional_only: object | None = None,
+    /,
+    *,
+    tmp_path: Path,
+) -> None:
+    tool_directory = tmp_path / "tools"
+    tool_directory.mkdir()
+    capture_path = tmp_path / "docker-environment.txt"
+    environment_file = tmp_path / "missing.env"
+    _write_executable(
+        tool_directory / "docker",
+        """#!/bin/sh
+if [ "${KOTONOHA_TEST_SUDO:-0}" = 1 ]; then
+  previous=""
+  for argument in "$@"; do
+    if [ "$previous" = --env-file ]; then
+      sed -n 's/^KOTONOHA_SERVICE_TOKEN=//p' "$argument" >> "$CAPTURE_PATH"
+    fi
+    previous=$argument
+  done
+  exit 0
+fi
+exit 1
+""",
+    )
+    _write_executable(
+        tool_directory / "sudo",
+        """#!/bin/sh
+if [ "$1" = docker ] && [ "$2" = info ]; then
+  exit 0
+fi
+if [ "$1" = env ]; then
+  shift
+  exec env KOTONOHA_TEST_SUDO=1 "$@"
+fi
+exit 1
+""",
+    )
+    environment = {
+        **os.environ,
+        "PATH": f"{tool_directory}:{os.environ['PATH']}",
+        "CAPTURE_PATH": str(capture_path),
+        "TMPDIR": str(tmp_path),
+    }
+
+    result = subprocess.run(
+        [
+            "bash",
+            str(DEPLOY_SCRIPT),
+            "uninstall",
+            "a6000",
+            "--env-file",
+            str(environment_file),
+        ],
+        cwd=PROJECT_ROOT,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "using sudo docker" in result.stdout
+    captured_tokens = capture_path.read_text(encoding="utf-8").splitlines()
+    assert captured_tokens[-1] == "uninstall-only"
+    assert not tuple(tmp_path.glob("kotonoha-uninstall.*"))
 
 
 def test_vllm_launcher_builds_the_authenticated_server_command(

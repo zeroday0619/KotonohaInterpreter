@@ -4,8 +4,8 @@ version = "0.1.0"
 description = "Consecutive (non-simultaneous) 4-language offline speech interpreter for Jetson AGX Orin"
 readme = "README.md"
 license = { file = "LICENSE" }
-# JetPack 7.2 containers provide Python 3.12. The A6000 service images can use
-# older interpreters, so source syntax remains compatible with Python 3.10.
+# The selected Jetson r36.4 service image provides Python 3.10. The JetPack 7.2
+# host and A6000 service images use Python 3.12.
 requires-python = ">=3.10"
 
 dependencies = [

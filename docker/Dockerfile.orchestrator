@@ -1,5 +1,5 @@
 # Orchestrator, audio frontend and TUI (CPU)
-ARG BASE_IMAGE=ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04
+ARG BASE_IMAGE=ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04
 FROM ${BASE_IMAGE}
 ENTRYPOINT []
 

@@ -113,7 +113,7 @@ TLS reverse proxy in front of them.
 | TTS | `Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice` |
 | MoE translation model | `ELVISIO/Qwen3-30B-A3B-Instruct-2507-AWQ` |
 | Dense translation model | `Qwen/Qwen3-14B-AWQ` |
-| Jetson vLLM image | `ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04` |
+| Jetson vLLM image | `ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04` |
 | A6000 vLLM image | `nvcr.io/nvidia/vllm:26.07-py3` |
 
 ## Scope Exclusions

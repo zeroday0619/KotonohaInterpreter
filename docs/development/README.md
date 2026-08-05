@@ -8,9 +8,9 @@ Install dependencies with uv:
 bash scripts/manage.sh setup workstation
 ```
 
-JetPack 7.2 containers use Python 3.12. Source syntax remains compatible with Python 3.10
-for service images that use an older interpreter. Tests run without models, microphones,
-target hardware, or network access.
+The selected Jetson r36.4 service image uses Python 3.10. The JetPack 7.2 host and A6000
+service images use Python 3.12. Source syntax remains compatible with Python 3.10. Tests
+run without models, microphones, target hardware, or network access.
 
 ## Quality Gates
 

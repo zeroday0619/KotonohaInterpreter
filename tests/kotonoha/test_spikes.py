@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -105,6 +106,18 @@ def test_spike_runner_keeps_target_outputs_separate() -> None:
     assert "llama-server" not in spike3_source
 
 
+def test_spike_runner_preserves_compose_variables_through_sudo() -> None:
+    source = RUNNER_SCRIPT.read_text(encoding="utf-8")
+    compose_source = SPIKE_COMPOSE.read_text(encoding="utf-8")
+    compose_variables = set(re.findall(r"\$\{([A-Z][A-Z0-9_]*)", compose_source))
+    forwarded_variables = set(
+        re.findall(r'^\s+"([A-Z][A-Z0-9_]*)=\$\1"$', source, flags=re.MULTILINE)
+    )
+
+    assert 'compose_command=(sudo env "${compose_environment[@]}" docker compose)' in source
+    assert compose_variables <= forwarded_variables
+
+
 def test_spike_runner_rejects_incomplete_model_snapshots(
     _positional_only: object | None = None,
     /,
@@ -158,6 +171,6 @@ def test_hardware_spikes_use_target_specific_docker_images() -> None:
         "python3",
         "spikes/spike2_flash_attn.py",
     ]
-    assert "r38.2.arm64-sbsa-cu130-24.04" in compose_source
+    assert "r36.4.tegra-aarch64-cu126-22.04" in compose_source
     assert "nvcr.io/nvidia/vllm:26.07-py3" in runner_source
     assert "bash scripts/manage.sh benchmark a6000 --only 1" in performance_document

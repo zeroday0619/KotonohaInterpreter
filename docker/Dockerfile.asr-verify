@@ -1,7 +1,7 @@
 # Cross-verification ASR — faster-whisper large-v3 (CTranslate2).
-# JetPack 7.2 uses an SBSA-compatible Arm64 base. If CTranslate2 cannot use
-# CUDA 13 on sm_87, fall back to whisper.cpp and supply WHISPER_CPP_URL.
-ARG BASE_IMAGE=ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04
+# The selected Tegra base targets CUDA 12.6 and sm_87. If CTranslate2 cannot
+# use that runtime, fall back to whisper.cpp and supply WHISPER_CPP_URL.
+ARG BASE_IMAGE=ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04
 FROM ${BASE_IMAGE}
 ENTRYPOINT []
 
@@ -22,7 +22,7 @@ RUN uv pip install --no-cache --no-deps -e . \
  && uv pip install --no-cache soundfile faster-whisper
 
 # PyPI publishes AArch64 wheels, but target execution still determines whether
-# the wheel can load its GPU libraries under the JetPack 7.2 CUDA 13 runtime.
+# the wheel can load its GPU libraries under the selected CUDA 12.6 runtime.
 RUN python3 -c "import ctranslate2, faster_whisper; print('ct2', ctranslate2.__version__, '| fw', faster_whisper.__version__)"
 
 EXPOSE 8002

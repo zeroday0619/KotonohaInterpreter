@@ -24,4 +24,5 @@ bash scripts/manage.sh uninstall a6000
 
 The management entry point delegates to the deployment script. The deployment script
 uses `sudo docker` when the current account cannot access the Docker daemon directly. It
-does not start the interactive orchestrator.
+forwards only Compose interpolation variables required for deployment, including A6000
+GPU assignments. It does not start the interactive orchestrator.

@@ -107,16 +107,18 @@ Deployment acceptance requires the verification checklist in this document and
 | Power mode | MAXN during validation and operation |
 | Clocks | Locked with `jetson_clocks` during measurement |
 
-JetPack 7.2 allows Orin to run Arm64 SBSA containers. The Jetson Compose file pins
-`ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04`. The registry manifest is Linux
-arm64 with digest `sha256:b587dd56b4cb076209ad5156a626ac75f5a976d0e8e7d1e6a9fccd56d1bd65e8`.
-The image contains Ubuntu 24.04, CUDA 13.0, Python 3.12, and vLLM 0.19.0.
+The Jetson Compose file pins
+`ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04`. The registry manifest is
+Linux arm64/v8 with digest
+`sha256:817f0f940d2d9c9067d861d2118d7bf58c40873598f0c35e19c8516269ebc4bd`. The image
+contains Ubuntu 22.04, CUDA 12.6, Python 3.10, and vLLM 0.19.0. Its build metadata targets
+CUDA architecture 8.7 and includes FlashAttention 2.8.3 and FlashInfer 0.6.6.
 
-The image tag targets r38.2, while the host contract is Jetson Linux 39.2. Its build
-metadata advertises CUDA architecture 11.0, while AGX Orin uses sm_87. Treat this pairing
-as a deployment exception until Phase 0 confirms CUDA kernel execution. Do not change the
-JetPack, CUDA, Jetson Linux, or base-image family without a separate compatibility
-validation.
+The image tag targets Jetson Linux r36.4, while the host contract is Jetson Linux 39.2.
+Treat this cross-release pairing as a deployment exception until Phase 0 confirms
+container startup, CUDA access, model loading, and CUDA kernel execution on the target.
+Manifest inspection does not establish runtime compatibility. Do not change the JetPack,
+CUDA, Jetson Linux, or base-image family without separate compatibility validation.
 
 Platform references:
 
@@ -203,9 +205,12 @@ healthy.
 
 The script first attempts Docker access as the current user. When the Docker socket
 requires root privileges, it automatically uses `sudo docker` for Docker and Compose
-operations. Jetson power commands also use `sudo` when the script is not running as root.
-Do not run the complete script with `sudo`; host-specific files should remain owned by
-the deployment account.
+operations. The sudo path forwards an explicit allowlist of Compose interpolation
+variables. This preserves Jetson image overrides, A6000 model paths, service tokens, and
+per-role GPU assignments without forwarding the complete caller environment. Jetson
+power commands also use `sudo` when the script is not running as root. Do not run the
+complete script with `sudo`; host-specific files should remain owned by the deployment
+account.
 
 ### Quick uninstall
 
@@ -447,7 +452,7 @@ therefore use the `kotonohainterpreter-<service>:latest` naming pattern regardle
 
 Confirm that every Jetson role resolves to the pinned Arm64 image family:
 
-- `ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04`
+- `ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04`
 
 ### Build Jetson images
 
@@ -464,8 +469,8 @@ Review the build output for the following conditions:
 - At least one TTS backend installs.
 
 The orchestrator and TTS Dockerfiles currently permit selected target dependencies to
-fail during image construction. The AArch64 CTranslate2 wheel is published, but its GPU
-path documents CUDA 12 rather than CUDA 13. A successful image build therefore does not
+fail during image construction. The AArch64 CTranslate2 wheel is published, but target
+execution must still verify its CUDA 12.6 GPU path. A successful image build does not
 prove faster-whisper GPU execution or TTS backend loading. Service health checks and
 target measurements remain mandatory.
 

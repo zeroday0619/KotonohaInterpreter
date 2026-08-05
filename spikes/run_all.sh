@@ -63,6 +63,7 @@ esac
 
 docker_command=(docker)
 docker_display_command="docker"
+docker_requires_sudo=false
 tts_image_was_configured=false
 if [ -n "${SPIKE_TTS_IMAGE:-}" ]; then
   tts_image_was_configured=true
@@ -82,12 +83,13 @@ configure_docker_access() {
   }
   docker_command=(sudo docker)
   docker_display_command="sudo docker"
+  docker_requires_sudo=true
   printf 'Docker requires elevated access; using sudo docker.\n'
 }
 
 configure_target() {
   if [ "$deployment_target" = "jetson" ]; then
-    : "${SPIKE_VLLM_IMAGE:=ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04}"
+    : "${SPIKE_VLLM_IMAGE:=ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04}"
     : "${SPIKE_TTS_IMAGE:=kotonohainterpreter-spike-tts:jetson}"
     : "${SPIKE_GPU_DEVICE:=all}"
     : "${OUT:=spikes/out}"
@@ -197,10 +199,21 @@ if [ "$selected_spike" = "2" ] || [ "$selected_spike" = "all" ]; then
 fi
 mkdir -p "$OUT"
 
-compose_command=(
-  "${docker_command[@]}" compose
-  --file docker/compose.spikes.yaml
+compose_environment=(
+  "MODELS_DIR=$MODELS_DIR"
+  "OUT=$OUT"
+  "SPIKE_GPU_DEVICE=$SPIKE_GPU_DEVICE"
+  "SPIKE_GROUP_ID=$SPIKE_GROUP_ID"
+  "SPIKE_TTS_IMAGE=$SPIKE_TTS_IMAGE"
+  "SPIKE_USER_ID=$SPIKE_USER_ID"
+  "SPIKE_VLLM_IMAGE=$SPIKE_VLLM_IMAGE"
 )
+if [ "$docker_requires_sudo" = true ]; then
+  compose_command=(sudo env "${compose_environment[@]}" docker compose)
+else
+  compose_command=(env "${compose_environment[@]}" docker compose)
+fi
+compose_command+=(--file docker/compose.spikes.yaml)
 
 printf 'Hardware spike target: %s\n' "$deployment_target"
 printf 'Selected spike: %s\n' "$selected_spike"

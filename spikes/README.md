@@ -38,9 +38,11 @@ bash scripts/manage.sh benchmark a6000 --only 3
 
 The management script delegates hardware measurements to `run_all.sh`. The runner
 accesses Docker directly when the current account has daemon permission and falls back to
-`sudo docker` when elevated access is required. It builds the target-specific TTS spike
-image when it is absent, then starts short-lived containers for the selected probes. It
-always regenerates the target report from the available result files.
+`sudo docker` when elevated access is required. The runner passes target-specific Compose
+variables through an explicit `sudo env` invocation because standard sudo policy removes
+exported shell variables. It builds the target-specific TTS spike image when it is
+absent, then starts short-lived containers for the selected probes. It always regenerates
+the target report from the available result files.
 
 The harness does not install or execute vLLM in the host Python environment. The source
 tree remains mounted at `/workspace`, model snapshots are mounted read-only at `/models`,
@@ -51,15 +53,16 @@ and GID.
 
 | Target | ASR, LLM, report image | Default TTS image |
 |---|---|---|
-| Jetson | `ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04` | `kotonohainterpreter-spike-tts:jetson` |
+| Jetson | `ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04` | `kotonohainterpreter-spike-tts:jetson` |
 | A6000 | `nvcr.io/nvidia/vllm:26.07-py3` | `kotonohainterpreter-spike-tts:a6000` |
 
-The Jetson vLLM image advertises CUDA architecture 11.0, so successful kernel execution
-on Orin sm_87 remains a required Spike 1 result. Set `SPIKE_TTS_IMAGE` to a separately
-built FlashAttention candidate before Spike 2 when testing an image other than the
-deployment TTS image. Set `SPIKE_SKIP_BUILD=1` to reject a missing TTS image instead of
-building the default. A configured candidate image must already exist; the harness never
-builds deployment contents under a user-supplied candidate tag.
+The Jetson vLLM image targets CUDA architecture 8.7, but its r36.4 runtime predates the
+Jetson Linux 39.2 host contract. Successful container and kernel execution on Orin sm_87
+remain required Spike 1 results. Set `SPIKE_TTS_IMAGE` to a separately built
+FlashAttention candidate before Spike 2 when testing an image other than the deployment
+TTS image. Set `SPIKE_SKIP_BUILD=1` to reject a missing TTS image instead of building the
+default. A configured candidate image must already exist; the harness never builds
+deployment contents under a user-supplied candidate tag.
 
 The A6000 NGC image advertises CUDA architecture 8.6 and vLLM `0.24.0+092c4842`.
 Manifest metadata does not replace Spike 1 and Spike 3 execution on the A6000.

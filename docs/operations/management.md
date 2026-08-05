@@ -89,6 +89,8 @@ read or modify model files.
 ## Environment
 
 The management script preserves environment variables consumed by delegated workflows.
+Docker workflows that require sudo forward an explicit Compose-variable allowlist because
+the standard sudo policy removes exported shell variables.
 
 | Variable | Purpose |
 |---|---|

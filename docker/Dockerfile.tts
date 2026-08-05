@@ -1,7 +1,7 @@
 # TTS — Qwen3-TTS 0.6B with a MeloTTS fallback
-# The Qwen3-TTS model card uses flash_attention_2. Whether that builds for sm_87
-# is what Spike 2 asks, so flash-attn is not forced here.
-ARG BASE_IMAGE=ghcr.io/nvidia-ai-iot/vllm:r38.2.arm64-sbsa-cu130-24.04
+# The base contains an sm_87 FlashAttention build. Spike 2 must still execute
+# the kernel and Qwen3-TTS because package presence does not verify operation.
+ARG BASE_IMAGE=ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04
 FROM ${BASE_IMAGE}
 ENTRYPOINT []
 
