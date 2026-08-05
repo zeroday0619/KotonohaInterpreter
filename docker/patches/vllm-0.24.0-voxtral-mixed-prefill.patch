@@ -1,0 +1,31 @@
+--- a/vllm/model_executor/models/voxtral_realtime.py
++++ b/vllm/model_executor/models/voxtral_realtime.py
+@@ -321,8 +321,27 @@ class VoxtralRealtimeGeneration(VoxtralForConditionalGeneration, SupportsRealtime):
+                 dtype=self.whisper_encoder.dtype,
+                 device=input_ids.device,
+             )
++
+         mm_embeds_flat = _flatten_embeddings(multimodal_embeddings)
++        if mm_embeds_flat.shape[0] == input_ids.shape[0]:
++            return mm_embeds_flat
++        if is_multimodal is None:
++            raise ValueError(
++                "Voxtral realtime received mixed audio and text tokens without "
++                "a multimodal position mask"
++            )
++
++        mixed_embeddings = mm_embeds_flat.new_zeros(
++            (input_ids.shape[0], mm_embeds_flat.shape[-1])
++        )
++        try:
++            mixed_embeddings[is_multimodal] = mm_embeds_flat
++        except RuntimeError as error:
++            raise ValueError(
++                "Voxtral realtime audio embeddings do not match the multimodal "
++                "positions in the scheduled input"
++            ) from error
++        return mixed_embeddings
+-        return mm_embeds_flat
+ 
+     def forward(
+         self,

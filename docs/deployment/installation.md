@@ -792,6 +792,11 @@ Voxtral tokenizer and audio preprocessing; it does not install a second vLLM run
 The Jetson ASR image checks for Qwen3-ASR batch and realtime modules. The A6000 ASR image
 checks for Voxtral Realtime, the vLLM realtime connection, and the Mistral audio
 dependencies without importing vLLM.
+The pinned NVIDIA vLLM 0.24.0 runtime returns only the audio embeddings for a mixed
+offline Voxtral prefill, omitting the trailing text-token position. The A6000 image
+applies a version-scoped compatibility patch that aligns audio embeddings through
+vLLM's multimodal position mask, preserving both N-best batch transcription and the
+unmodified realtime path. A patch context mismatch intentionally fails the image build.
 Docker BuildKit does not attach the NVIDIA runtime, so CUDA-aware imports belong to
 deployment. `scripts/deploy.sh` starts temporary ASR and LLM containers with the
 Compose GPU reservation and verifies PyTorch CUDA, the GPU identity, and vLLM before

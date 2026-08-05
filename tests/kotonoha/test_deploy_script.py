@@ -178,6 +178,15 @@ def test_asr_images_use_target_vllm_runtimes_with_realtime_support_checks() -> N
     assert "rglob('qwen3_asr_realtime.py')" in jetson_dockerfile
     assert "rglob('voxtral_realtime.py')" in remote_dockerfile
     assert "rglob('realtime/connection.py')" in remote_dockerfile
+    assert "vllm-0.24.0-voxtral-mixed-prefill.patch" in remote_dockerfile
+    assert 'patch --batch --forward "$voxtral_module"' in remote_dockerfile
+    assert '"$UV_PYTHON" -m py_compile "$voxtral_module"' in remote_dockerfile
+    voxtral_patch = (
+        PROJECT_ROOT / "docker" / "patches" / "vllm-0.24.0-voxtral-mixed-prefill.patch"
+    ).read_text(encoding="utf-8")
+    assert "if mm_embeds_flat.shape[0] == input_ids.shape[0]" in voxtral_patch
+    assert "mixed_embeddings[is_multimodal] = mm_embeds_flat" in voxtral_patch
+    assert "return mixed_embeddings" in voxtral_patch
     assert "import vllm" not in jetson_dockerfile
     assert "import vllm" not in remote_dockerfile
     assert "uv venv --python python3 --system-site-packages /opt/kotonoha-venv" in (
