@@ -239,10 +239,16 @@ configure_docker_access
   exit 1
 }
 if [ "$selected_spike" = "1" ] || [ "$selected_spike" = "all" ]; then
-  build_asr_image
+  build_asr_image || {
+    printf 'ASR spike image build failed: %s\n' "$SPIKE_ASR_IMAGE" >&2
+    exit 1
+  }
 fi
 if [ "$selected_spike" = "2" ] || [ "$selected_spike" = "all" ]; then
-  build_tts_image
+  build_tts_image || {
+    printf 'TTS spike image build failed: %s\n' "$SPIKE_TTS_IMAGE" >&2
+    exit 1
+  }
 fi
 mkdir -p "$OUT"
 

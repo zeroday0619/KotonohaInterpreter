@@ -166,7 +166,13 @@ def test_asr_images_use_vllm_runtimes_with_qwen3_support_checks() -> None:
     assert "rglob('qwen3_asr.py')" in remote_dockerfile
     assert "import vllm" not in jetson_dockerfile
     assert "import vllm" not in remote_dockerfile
-    assert "--constraint /etc/pip/constraint.txt" in remote_dockerfile
+    assert "uv venv --python python3 --system-site-packages /opt/kotonoha-venv" in (
+        remote_dockerfile
+    )
+    assert "uv sync --active --frozen --no-dev" in remote_dockerfile
+    assert "uv pip install --system" not in remote_dockerfile
+    assert 'uv pip check --python "$UV_PYTHON"' in remote_dockerfile
+    assert "import kotonoha, numpy, soxr" in remote_dockerfile
     deploy_script = DEPLOY_SCRIPT.read_text(encoding="utf-8")
     assert 'a6000_vllm_image="nvcr.io/nvidia/vllm:26.07-py3"' in deploy_script
     assert "must set REMOTE_ASR_BASE=$a6000_vllm_image" in deploy_script
@@ -198,12 +204,13 @@ def test_jetson_images_use_pinned_r36_4_tegra_runtime() -> None:
     assert all("ENTRYPOINT []" in source for source in dockerfiles)
 
 
-def test_remote_lock_and_dockerfile_install_into_x86_conda_python() -> None:
+def test_remote_lock_and_dockerfile_use_target_specific_python_environments() -> None:
     lock_text = (PROJECT_ROOT / "uv.lock").read_text(encoding="utf-8")
     dockerfile = (PROJECT_ROOT / "docker" / "Dockerfile.remote").read_text(encoding="utf-8")
 
     assert "platform_machine == 'x86_64' and sys_platform == 'linux'" in lock_text
     assert "UV_PYTHON=/opt/conda/bin/python" in dockerfile
+    assert "UV_PYTHON=/opt/kotonoha-venv/bin/python" in dockerfile
     assert "import kotonoha, pydantic_settings" in dockerfile
 
 
@@ -228,10 +235,19 @@ def test_editable_container_installs_include_the_custom_build_hook() -> None:
     editable_stages = tuple(
         stage for stage in remote_dockerfile.split("\nFROM ") if "-e ." in stage
     )
-    assert len(editable_stages) == 2
+    assert len(editable_stages) == 1
     for stage in editable_stages:
         assert required_copy in stage
         assert stage.index(required_copy) < stage.index("-e .")
+
+    asr_stage = next(
+        stage
+        for stage in remote_dockerfile.split("\nFROM ")
+        if stage.startswith("${ASR_BASE_IMAGE}")
+    )
+    assert required_copy in asr_stage
+    assert asr_stage.index(required_copy) < asr_stage.index("--no-install-project")
+    assert asr_stage.index("COPY src ./src") < asr_stage.rindex("uv sync --active")
 
 
 def test_remote_tts_image_builds_and_verifies_required_dependencies() -> None:

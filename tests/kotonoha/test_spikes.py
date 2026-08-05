@@ -145,6 +145,55 @@ def test_spike_runner_rejects_incomplete_model_snapshots(
     assert "Qwen3-ASR-1.7B/config.json" in completed.stderr
 
 
+def test_spike_runner_stops_after_asr_image_build_failure(
+    _positional_only: object | None = None,
+    /,
+    *,
+    tmp_path: Path,
+) -> None:
+    tool_directory = tmp_path / "tools"
+    tool_directory.mkdir()
+    docker_command = tool_directory / "docker"
+    docker_command.write_text(
+        """#!/bin/sh
+if [ "$1" = build ]; then
+  exit 7
+fi
+exit 0
+""",
+        encoding="utf-8",
+    )
+    docker_command.chmod(0o755)
+    models_directory = tmp_path / "models"
+    for model_directory in (
+        "Qwen3-ASR-1.7B",
+        "Qwen3-TTS-0.6B",
+        "llm/Qwen3-14B-AWQ",
+        "llm/Qwen3-30B-A3B-Instruct-2507-AWQ",
+    ):
+        snapshot_directory = models_directory / model_directory
+        snapshot_directory.mkdir(parents=True)
+        (snapshot_directory / "config.json").write_text("{}", encoding="utf-8")
+
+    completed = subprocess.run(
+        ["bash", str(RUNNER_SCRIPT), "a6000"],
+        cwd=PROJECT_ROOT,
+        env={
+            **os.environ,
+            "MODELS_DIR": str(models_directory),
+            "OUT": "spikes/out/test-build-failure",
+            "PATH": f"{tool_directory}:{os.environ['PATH']}",
+        },
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 1
+    assert "ASR spike image build failed" in completed.stderr
+    assert "Building TTS spike image" not in completed.stdout
+
+
 def test_performance_document_owns_measurement_procedure() -> None:
     performance_document = PERFORMANCE_DOCUMENT.read_text(encoding="utf-8")
     spike_readme = SPIKE_README.read_text(encoding="utf-8")
