@@ -85,6 +85,8 @@ amd64 variants; this does not establish Jetson Linux, CUDA, model, or kernel com
 Spike 2 starts the server, executes a FlashAttention kernel, and requests four-language
 raw PCM before accepting the path. Set `SPIKE_SKIP_BUILD=1` to use existing ASR and TTS
 images without building or pulling them. A configured candidate image must already exist.
+On CUDA targets the probe calls vLLM's bundled FlashAttention-2 interface rather than
+requiring the separately packaged `flash_attn` module.
 
 The A6000 NGC image advertises CUDA architecture 8.6 and vLLM `0.24.0+092c4842`.
 Manifest metadata does not replace Spike 1 and Spike 3 execution on the A6000.

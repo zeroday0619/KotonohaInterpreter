@@ -83,15 +83,39 @@ def probe_flash_attention() -> dict:
     result: dict = {"import": False, "kernel_ok": False}
     try:
         import torch
-        from flash_attn import flash_attn_func
+        from vllm.vllm_flash_attn.flash_attn_interface import (
+            fa_version_unsupported_reason,
+            flash_attn_varlen_func,
+            is_fa_version_supported,
+        )
 
         result["import"] = True
-        query = torch.randn(1, 32, 4, 64, device="cuda", dtype=torch.float16)
+        result["backend"] = "vllm_fa2"
+        result["version"] = 2
+        if not is_fa_version_supported(2):
+            raise RuntimeError(fa_version_unsupported_reason(2) or "vLLM FA2 is unavailable")
+        sequence_length = 32
+        query = torch.randn(sequence_length, 4, 64, device="cuda", dtype=torch.float16)
         key = torch.randn_like(query)
         value = torch.randn_like(query)
+        cumulative_sequence_lengths = torch.tensor(
+            [0, sequence_length],
+            device="cuda",
+            dtype=torch.int32,
+        )
         torch.cuda.synchronize()
         started_at = time.perf_counter()
-        output = flash_attn_func(query, key, value, causal=False)
+        output = flash_attn_varlen_func(
+            query,
+            key,
+            value,
+            max_seqlen_q=sequence_length,
+            cu_seqlens_q=cumulative_sequence_lengths,
+            max_seqlen_k=sequence_length,
+            cu_seqlens_k=cumulative_sequence_lengths,
+            causal=False,
+            fa_version=2,
+        )
         torch.cuda.synchronize()
         result.update(
             {
@@ -179,7 +203,12 @@ def wait_for_server(
                     health = json.loads(response.read())
                     if health.get("ok") is True:
                         return True, round(time.perf_counter() - started_at, 2), None
-                    last_error = str(health.get("error") or "TTS service is not ready")
+                    health_error = health.get("error")
+                    if health_error:
+                        return False, round(time.perf_counter() - started_at, 2), str(
+                            health_error
+                        )
+                    last_error = "TTS service is not ready"
         except (urllib.error.URLError, TimeoutError) as error:
             last_error = repr(error)
         time.sleep(2.0)

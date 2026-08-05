@@ -21,9 +21,11 @@ RUN uv sync --active --frozen --no-dev --no-install-project --no-cache
 
 COPY src ./src
 RUN uv sync --active --frozen --no-dev --no-cache \
+ && uv pip install --python "$UV_PYTHON" --no-cache --no-deps \
+      --reinstall-package numpy "numpy>=2,<2.3" \
  && uv pip check --python "$UV_PYTHON" \
  && "$UV_PYTHON" -c \
- "from importlib.metadata import version; import fastapi, kotonoha; assert version('vllm').startswith('0.26.'); assert version('vllm-omni').startswith('0.26.'); print('TTS service dependencies ok')"
+ "from importlib.metadata import version; from pathlib import Path; import fastapi, kotonoha, numpy; numpy_release = tuple(map(int, numpy.__version__.split('.')[:2])); assert (2, 0) <= numpy_release < (2, 3), numpy.__version__; assert 'long' in numpy.__dict__; assert Path(numpy.__file__).is_relative_to('/opt/kotonoha-venv'), numpy.__file__; assert version('vllm').startswith('0.26.'); assert version('vllm-omni').startswith('0.26.'); print('TTS service dependencies ok | NumPy', numpy.__version__)"
 
 EXPOSE 8004
 CMD ["uvicorn", "kotonoha.services._tts_server:app", "--host", "0.0.0.0", "--port", "8004", "--loop", "uvloop"]

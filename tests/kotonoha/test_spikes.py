@@ -8,7 +8,9 @@ import re
 import runpy
 import subprocess
 import sys
+from contextlib import nullcontext
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -248,6 +250,35 @@ def test_vllm_omni_probe_uses_the_deployment_speech_api_contract() -> None:
     assert "KOTONOHA_SERVICE_TOKEN" not in environment
 
 
+def test_vllm_omni_probe_stops_after_terminal_health_error(
+    _positional_only: object | None = None,
+    /,
+    *,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    namespace = runpy.run_path(str(SPIKE2_SCRIPT))
+    response = SimpleNamespace(
+        status=200,
+        read=lambda: json.dumps({"ok": False, "error": "model failed"}).encode(),
+    )
+    monkeypatch.setattr(
+        namespace["urllib"].request,
+        "urlopen",
+        lambda *_arguments, **_keyword_arguments: nullcontext(response),
+    )
+    process = SimpleNamespace(poll=lambda: None, returncode=None)
+
+    ready, elapsed_seconds, error = namespace["wait_for_server"](
+        process,
+        port=18004,
+        timeout_seconds=600.0,
+    )
+
+    assert ready is False
+    assert elapsed_seconds < 1.0
+    assert error == "model failed"
+
+
 def test_performance_document_owns_measurement_procedure() -> None:
     performance_document = PERFORMANCE_DOCUMENT.read_text(encoding="utf-8")
     spike_readme = SPIKE_README.read_text(encoding="utf-8")
@@ -291,6 +322,9 @@ def test_hardware_spikes_use_target_specific_docker_images() -> None:
     assert "r36.4.tegra-aarch64-cu126-22.04" in compose_source
     assert "nvcr.io/nvidia/vllm:26.07-py3" in runner_source
     assert "vllm/vllm-omni:v0.26.0" in runner_source
+    assert "vllm.vllm_flash_attn.flash_attn_interface" in spike2_source
+    assert "fa_version=2" in spike2_source
+    assert "from flash_attn import" not in spike2_source
     assert "prepare_tts_image()" in runner_source
     assert '--file docker/Dockerfile.tts' in runner_source
     assert '--tag "$SPIKE_TTS_IMAGE"' in runner_source

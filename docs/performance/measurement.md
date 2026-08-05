@@ -142,10 +142,11 @@ Run the same FastAPI service and model probe through the amd64 base-image varian
 bash scripts/manage.sh benchmark a6000 --only 2
 ```
 
-The probe executes a FlashAttention kernel, starts `kotonoha.services._tts_server`, waits
-for its in-process vLLM-Omni engine to pass `/health`, and records 24 kHz signed 16-bit PCM
-streaming measurements for Korean, English, Japanese, and Chinese. The full service and
-engine log is retained beside the JSON result.
+The probe executes the vLLM-bundled FlashAttention-2 kernel, starts
+`kotonoha.services._tts_server`, waits for its in-process vLLM-Omni engine to pass
+`/health`, and records 24 kHz signed 16-bit PCM streaming measurements for Korean,
+English, Japanese, and Chinese. The full service and engine traceback is retained beside
+the JSON result.
 
 | Criterion | Requirement |
 |---|---|

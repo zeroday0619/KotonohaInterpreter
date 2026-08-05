@@ -364,7 +364,7 @@ class VllmOmniRuntime:
             )
         except Exception as error:  # noqa: BLE001
             self.error = repr(error)
-            log.error("tts.load_failed", error=self.error)
+            log.exception("tts.load_failed", error=self.error)
             self.shutdown()
 
     def shutdown(
