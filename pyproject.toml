@@ -61,7 +61,7 @@ eval = [
   "pandas>=2.2",
 ]
 spike-vllm = [
-  "vllm==0.19.1 ; platform_machine == 'x86_64' and sys_platform == 'linux'",
+  "vllm==0.24.0 ; platform_machine == 'x86_64' and sys_platform == 'linux'",
 ]
 
 [project.scripts]
