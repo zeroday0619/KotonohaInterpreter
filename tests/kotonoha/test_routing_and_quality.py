@@ -101,7 +101,8 @@ def test_default_config_loads_and_is_consistent() -> None:
     assert s.asr.n_best == 5  # §5.2
     assert s.session.mode == "push_to_talk"  # §4
     assert (s.llm.model_path / "config.json").name == "config.json"
-    assert s.llm.active.quantization == "awq"
+    assert s.llm.active.quantization is None
+    assert s.llm.active.dtype == "bfloat16"
     # The §6 stage budgets must add up to the stated total.
     b = s.budget_ms
     assert (

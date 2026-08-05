@@ -84,8 +84,8 @@ verify_model_artifacts() {
     Voxtral-Mini-4B-Realtime-2602/config.json
     Qwen3-TTS-0.6B/config.json
     faster-whisper-large-v3/config.json
-    llm/Qwen3-14B-AWQ/config.json
-    llm/Qwen3-30B-A3B-Instruct-2507-AWQ/config.json
+    llm/translategemma-4b-it/config.json
+    llm/translategemma-12b-it/config.json
   )
 
   for artifact in "${required_artifacts[@]}"; do

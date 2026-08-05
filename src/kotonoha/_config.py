@@ -2,7 +2,7 @@
 
 Precedence: environment (KOTONOHA__*) > the YAML given with --config >
 config/default.yaml. Nested keys are overridden with a double underscore,
-e.g. KOTONOHA__LLM__PROFILE=moe
+e.g. KOTONOHA__LLM__PROFILE=translategemma
 """
 
 from __future__ import annotations
@@ -232,13 +232,13 @@ class LanguageModelProfile(BaseModel):
     __slots__: ClassVar[tuple[str, ...]] = ()
     repo: str
     directory: str
-    quantization: str = "awq"
-    dtype: str = "half"
+    quantization: str | None = None
+    dtype: str = "bfloat16"
 
 
 class LanguageModelConfig(BaseModel):
     __slots__: ClassVar[tuple[str, ...]] = ()
-    profile: Literal["moe", "dense"] = "dense"
+    profile: Literal["translategemma"] = "translategemma"
     profiles: dict[str, LanguageModelProfile]
     models_dir: Path = Path("./models/llm")
     served_model_name: str = "kotonoha-translation"
@@ -246,9 +246,9 @@ class LanguageModelConfig(BaseModel):
     gpu_memory_utilization: float = Field(0.55, gt=0.0, le=1.0)
     max_num_seqs: int = Field(1, ge=1)
     enforce_eager: bool = True
-    temperature: float = 0.2
-    top_p: float = 0.9
-    repetition_penalty: float = 1.05
+    temperature: float = 0.0
+    top_p: float = 1.0
+    repetition_penalty: float = 1.0
     max_tokens: int = 512
     stream: bool = True
     timeout_s: float = 3.0
@@ -445,7 +445,8 @@ class Settings(BaseSettings):
         """Environment variables beat the YAML file.
 
         pydantic-settings defaults to init (i.e. the loaded YAML) outranking env,
-        which silently ignores one-off overrides like KOTONOHA__LLM__PROFILE=moe.
+            which silently ignores one-off overrides such as
+            KOTONOHA__LLM__PROFILE=translategemma.
         Per-device tuning and the spikes lean on those overrides, so flip the order.
         """
         return (env_settings, dotenv_settings, init_settings, file_secret_settings)

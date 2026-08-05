@@ -22,7 +22,7 @@ target, runtime environment, and benchmark conditions.
 |---|---|
 | `spike1_asr_load.py` | Measures target ASR loading, N-best 5, realtime deltas, and latency |
 | `spike2_flash_attn.py` | Executes FlashAttention and measures vLLM-Omni Qwen3-TTS streaming |
-| `spike3_llm_tokrate.py` | Compares MoE and dense AWQ generation through vLLM |
+| `spike3_llm_tokrate.py` | Measures TranslateGemma through the FastAPI WebSocket service |
 | `run_all.sh` | Selects target images and runs each probe through Docker Compose |
 | `report.py` | Produces the target report and validated configuration values |
 | `../docker/compose.spikes.yaml` | Defines isolated ASR, TTS, LLM, and report containers |

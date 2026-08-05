@@ -65,12 +65,16 @@ docker_command=(docker)
 docker_display_command="docker"
 docker_requires_sudo=false
 asr_image_was_configured=false
+llm_image_was_configured=false
 tts_image_was_configured=false
 if [ -n "${SPIKE_ASR_IMAGE:-}" ]; then
   asr_image_was_configured=true
 fi
 if [ -n "${SPIKE_TTS_IMAGE:-}" ]; then
   tts_image_was_configured=true
+fi
+if [ -n "${SPIKE_LLM_IMAGE:-}" ]; then
+  llm_image_was_configured=true
 fi
 
 configure_docker_access() {
@@ -95,31 +99,37 @@ configure_target() {
   if [ "$deployment_target" = "jetson" ]; then
     : "${SPIKE_VLLM_IMAGE:=ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04}"
     : "${SPIKE_ASR_IMAGE:=kotonohainterpreter-spike-asr:jetson}"
+    : "${SPIKE_LLM_IMAGE:=kotonohainterpreter-spike-llm:jetson}"
     : "${SPIKE_TTS_IMAGE:=kotonohainterpreter-spike-tts:jetson}"
     : "${SPIKE_GPU_DEVICE:=all}"
     : "${SPIKE_PYTHON:=/opt/venv/bin/python}"
     : "${SPIKE_TTS_PYTHON:=/opt/kotonoha-venv/bin/python}"
+    : "${SPIKE_LLM_PYTHON:=/opt/kotonoha-venv/bin/python}"
     : "${OUT:=spikes/out}"
     default_context=2048
     asr_dtype=float16
     asr_realtime_architecture=qwen3_asr
     asr_transformers_model=Qwen3-ASR-0.6B-hf
     asr_vllm_model=Qwen3-ASR-0.6B
+    llm_model=translategemma-4b-it
     report_name=PHASE0.md
     patch_name=local.yaml
   else
     : "${SPIKE_VLLM_IMAGE:=nvcr.io/nvidia/vllm:26.07-py3}"
     : "${SPIKE_ASR_IMAGE:=kotonohainterpreter-spike-asr:a6000}"
+    : "${SPIKE_LLM_IMAGE:=kotonohainterpreter-spike-llm:a6000}"
     : "${SPIKE_TTS_IMAGE:=kotonohainterpreter-spike-tts:a6000}"
     : "${SPIKE_GPU_DEVICE:=0}"
     : "${SPIKE_PYTHON:=python3}"
     : "${SPIKE_TTS_PYTHON:=/opt/kotonoha-venv/bin/python}"
+    : "${SPIKE_LLM_PYTHON:=/opt/kotonoha-venv/bin/python}"
     : "${OUT:=spikes/out/a6000}"
-    default_context=4096
+    default_context=2048
     asr_dtype=bfloat16
     asr_realtime_architecture=voxtral
     asr_transformers_model=Qwen3-ASR-0.6B-hf
     asr_vllm_model=Voxtral-Mini-4B-Realtime-2602
+    llm_model=translategemma-12b-it
     report_name=PERFORMANCE.md
     patch_name=remote-server.local.yaml
   fi
@@ -137,7 +147,8 @@ configure_target() {
   : "${SPIKE_USER_ID:=$(id -u)}"
   : "${SPIKE_GROUP_ID:=$(id -g)}"
   export MODELS_DIR OUT SPIKE_ASR_IMAGE SPIKE_GPU_DEVICE SPIKE_GROUP_ID
-  export SPIKE_PYTHON SPIKE_TTS_IMAGE SPIKE_TTS_PYTHON SPIKE_USER_ID SPIKE_VLLM_IMAGE
+  export SPIKE_LLM_IMAGE SPIKE_LLM_PYTHON SPIKE_PYTHON SPIKE_TTS_IMAGE
+  export SPIKE_TTS_PYTHON SPIKE_USER_ID SPIKE_VLLM_IMAGE
 }
 
 build_asr_image() {
@@ -197,6 +208,39 @@ prepare_tts_image() {
     .
 }
 
+build_llm_image() {
+  if [ "$llm_image_was_configured" = true ]; then
+    "${docker_command[@]}" image inspect "$SPIKE_LLM_IMAGE" >/dev/null 2>&1 || {
+      printf 'Configured LLM spike image is missing: %s\n' "$SPIKE_LLM_IMAGE" >&2
+      exit 1
+    }
+    return
+  fi
+  if [ "${SPIKE_SKIP_BUILD:-0}" = "1" ]; then
+    "${docker_command[@]}" image inspect "$SPIKE_LLM_IMAGE" >/dev/null 2>&1 || {
+      printf 'Required LLM spike image is missing: %s\n' "$SPIKE_LLM_IMAGE" >&2
+      exit 1
+    }
+    return
+  fi
+
+  printf 'Building LLM spike image: %s\n' "$SPIKE_LLM_IMAGE"
+  if [ "$deployment_target" = "jetson" ]; then
+    "${docker_command[@]}" build \
+      --build-arg "BASE_IMAGE=$SPIKE_VLLM_IMAGE" \
+      --file docker/Dockerfile.llm \
+      --tag "$SPIKE_LLM_IMAGE" \
+      .
+  else
+    "${docker_command[@]}" build \
+      --build-arg "LLM_BASE_IMAGE=$SPIKE_VLLM_IMAGE" \
+      --file docker/Dockerfile.remote \
+      --target llm \
+      --tag "$SPIKE_LLM_IMAGE" \
+      .
+  fi
+}
+
 require_model_snapshot() {
   local model_directory=$1
   if [ ! -s "$MODELS_DIR/$model_directory/config.json" ]; then
@@ -227,8 +271,7 @@ validate_models() {
     require_model_snapshot Qwen3-TTS-0.6B
   fi
   if [ "$selected_spike" = "3" ] || [ "$selected_spike" = "all" ]; then
-    require_model_snapshot llm/Qwen3-14B-AWQ
-    require_model_snapshot llm/Qwen3-30B-A3B-Instruct-2507-AWQ
+    require_model_snapshot "llm/$llm_model"
   fi
 }
 
@@ -251,6 +294,12 @@ if [ "$selected_spike" = "2" ] || [ "$selected_spike" = "all" ]; then
     exit 1
   }
 fi
+if [ "$selected_spike" = "3" ] || [ "$selected_spike" = "all" ]; then
+  build_llm_image || {
+    printf 'LLM spike image build failed: %s\n' "$SPIKE_LLM_IMAGE" >&2
+    exit 1
+  }
+fi
 mkdir -p "$OUT"
 
 compose_environment=(
@@ -259,6 +308,8 @@ compose_environment=(
   "SPIKE_ASR_IMAGE=$SPIKE_ASR_IMAGE"
   "SPIKE_GPU_DEVICE=$SPIKE_GPU_DEVICE"
   "SPIKE_GROUP_ID=$SPIKE_GROUP_ID"
+  "SPIKE_LLM_IMAGE=$SPIKE_LLM_IMAGE"
+  "SPIKE_LLM_PYTHON=$SPIKE_LLM_PYTHON"
   "SPIKE_PYTHON=$SPIKE_PYTHON"
   "SPIKE_TTS_IMAGE=$SPIKE_TTS_IMAGE"
   "SPIKE_TTS_PYTHON=$SPIKE_TTS_PYTHON"
@@ -277,6 +328,7 @@ printf 'Selected spike: %s\n' "$selected_spike"
 printf 'Docker command: %s\n' "$docker_display_command"
 printf 'vLLM image: %s\n' "$SPIKE_VLLM_IMAGE"
 printf 'ASR image: %s\n' "$SPIKE_ASR_IMAGE"
+printf 'LLM image: %s\n' "$SPIKE_LLM_IMAGE"
 printf 'TTS image: %s\n' "$SPIKE_TTS_IMAGE"
 printf 'GPU selection: %s\n' "$SPIKE_GPU_DEVICE"
 printf 'Output directory: %s\n' "$OUT"
@@ -352,7 +404,6 @@ if [ "$selected_spike" = "3" ] || [ "$selected_spike" = "all" ]; then
   printf '== Spike 3: translation throughput ==\n'
   "${compose_command[@]}" run --rm llm \
     --target "$deployment_target" \
-    --vllm-command vllm \
     --models-dir /models/llm \
     --context "${LLM_CONTEXT:-$default_context}" \
     --output-tokens "${LLM_OUTPUT_TOKENS:-60}" \

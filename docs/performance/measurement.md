@@ -24,7 +24,7 @@ gating.
 |---|---|---|
 | 1 | Qwen3-ASR load, N-best 5, log-probabilities, six-second latency | `asr.*` |
 | 2 | FlashAttention execution and vLLM-Omni Qwen3-TTS PCM streaming | `tts.*` |
-| 3 | MoE and dense LLM generation rate and time to first token | `llm.profile` |
+| 3 | Target TranslateGemma WebSocket rate, TTFT, and one-pass marker | `llm.profile` |
 
 Do not compare measurements from different hosts as one runtime result. Every retained
 result must identify the target, GPU, compute capability, runtime versions, and benchmark
@@ -172,7 +172,8 @@ the JSON result.
 
 ## Translation Measurement
 
-Jetson Phase 0 uses context 2048, batch 1, and 60 output tokens.
+Jetson Phase 0 measures TranslateGemma 4B with context 2048, batch 1, and 60 output
+tokens.
 
 ```bash
 LLM_CONTEXT=2048 \
@@ -181,22 +182,22 @@ LLM_OUTPUT_TOKENS=60 \
 bash scripts/manage.sh benchmark jetson --only 3
 ```
 
-The A6000 measurement uses the production 4096-token context:
+The A6000 measurement uses TranslateGemma 12B's 2048-token context:
 
 ```bash
-LLM_CONTEXT=4096 \
+LLM_CONTEXT=2048 \
 LLM_GPU_MEMORY_UTILIZATION=0.80 \
 LLM_OUTPUT_TOKENS=60 \
 BENCHMARK_RUNS=3 \
 bash scripts/manage.sh benchmark a6000 --only 3
 ```
 
-The probe starts one vLLM server per profile and records time to first token and generation
-rate under the production prompt shape. It terminates each server before loading the next
-profile so both measurements use the same available GPU capacity.
+The probe starts the project FastAPI service, which owns the vLLM engine in-process, then
+records time to first token and generation rate through `/v1/realtime`. It also records
+whether the response preserves the one-pass correction-and-translation source marker.
 
-The minimum rate is 5 tok/s. Select MoE only when it meets the threshold and is not slower
-than dense 14B. Translation quality remains a separate evaluation-set decision.
+The minimum rate is 5 tok/s. Translation accuracy and the correction behavior remain
+separate evaluation-set decisions.
 
 ## Link Measurement
 

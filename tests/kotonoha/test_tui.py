@@ -384,7 +384,7 @@ async def test_remote_target_loads_and_saves_through_the_admin_client(
         app.query_one("#target-select").value = "remote"
         await pilot.pause()
         assert app.target == "remote"
-        assert app.settings.llm.profile == "moe"
+        assert app.settings.llm.profile == "translategemma"
         assert app.query_one("#category-asr").display
         assert not app.query_one("#category-session").display
 

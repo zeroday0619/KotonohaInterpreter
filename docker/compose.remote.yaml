@@ -22,7 +22,6 @@ x-a6000: &a6000
   environment:
     - KOTONOHA_CONFIG=/app/config/remote-server.yaml
     - KOTONOHA_LOCAL_CONFIG=/app/config/remote-server.local.yaml
-    - KOTONOHA_LLM_CONFIG_ENV=/app/config/remote-llm.env
     - KOTONOHA_SERVICE_TOKEN=${KOTONOHA_SERVICE_TOKEN:?set a token before starting}
     - HF_HOME=/models/hf
     - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-0}
@@ -50,7 +49,6 @@ services:
     environment:
       - KOTONOHA_CONFIG=/app/config/remote-server.yaml
       - KOTONOHA_LOCAL_CONFIG=/app/config/remote-server.local.yaml
-      - KOTONOHA_LLM_CONFIG_ENV=/app/config/remote-llm.env
       - KOTONOHA_SERVICE_TOKEN=${KOTONOHA_SERVICE_TOKEN:?set a token before starting}
       - HF_HOME=/models/hf
       - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-0}
@@ -113,24 +111,24 @@ services:
 
   llm:
     <<: *a6000
-    image: ${LLM_IMAGE:-nvcr.io/nvidia/vllm:26.07-py3}
+    image: kotonohainterpreter-llm
+    build:
+      <<: *a6000-python-build
+      target: llm
+      args:
+        LLM_BASE_IMAGE: ${LLM_IMAGE:-nvcr.io/nvidia/vllm:26.07-py3}
     ports: ["8003:8003"]
     environment:
+      - KOTONOHA_CONFIG=/app/config/remote-server.yaml
+      - KOTONOHA_LOCAL_CONFIG=/app/config/remote-server.local.yaml
       - KOTONOHA_SERVICE_TOKEN=${KOTONOHA_SERVICE_TOKEN:?set a token before starting}
       - HF_HOME=/models/hf
       - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-0}
       - HF_HUB_OFFLINE=${TRANSFORMERS_OFFLINE:-0}
-      - LLM_PROFILE=${LLM_PROFILE:-moe}
-      - LLM_MODELS_DIR=/models/llm
-      - LLM_PORT=8003
-      - LLM_MAX_MODEL_LEN=${LLM_MAX_MODEL_LEN:-4096}
-      - LLM_GPU_MEMORY_UTILIZATION=${LLM_GPU_MEMORY_UTILIZATION:-0.55}
-      - KOTONOHA_LLM_CONFIG_ENV=/config/remote-llm.env
-    volumes:
-      - ../scripts/run_vllm_llm.sh:/opt/kotonoha/run_vllm_llm.sh:ro
-      - ../config:/config
-      - ${MODELS_DIR:-../models}:/models
-    entrypoint: ["bash", "/opt/kotonoha/run_vllm_llm.sh"]
+      - KOTONOHA__LLM__MODELS_DIR=/models/llm
+      - KOTONOHA__LLM__MAX_MODEL_LEN=${LLM_MAX_MODEL_LEN:-2048}
+      - KOTONOHA__LLM__GPU_MEMORY_UTILIZATION=${LLM_GPU_MEMORY_UTILIZATION:-0.55}
+    command: uvicorn kotonoha.services._llm_server:app --host 0.0.0.0 --port 8003 --loop uvloop
     deploy:
       resources:
         reservations:

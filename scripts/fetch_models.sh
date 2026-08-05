@@ -6,8 +6,8 @@
 #   Qwen/Qwen3-ASR-0.6B                        Jetson vLLM ASR
 #   mistralai/Voxtral-Mini-4B-Realtime-2602    A6000 vLLM realtime ASR
 #   Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice       nine preset timbres
-#   ELVISIO/Qwen3-30B-A3B-Instruct-2507-AWQ    4-bit MoE translation profile
-#   Qwen/Qwen3-14B-AWQ                         4-bit dense translation profile
+#   google/translategemma-4b-it                 Jetson translation model
+#   google/translategemma-12b-it                A6000 translation model
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -50,10 +50,14 @@ $HFCLI Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice --local-dir "$MODELS/Qwen3-TTS-0.6B"
 echo "== faster-whisper large-v3 =="
 $HFCLI Systran/faster-whisper-large-v3 --local-dir "$MODELS/faster-whisper-large-v3"
 
-echo "== vLLM translation models (Spike 3 needs both) =="
-$HFCLI Qwen/Qwen3-14B-AWQ --local-dir "$LLM_MODELS/Qwen3-14B-AWQ"
-$HFCLI ELVISIO/Qwen3-30B-A3B-Instruct-2507-AWQ \
-  --local-dir "$LLM_MODELS/Qwen3-30B-A3B-Instruct-2507-AWQ"
+echo "== TranslateGemma 4B IT (Jetson) =="
+echo "The Hugging Face account must accept the TranslateGemma license before download."
+$HFCLI google/translategemma-4b-it \
+  --local-dir "$LLM_MODELS/translategemma-4b-it"
+
+echo "== TranslateGemma 12B IT (A6000) =="
+$HFCLI google/translategemma-12b-it \
+  --local-dir "$LLM_MODELS/translategemma-12b-it"
 
 echo
 echo "done. sizes:"

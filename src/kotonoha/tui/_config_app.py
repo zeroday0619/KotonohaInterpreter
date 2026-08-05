@@ -208,7 +208,7 @@ FIELD_DESCRIPTIONS: dict[str, str] = {
     "frontend.vad.silence_ms": N_("Silence required before end-of-utterance."),
     "frontend.vad.threshold": N_("Speech onset probability, 0 to 1."),
     "llm.profile": N_(
-            "moe selects the 30B mixture-of-experts model; dense selects the 14B model."
+            "Selects the target-specific TranslateGemma translation model."
     ),
     "logging.console": N_(
             "Show structured application logs in the TUI. Model services emit JSON to their "

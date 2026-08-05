@@ -119,41 +119,110 @@ def test_bearer_token_and_tls_flags_reach_httpx() -> None:
     assert tk["verify"] is False
 
 
-async def test_vllm_translation_request_uses_openai_compatible_fields() -> None:
+async def test_translation_request_uses_realtime_websocket_fields(
+    _positional_only: object | None = None,
+    /,
+    *,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    del _positional_only
     settings = load_settings()
     captured_payload: dict[str, Any] = {}
+    captured_connection: dict[str, Any] = {}
 
-    def handle_request(
-        request: httpx.Request,
+    class FakeWebSocket:
+        __slots__: ClassVar[tuple[str, ...]] = ("events",)
+
+        def __init__(
+            self,
+            /,
+        ) -> None:
+            self.events = [
+                json.dumps({"type": "session.created"}),
+                json.dumps({"type": "translation.delta", "delta": "Hello"}),
+                json.dumps(
+                    {
+                        "type": "translation.done",
+                        "usage": {"completion_tokens": 3},
+                    }
+                ),
+            ]
+
+        async def send(
+            self,
+            payload: str,
+            /,
+        ) -> None:
+            captured_payload.update(json.loads(payload))
+
+        async def recv(
+            self,
+            /,
+        ) -> str:
+            return self.events.pop(0)
+
+    class FakeConnection:
+        __slots__: ClassVar[tuple[str, ...]] = ("websocket",)
+
+        def __init__(
+            self,
+            /,
+        ) -> None:
+            self.websocket = FakeWebSocket()
+
+        async def __aenter__(
+            self,
+            /,
+        ) -> FakeWebSocket:
+            return self.websocket
+
+        async def __aexit__(
+            self,
+            error_type: type[BaseException] | None,
+            error: BaseException | None,
+            traceback: object | None,
+            /,
+        ) -> None:
+            del error_type, error, traceback
+
+    def fake_connect(
+        uri: str,
         /,
-    ) -> httpx.Response:
-        captured_payload.update(json.loads(request.content))
-        stream = (
-            'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n'
-            "data: [DONE]\n\n"
-        )
-        return httpx.Response(200, text=stream)
+        **options: Any,
+    ) -> FakeConnection:
+        captured_connection.update({"uri": uri, **options})
+        return FakeConnection()
 
+    monkeypatch.setattr("kotonoha.clients._llm.connect", fake_connect)
     client = LanguageModelClient("http://test", settings.llm)
-    await client._client.aclose()
-    client._client = httpx.AsyncClient(
-        base_url="http://test",
-        transport=httpx.MockTransport(handle_request),
-    )
     try:
         chunks = [
             chunk
             async for chunk in client.stream_chat(
-                [{"role": "user", "content": "Translate this."}]
+                [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "source_lang_code": "ko",
+                                "target_lang_code": "en",
+                                "text": "Translate this.",
+                            }
+                        ],
+                    }
+                ]
             )
         ]
     finally:
         await client.aclose()
 
     assert chunks == ["Hello"]
+    assert captured_connection["uri"] == "ws://test/v1/realtime"
+    assert captured_payload["type"] == "translation.create"
     assert captured_payload["model"] == "kotonoha-translation"
-    assert captured_payload["repetition_penalty"] == 1.05
-    assert captured_payload["stream_options"] == {"include_usage": True}
+    assert captured_payload["repetition_penalty"] == 1.0
+    assert captured_payload["messages"][0]["content"][0]["source_lang_code"] == "ko"
     assert "repeat_penalty" not in captured_payload
     assert "cache_prompt" not in captured_payload
 

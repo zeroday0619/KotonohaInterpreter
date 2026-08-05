@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Kotonoha Interpreter 0.1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-05 22:54+0900\n"
+"POT-Creation-Date: 2026-08-06 02:44+0900\n"
 "PO-Revision-Date: 2026-08-05 15:30+0900\n"
 "Last-Translator: Kotonoha Interpreter\n"
 "Language: ko\n"
@@ -567,8 +567,8 @@ msgid "Speech onset probability, 0 to 1."
 msgstr "발화 시작 판정 확률, 0에서 1."
 
 #: kotonoha/tui/_config_app.py:211
-msgid "moe selects the 30B mixture-of-experts model; dense selects the 14B model."
-msgstr "moe는 30B 혼합 전문가 모델을 선택하고, dense는 14B 모델을 선택합니다."
+msgid "Selects the target-specific TranslateGemma translation model."
+msgstr "대상별 TranslateGemma 번역 모델을 선택합니다."
 
 #: kotonoha/tui/_config_app.py:214
 msgid ""
@@ -1090,3 +1090,5 @@ msgstr "프로세스 중지 중"
 #~ msgid " audio off-box"
 #~ msgstr " 오디오 외부 전송"
 
+#~ msgid "moe selects the 30B mixture-of-experts model; dense selects the 14B model."
+#~ msgstr "moe는 30B 혼합 전문가 모델을 선택하고, dense는 14B 모델을 선택합니다."

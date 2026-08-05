@@ -28,8 +28,14 @@ remote:
 # The remote translation profile is configured independently from the Jetson
 # profile. Target-host measurements remain required for deployment acceptance.
 llm:
-  profile: moe
-  max_model_len: 4096 # room for six turns of history plus the glossary
+  profile: translategemma
+  profiles:
+    translategemma:
+      repo: google/translategemma-12b-it
+      directory: translategemma-12b-it
+      quantization: null
+      dtype: bfloat16
+  max_model_len: 2048 # TranslateGemma's supported context window
   max_tokens: 768
 
 asr:

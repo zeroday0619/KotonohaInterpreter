@@ -70,7 +70,7 @@ uv run ruff check .
 uv run pytest -q
 ```
 
-Current baseline: 241 tests and zero lint findings.
+Current baseline: 268 tests and zero lint findings.
 
 ## Non-negotiable constraints
 
@@ -112,8 +112,9 @@ Identifiers confirmed as of 2026-08:
 | TTS | `Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice` |
 | TTS runtime | vLLM-Omni 0.26.0 Speech API |
 | TTS API | `POST /v1/audio/speech`, streaming signed 16-bit 24 kHz PCM |
-| MoE translation model | `ELVISIO/Qwen3-30B-A3B-Instruct-2507-AWQ` |
-| Dense translation model | `Qwen/Qwen3-14B-AWQ` |
+| Jetson translation model | `google/translategemma-4b-it` |
+| A6000 translation model | `google/translategemma-12b-it` |
+| Translation runtime | In-process vLLM and `/v1/realtime` WebSocket |
 | Jetson vLLM image | `ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04` |
 | A6000 vLLM image | `nvcr.io/nvidia/vllm:26.07-py3` |
 | TTS image | `vllm/vllm-omni:v0.26.0` |
@@ -125,12 +126,18 @@ unverified until Spike 1 executes its CUDA kernels on the target device.
 
 The A6000 image manifest includes Linux amd64. Its metadata reports Python 3.12, CUDA
 13.3.1, vLLM `0.24.0+092c4842`, and compute capability 8.6. Target execution must still
-verify Voxtral realtime transcription, N-best beam search, and AWQ model loading.
+verify Voxtral realtime transcription, N-best beam search, and TranslateGemma loading.
 
 `VllmBackend` in `src/kotonoha/services/_asr_server.py` owns the vLLM engine in the
 FastAPI process; do not launch a nested vLLM HTTP server. Spike 1 verifies model loading,
 five-hypothesis output, realtime WebSocket deltas, and measured latency on each target.
 Do not report target compatibility from workstation tests.
+
+`VllmTranslationBackend` in `src/kotonoha/services/_llm_server.py` owns the translation
+engine in the FastAPI process; do not launch a nested vLLM HTTP server. TranslateGemma's
+license must be accepted before downloading its offline snapshots. Spike 3 verifies the
+target-specific 4B or 12B model, structured prompt, WebSocket deltas, generation rate,
+and one-pass correction behavior.
 
 ## Python and source standards
 
@@ -298,8 +305,7 @@ files.
 
 The remote allowlist contains only settings consumed by resident model services. Do not
 expose credentials, client policy, audio devices, or local storage. Remote model changes
-take effect after service restart. vLLM translation settings are mirrored to
-`config/remote-llm.env`.
+take effect after service restart.
 
 ## Localization
 

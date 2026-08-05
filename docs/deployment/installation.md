@@ -296,8 +296,8 @@ models/
 ├── Qwen3-TTS-0.6B/
 ├── faster-whisper-large-v3/
 ├── llm/
-│   ├── Qwen3-14B-AWQ/
-│   └── Qwen3-30B-A3B-Instruct-2507-AWQ/
+│   ├── translategemma-4b-it/
+│   └── translategemma-12b-it/
 └── silero_vad.onnx
 ```
 
@@ -313,14 +313,17 @@ test -d models/Qwen3-ASR-0.6B-hf
 test -d models/Voxtral-Mini-4B-Realtime-2602
 test -d models/faster-whisper-large-v3
 test -s models/Qwen3-TTS-0.6B/config.json
-test -s models/llm/Qwen3-14B-AWQ/config.json
-test -s models/llm/Qwen3-30B-A3B-Instruct-2507-AWQ/config.json
+test -s models/llm/translategemma-4b-it/config.json
+test -s models/llm/translategemma-12b-it/config.json
 ```
 
 `fetch_models.sh` uses Hugging Face local directories rather than a cache-only layout.
 Offline deployments must configure model services to use the mounted absolute paths
 shown below. A repository ID alone can trigger a cache lookup that does not resolve the
 local directory.
+
+TranslateGemma is gated on Hugging Face. Accept its license with the account used for
+model preparation before running `models fetch`; deployment remains offline afterward.
 
 ### Transfer pre-fetched artifacts
 
@@ -632,7 +635,7 @@ test -s models/Voxtral-Mini-4B-Realtime-2602/config.json
 test -d models/faster-whisper-large-v3
 test -s models/faster-whisper-large-v3/config.json
 test -s models/Qwen3-TTS-0.6B/config.json
-test -s models/llm/Qwen3-30B-A3B-Instruct-2507-AWQ/config.json
+test -s models/llm/translategemma-12b-it/config.json
 ```
 
 ### Create the remote service override
@@ -670,8 +673,7 @@ REMOTE_BASE=pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime
 REMOTE_ASR_BASE=nvcr.io/nvidia/vllm:26.07-py3
 TTS_IMAGE=vllm/vllm-omni:v0.26.0
 LLM_IMAGE=nvcr.io/nvidia/vllm:26.07-py3
-LLM_PROFILE=moe
-LLM_MAX_MODEL_LEN=4096
+LLM_MAX_MODEL_LEN=2048
 LLM_GPU_MEMORY_UTILIZATION=0.55
 GPU_ALLOCATION_MODE=auto
 GPU_NAME_FILTER=A6000
@@ -872,7 +874,7 @@ docker compose -f docker/compose.yaml run --rm \
 Select `Remote A6000` in the target selector. The remote target exposes only settings
 owned by resident ASR, verification ASR, LLM, and TTS processes. Saving writes
 `config/remote-server.local.yaml` through the authenticated ASR management endpoint.
-LLM startup values are also written to `config/remote-llm.env`.
+The translation service reads the same validated YAML directly when it restarts.
 
 Remote model settings do not reload in the management request. Restart affected services
 after saving:
@@ -931,7 +933,7 @@ backup, rollback, security controls, and troubleshooting. Use
 
 - [ ] Required model artifacts exist at the configured absolute paths.
 - [ ] All selected backends loaded; Python health responses contain `"ok": true`.
-- [ ] The vLLM translation health endpoint responds and the selected AWQ model is loaded.
+- [ ] Translation health reports the in-process vLLM backend and TranslateGemma is loaded.
 - [ ] CUDA is active in every GPU inference container.
 - [ ] Concurrent A6000 residency is confirmed with all services running.
 

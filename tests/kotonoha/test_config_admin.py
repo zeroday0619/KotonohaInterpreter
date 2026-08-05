@@ -24,12 +24,10 @@ def admin_environment(
     monkeypatch: Any,
 ) -> Any:
     override = tmp_path / "remote-server.local.yaml"
-    llm_environment = tmp_path / "remote-llm.env"
     monkeypatch.setenv("KOTONOHA_CONFIG", "config/remote-server.yaml")
     monkeypatch.setenv("KOTONOHA_LOCAL_CONFIG", str(override))
-    monkeypatch.setenv("KOTONOHA_LLM_CONFIG_ENV", str(llm_environment))
     monkeypatch.setenv("KOTONOHA_SERVICE_TOKEN", "test-secret")
-    return override, llm_environment
+    return override
 
 
 def build_admin_app() -> FastAPI:
@@ -60,7 +58,7 @@ async def test_admin_api_validates_and_persists_overrides(
     *,
     admin_environment: Any,
 ) -> None:
-    override, llm_environment = admin_environment
+    override = admin_environment
     transport = httpx.ASGITransport(app=build_admin_app())
     async with httpx.AsyncClient(
         transport=transport,
@@ -87,12 +85,6 @@ async def test_admin_api_validates_and_persists_overrides(
     written = yaml.safe_load(override.read_text(encoding="utf-8"))
     assert written["llm"]["max_model_len"] == 8192
     assert written["asr_verify"]["compute_type"] == "float16"
-    environment = llm_environment.read_text(encoding="utf-8")
-    assert "export LLM_PROFILE=moe" in environment
-    assert "export LLM_MAX_MODEL_LEN=8192" in environment
-    assert "export LLM_MAX_NUM_SEQS=1" in environment
-    assert "export LLM_MODEL=/models/llm/Qwen3-30B-A3B-Instruct-2507-AWQ" in environment
-    assert "export LLM_QUANTIZATION=awq" in environment
 
 
 async def test_admin_api_rejects_invalid_values_without_writing(
@@ -101,7 +93,7 @@ async def test_admin_api_rejects_invalid_values_without_writing(
     *,
     admin_environment: Any,
 ) -> None:
-    override, _ = admin_environment
+    override = admin_environment
     transport = httpx.ASGITransport(app=build_admin_app())
     async with httpx.AsyncClient(
         transport=transport,
@@ -121,7 +113,7 @@ async def test_admin_api_rejects_client_owned_settings(
     *,
     admin_environment: Any,
 ) -> None:
-    override, _ = admin_environment
+    override = admin_environment
     transport = httpx.ASGITransport(app=build_admin_app())
     async with httpx.AsyncClient(
         transport=transport,
@@ -154,7 +146,10 @@ async def test_remote_config_client_reads_and_updates(
     )
     try:
         before = await client.read()
-        assert before.config["llm"]["profile"] == "moe"
+        assert before.config["llm"]["profile"] == "translategemma"
+        assert before.config["llm"]["profiles"]["translategemma"]["directory"] == (
+            "translategemma-12b-it"
+        )
         assert "llm.max_num_seqs" in before.editable_paths
         assert not any(path.startswith("tts.") for path in before.editable_paths)
         after = await client.update({"llm.max_num_seqs": 2})

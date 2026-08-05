@@ -140,18 +140,16 @@ def md_report(
             f"- 조건: ctx {c.get('max_model_len')}, 배치 {c.get('batch')}, "
             f"출력 {c.get('output_tokens')}토큰",
             "",
-            "| 프로필 | 모델 | 실 프롬프트 tok/s | TTFT(ms) |",
-            "|---|---|---|---|",
+            "| 모델 | 전송 | 실 프롬프트 tok/s | TTFT(ms) | 1회 패스 마커 |",
+            "|---|---|---|---|---|",
         ]
-        for key in ("moe", "dense"):
-            r = d.get(key)
-            if not r:
-                continue
-            best = ((r.get("server") or {}).get("best")) or {}
-            out.append(
-                f"| {key} | {r.get('directory', '')} "
-                f"| {best.get('tok_per_s', '—')} | {best.get('ttft_ms', '—')} |"
-            )
+        best = ((d.get("server") or {}).get("best")) or {}
+        model = d.get("model") or {}
+        out.append(
+            f"| {model.get('directory', 'TranslateGemma')} "
+            f"| WebSocket | {best.get('tok_per_s', '—')} "
+            f"| {best.get('ttft_ms', '—')} | {best.get('one_pass_marker', False)} |"
+        )
         out += [
             "",
             f"**판정: `llm.profile: {v.get('llm_profile')}`** — {v.get('note')}",
@@ -163,13 +161,13 @@ def md_report(
 
     section("Spike 1 — 대상 vLLM ASR 이 N-best와 실시간 전사를 실행하는가", s1, b1)
     section("Spike 2 — vLLM-Omni Qwen3-TTS 가 동작하는가", s2, b2)
-    section("Spike 3 — MoE vs 밀집 14B 실측 tok/s", s3, b3)
+    section("Spike 3 — TranslateGemma WebSocket 실측 tok/s", s3, b3)
 
     L += ["## 종합", ""]
     if s1 and s3:
         asr_ms = (s1.get("verdict") or {}).get("nbest_ms") or 0
         tts_ms = ((s2 or {}).get("verdict") or {}).get("first_packet_ms_estimate") or 0
-        best = ((s3.get(s3["verdict"]["llm_profile"]) or {}).get("server") or {}).get("best") or {}
+        best = ((s3.get("server") or {}).get("best")) or {}
         ttft = best.get("ttft_ms") or 0
         total = 800 + 100 + asr_ms + 100 + ttft + tts_ms
         L += [
@@ -225,7 +223,7 @@ def patch_yaml(
             lines += ["tts:", f"  backend: {t}", ""]
     if s3:
         p = (s3.get("verdict") or {}).get("llm_profile")
-        if p in ("moe", "dense"):
+        if p == "translategemma":
             lines += ["llm:", f"  profile: {p}", ""]
     return "\n".join(lines)
 

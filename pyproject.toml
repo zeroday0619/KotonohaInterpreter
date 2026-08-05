@@ -26,6 +26,7 @@ dependencies = [
   # Multipart parsing for the /transcribe/upload path used in remote mode.
   "python-multipart>=0.0.9",
   "uvloop>=0.22.1,<0.23",
+  "websockets>=14,<17",
 ]
 
 # Device-only dependencies. Phase 0 verifies aarch64 wheel availability on the

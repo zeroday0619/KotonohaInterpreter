@@ -48,7 +48,10 @@ def remote_transport_kwargs(
 class BaseClient:
     __slots__: ClassVar[tuple[str, ...]] = (
         "_client",
+        "_connect_timeout",
+        "_headers",
         "_timeout",
+        "_verify",
         "base_url",
         "name",
         "side",
@@ -57,6 +60,9 @@ class BaseClient:
     name: str
     side: str
     _timeout: float
+    _connect_timeout: float
+    _headers: dict[str, str]
+    _verify: bool | ssl.SSLContext
     _client: httpx.AsyncClient
 
     @override
@@ -76,10 +82,13 @@ class BaseClient:
         self.name = name
         self.side = side
         self._timeout = timeout
+        self._connect_timeout = connect_timeout
+        self._headers = {"connection": "keep-alive", **(headers or {})}
+        self._verify = verify
         self._client = httpx.AsyncClient(
             base_url=self.base_url,
             timeout=httpx.Timeout(timeout, connect=connect_timeout),
-            headers={"connection": "keep-alive", **(headers or {})},
+            headers=self._headers,
             verify=verify,
         )
 

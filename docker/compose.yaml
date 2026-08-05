@@ -48,18 +48,21 @@ services:
 
   llm:
     <<: *jetson
-    image: ${LLM_IMAGE:-ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04}
+    image: kotonohainterpreter-llm
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.llm
+      args:
+        BASE_IMAGE: ${LLM_IMAGE:-ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04}
     environment:
       - KOTONOHA_CONFIG=/app/config/default.yaml
+      - KOTONOHA__LLM__MODELS_DIR=/models/llm
       - HF_HOME=/models/hf
       - TRANSFORMERS_OFFLINE=1
       - HF_HUB_OFFLINE=1
-      - LLM_PROFILE=${LLM_PROFILE:-dense}
-      - LLM_MODELS_DIR=/models/llm
-      - LLM_PORT=8003
-      - LLM_MAX_MODEL_LEN=${LLM_MAX_MODEL_LEN:-2048}
-      - LLM_GPU_MEMORY_UTILIZATION=${LLM_GPU_MEMORY_UTILIZATION:-0.55}
-    entrypoint: ["bash", "/app/scripts/run_vllm_llm.sh"]
+      - KOTONOHA__LLM__MAX_MODEL_LEN=${LLM_MAX_MODEL_LEN:-2048}
+      - KOTONOHA__LLM__GPU_MEMORY_UTILIZATION=${LLM_GPU_MEMORY_UTILIZATION:-0.55}
+    command: uvicorn kotonoha.services._llm_server:app --host 0.0.0.0 --port 8003 --loop uvloop
 
   tts:
     <<: *jetson

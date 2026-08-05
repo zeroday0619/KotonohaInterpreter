@@ -112,8 +112,9 @@ TLS reverse proxy in front of them.
 | Jetson ASR, Transformers fallback | `Qwen/Qwen3-ASR-0.6B-hf` |
 | A6000 primary ASR, vLLM | `mistralai/Voxtral-Mini-4B-Realtime-2602` |
 | TTS | `Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice` |
-| MoE translation model | `ELVISIO/Qwen3-30B-A3B-Instruct-2507-AWQ` |
-| Dense translation model | `Qwen/Qwen3-14B-AWQ` |
+| Jetson translation model | `google/translategemma-4b-it` |
+| A6000 translation model | `google/translategemma-12b-it` |
+| Translation runtime | In-process vLLM and FastAPI `/v1/realtime` WebSocket |
 | Jetson vLLM image | `ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04` |
 | A6000 vLLM image | `nvcr.io/nvidia/vllm:26.07-py3` |
 | TTS service image | `kotonohainterpreter-tts:latest` |
@@ -127,6 +128,11 @@ resident engine serves N-best five batch transcription and the vLLM realtime Web
 protocol at `/v1/realtime`; no nested vLLM HTTP server or per-request model load is used.
 The wrapper accepts both the vLLM 0.19 OpenAI module layout and the current
 `speech_to_text` layout because these are internal, version-sensitive interfaces.
+
+The translation FastAPI service owns a separate vLLM asynchronous engine and applies
+TranslateGemma's structured chat template with source and target language codes. Its
+`/v1/realtime` WebSocket emits translation deltas from the same resident engine; the
+compatibility HTTP stream does not start another model server.
 
 ## Scope Exclusions
 

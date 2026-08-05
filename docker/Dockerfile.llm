@@ -1,0 +1,32 @@
+# TranslateGemma service on the selected NVIDIA Tegra vLLM runtime.
+ARG BASE_IMAGE=ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04
+FROM ${BASE_IMAGE}
+ENTRYPOINT []
+
+COPY --from=ghcr.io/astral-sh/uv:0.12 /uv /uvx /bin/
+
+ENV UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    HF_HOME=/models/hf
+
+# Keep the vendor vLLM, Torch, and CUDA packages visible while installing the
+# application and its locked runtime dependencies in one environment.
+RUN uv venv --python /opt/venv/bin/python --system-site-packages /opt/kotonoha-venv
+ENV VIRTUAL_ENV=/opt/kotonoha-venv \
+    UV_PYTHON=/opt/kotonoha-venv/bin/python \
+    PATH=/opt/kotonoha-venv/bin:${PATH}
+
+WORKDIR /app
+COPY pyproject.toml uv.lock README.md LICENSE hatch_build.py ./
+RUN uv sync --active --frozen --no-dev --no-install-project --no-install-package numpy \
+      --no-cache
+
+COPY src ./src
+RUN uv sync --active --frozen --no-dev --no-install-package numpy --no-cache \
+ && uv pip check --python "$UV_PYTHON" \
+ && "$UV_PYTHON" -c \
+ "from importlib.util import find_spec; from pathlib import Path; import kotonoha, websockets; spec = find_spec('vllm'); assert spec and spec.submodule_search_locations, 'vLLM package missing'; root = Path(next(iter(spec.submodule_search_locations))); assert list(root.rglob('api_server.py')), 'vLLM async engine builder missing'; print('TranslateGemma service dependencies ok')"
+
+EXPOSE 8003
+CMD ["uvicorn", "kotonoha.services._llm_server:app", "--host", "0.0.0.0", "--port", "8003", "--loop", "uvloop"]

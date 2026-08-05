@@ -14,7 +14,7 @@ from kotonoha._config_store import validate_candidate
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEPLOY_SCRIPT = PROJECT_ROOT / "scripts" / "deploy.sh"
-LLM_SCRIPT = PROJECT_ROOT / "scripts" / "run_vllm_llm.sh"
+LLM_SERVER = PROJECT_ROOT / "src" / "kotonoha" / "services" / "_llm_server.py"
 TTS_SERVER = PROJECT_ROOT / "src" / "kotonoha" / "services" / "_tts_server.py"
 
 
@@ -125,14 +125,18 @@ def test_remote_services_default_to_mounted_offline_models() -> None:
     assert 'Voxtral-Mini-4B-Realtime-2602/config.json"' in deploy_script
     assert 'faster-whisper-large-v3/config.json"' in deploy_script
     assert 'Qwen3-TTS-0.6B/config.json"' in deploy_script
+    assert 'llm/translategemma-12b-it/config.json"' in deploy_script
+    assert remote_config["llm"]["profiles"]["translategemma"]["directory"] == (
+        "translategemma-12b-it"
+    )
 
 
-def test_remote_compose_uses_distinct_role_images_and_vllm_translation() -> None:
+def test_remote_compose_uses_distinct_role_images_and_in_process_translation() -> None:
     compose = yaml.safe_load(
         (PROJECT_ROOT / "docker" / "compose.remote.yaml").read_text(encoding="utf-8")
     )
     services = compose["services"]
-    python_roles = ("asr", "asr-verify")
+    python_roles = ("asr", "asr-verify", "llm")
 
     assert len({services[role]["image"] for role in python_roles}) == len(python_roles)
     assert {services[role]["build"]["target"] for role in python_roles} == set(python_roles)
@@ -140,11 +144,12 @@ def test_remote_compose_uses_distinct_role_images_and_vllm_translation() -> None
     assert services["tts"]["build"]["dockerfile"] == "docker/Dockerfile.tts"
     assert "vllm/vllm-omni:v0.26.0" in services["tts"]["build"]["args"]["BASE_IMAGE"]
 
-    assert "nvcr.io/nvidia/vllm:26.07-py3" in services["llm"]["image"]
-    assert services["llm"]["entrypoint"] == [
-        "bash",
-        "/opt/kotonoha/run_vllm_llm.sh",
+    assert services["llm"]["image"] == "kotonohainterpreter-llm"
+    assert services["llm"]["build"]["target"] == "llm"
+    assert "nvcr.io/nvidia/vllm:26.07-py3" in services["llm"]["build"]["args"][
+        "LLM_BASE_IMAGE"
     ]
+    assert "kotonoha.services._llm_server:app" in services["llm"]["command"]
     assert any(
         "KOTONOHA_SERVICE_TOKEN=" in value
         for value in services["llm"]["environment"]
@@ -179,15 +184,16 @@ def test_asr_images_use_target_vllm_runtimes_with_realtime_support_checks() -> N
         remote_dockerfile
     )
     assert "uv sync --active --frozen --no-dev" in remote_dockerfile
-    assert "--no-install-package numpy" not in remote_dockerfile
     assert "uv pip install --system" not in remote_dockerfile
-    final_sync = remote_dockerfile.rindex("uv sync --active")
-    numpy_override = remote_dockerfile.index(
+    asr_stage = remote_dockerfile.split("FROM ${LLM_BASE_IMAGE} AS llm", 1)[0]
+    assert "--no-install-package numpy" not in asr_stage
+    final_sync = asr_stage.rindex("uv sync --active")
+    numpy_override = asr_stage.index(
         '--reinstall-package numpy "numpy>=2,<2.3"'
     )
-    dependency_check = remote_dockerfile.index('uv pip check --python "$UV_PYTHON"')
+    dependency_check = asr_stage.index('uv pip check --python "$UV_PYTHON"')
     assert final_sync < numpy_override < dependency_check
-    assert 'uv pip check --python "$UV_PYTHON"' in remote_dockerfile
+    assert 'uv pip check --python "$UV_PYTHON"' in asr_stage
     assert "import kotonoha, mistral_common, numpy, scipy, sklearn, soundfile, soxr" in (
         remote_dockerfile
     )
@@ -424,77 +430,9 @@ exit 1
     assert not tuple(tmp_path.glob("kotonoha-uninstall.*"))
 
 
-def test_vllm_launcher_builds_the_authenticated_server_command(
-    _positional_only: object | None = None,
-    /,
-    *,
-    tmp_path: Path,
-) -> None:
-    model_path = tmp_path / "model"
-    model_path.mkdir()
-    (model_path / "config.json").write_text("{}", encoding="utf-8")
-    tool_directory = tmp_path / "tools"
-    tool_directory.mkdir()
-    capture_path = tmp_path / "arguments.txt"
+def test_llm_service_owns_the_engine_without_a_nested_server() -> None:
+    source = LLM_SERVER.read_text(encoding="utf-8")
 
-    _write_executable(
-        tool_directory / "vllm",
-        '#!/bin/sh\nprintf "%s\\n" "$@" > "$CAPTURE_PATH"\n',
-    )
-
-    environment = {
-        **os.environ,
-        "PATH": f"{tool_directory}:{os.environ['PATH']}",
-        "LLM_MODEL": str(model_path),
-        "CAPTURE_PATH": str(capture_path),
-        "KOTONOHA_SERVICE_TOKEN": "test-secret",
-        "KOTONOHA_LLM_CONFIG_ENV": str(tmp_path / "missing.env"),
-    }
-    result = subprocess.run(
-        ["bash", str(LLM_SCRIPT)],
-        cwd=PROJECT_ROOT,
-        env=environment,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert result.returncode == 0, result.stderr
-    arguments = capture_path.read_text(encoding="utf-8").splitlines()
-    assert arguments[:2] == ["serve", str(model_path)]
-    assert "--served-model-name" in arguments
-    assert "kotonoha-translation" in arguments
-    assert "--quantization" in arguments
-    assert "awq" in arguments
-    assert arguments[-2:] == ["--api-key", "test-secret"]
-
-
-def test_vllm_launcher_rejects_an_incomplete_model_snapshot(
-    _positional_only: object | None = None,
-    /,
-    *,
-    tmp_path: Path,
-) -> None:
-    tool_directory = tmp_path / "tools"
-    tool_directory.mkdir()
-    _write_executable(tool_directory / "vllm", "#!/bin/sh\nexit 0\n")
-    model_path = tmp_path / "model"
-    model_path.mkdir()
-
-    environment = {
-        **os.environ,
-        "PATH": f"{tool_directory}:{os.environ['PATH']}",
-        "LLM_MODEL": str(model_path),
-        "KOTONOHA_LLM_CONFIG_ENV": str(tmp_path / "missing.env"),
-    }
-    result = subprocess.run(
-        ["bash", str(LLM_SCRIPT)],
-        cwd=PROJECT_ROOT,
-        env=environment,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert result.returncode == 1
-    assert "vLLM model snapshot is incomplete" in result.stdout
+    assert "build_async_engine_client_from_engine_args" in source
+    assert "create_subprocess_exec" not in source
+    assert '"serve"' not in source

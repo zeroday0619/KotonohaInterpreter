@@ -8,7 +8,6 @@ reloaded in the request path; the response states that a service restart is requ
 from __future__ import annotations
 
 import os
-import shlex
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -67,32 +66,6 @@ def _serializable(
     return settings.model_dump(mode="json", exclude={"root"})
 
 
-def _write_llm_environment(
-    settings: Settings,
-    /,
-) -> None:
-    """Write values consumed by the vLLM launcher after the remote stack restarts."""
-    target_raw = os.environ.get("KOTONOHA_LLM_CONFIG_ENV")
-    if not target_raw:
-        return
-    target = Path(target_raw)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    values = {
-        "LLM_DTYPE": settings.llm.active.dtype,
-        "LLM_ENFORCE_EAGER": "1" if settings.llm.enforce_eager else "0",
-        "LLM_GPU_MEMORY_UTILIZATION": str(settings.llm.gpu_memory_utilization),
-        "LLM_MAX_MODEL_LEN": str(settings.llm.max_model_len),
-        "LLM_MAX_NUM_SEQS": str(settings.llm.max_num_seqs),
-        "LLM_PROFILE": settings.llm.profile,
-        "LLM_MODEL": str(settings.llm.model_path),
-        "LLM_MODELS_DIR": str(settings.llm.models_dir),
-        "LLM_QUANTIZATION": settings.llm.active.quantization,
-        "LLM_SERVED_MODEL_NAME": settings.llm.served_model_name,
-    }
-    content = "\n".join(f"export {key}={shlex.quote(value)}" for key, value in values.items())
-    target.write_text(content + "\n", encoding="utf-8")
-
-
 def snapshot() -> dict[str, Any]:
     target = local_config_path()
     settings = load_settings(_base_config_path())
@@ -107,13 +80,20 @@ def snapshot() -> dict[str, Any]:
 
 @router.get("/config")
 @keyword_compatible
-def get_config() -> dict[str, Any]:
+async def get_config() -> dict[str, Any]:
     return snapshot()
 
 
 @router.put("/config")
 @keyword_compatible
-def put_config(
+async def put_config(
+    update: ConfigUpdate,
+    /,
+) -> dict[str, Any]:
+    return _put_config(update)
+
+
+def _put_config(
     update: ConfigUpdate,
     /,
 ) -> dict[str, Any]:
@@ -125,6 +105,4 @@ def put_config(
     result = apply_changes(update.changes, _base_config_path(), target)
     if not result.written:
         raise HTTPException(422, result.error or "invalid configuration")
-    settings = load_settings(_base_config_path())
-    _write_llm_environment(settings)
     return snapshot()

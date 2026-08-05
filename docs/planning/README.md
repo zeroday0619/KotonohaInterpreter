@@ -53,8 +53,8 @@ Resolve hardware-dependent runtime decisions before feature acceptance begins.
 - Execute the embedded vLLM realtime WebSocket path on both targets.
 - Measure the Transformers fallback when vLLM fails or does not satisfy N-best.
 - Execute FlashAttention on sm_87 and measure vLLM-Omni Qwen3-TTS PCM streaming.
-- Measure MoE 30B-A3B and dense 14B AWQ generation through vLLM under the specified
-  conditions.
+- Measure TranslateGemma 4B on Jetson and 12B on A6000, including WebSocket deltas and
+  one-pass correction output through the in-process vLLM service.
 - Select configuration values from measured results.
 
 ### Deliverables
@@ -63,7 +63,7 @@ Resolve hardware-dependent runtime decisions before feature acceptance begins.
 |---|---|
 | `spikes/out/spike1.json` | ASR compatibility, N-best, realtime events, scores, and latency |
 | `spikes/out/spike2.json` | FlashAttention and TTS backend evidence |
-| `spikes/out/spike3.json` | MoE and dense LLM measurements |
+| `spikes/out/spike3.json` | TranslateGemma WebSocket and generation measurements |
 | `spikes/out/PHASE0.md` | Consolidated verdict and unresolved failures |
 | `spikes/out/local.yaml` | Measured Jetson configuration decisions |
 
@@ -235,7 +235,7 @@ fallbacks or phase acceptance.
 
 | Gate | Required evidence |
 |---|---|
-| Model-stage performance | A6000 ASR, TTS, MoE, and dense measurements |
+| Model-stage performance | A6000 ASR, TTS, and TranslateGemma measurements |
 | Concurrent residency | All four services healthy with `nvidia-smi` evidence |
 | Link acceptance | Jetson `netcheck` RTT and six-second PCM upload results |
 | Placement | Accepted `onboard`, `hybrid`, or `remote` configuration |

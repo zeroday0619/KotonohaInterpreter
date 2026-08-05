@@ -109,11 +109,31 @@ def test_spike_runner_keeps_target_outputs_separate() -> None:
     assert 'run --rm tts' in source
     assert 'run --rm llm' in source
     assert 'run --rm report' in source
-    assert "--vllm-command" in source
-    assert "Qwen/Qwen3-14B-AWQ" in spike3_source
-    assert "ELVISIO/Qwen3-30B-A3B-Instruct-2507-AWQ" in spike3_source
-    assert '"stream_options": {"include_usage": True}' in spike3_source
-    assert "llama-server" not in spike3_source
+    assert "--vllm-command" not in source
+    assert "google/translategemma-4b-it" in spike3_source
+    assert "google/translategemma-12b-it" in spike3_source
+    assert "kotonoha.services._llm_server:app" in spike3_source
+    assert '"/v1/realtime"' in spike3_source
+    assert '"serve"' not in spike3_source
+
+
+def test_translategemma_report_generates_profile_patch() -> None:
+    namespace = runpy.run_path(str(REPORT_SCRIPT))
+    patch = namespace["patch_yaml"](
+        None,
+        None,
+        {
+            "verdict": {
+                "llm_profile": "translategemma",
+                "tok_per_s": 12.5,
+                "ok": True,
+            }
+        },
+        "a6000",
+    )
+
+    assert "llm:" in patch
+    assert "profile: translategemma" in patch
 
 
 def test_spike_runner_preserves_compose_variables_through_sudo() -> None:
@@ -175,8 +195,7 @@ exit 0
     for model_directory in (
         "Voxtral-Mini-4B-Realtime-2602",
         "Qwen3-TTS-0.6B",
-        "llm/Qwen3-14B-AWQ",
-        "llm/Qwen3-30B-A3B-Instruct-2507-AWQ",
+        "llm/translategemma-12b-it",
     ):
         snapshot_directory = models_directory / model_directory
         snapshot_directory.mkdir(parents=True)
@@ -339,6 +358,8 @@ def test_hardware_spikes_use_target_specific_docker_images() -> None:
     assert "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice" in fetch_models_source
     assert "Qwen/Qwen3-ASR-0.6B" in fetch_models_source
     assert "mistralai/Voxtral-Mini-4B-Realtime-2602" in fetch_models_source
+    assert "google/translategemma-4b-it" in fetch_models_source
+    assert "google/translategemma-12b-it" in fetch_models_source
     assert '"/v1/audio/speech"' in spike2_source
     assert '"stream_format": "audio"' in spike2_source
     assert "probe_flash_attention" in spike2_source

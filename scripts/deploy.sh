@@ -31,7 +31,6 @@ docker_environment_names=(
   LLM_GPU_MEMORY_UTILIZATION
   LLM_IMAGE
   LLM_MAX_MODEL_LEN
-  LLM_PROFILE
   MODELS_DIR
   ORCH_BASE
   REMOTE_ASR_BASE
@@ -257,8 +256,7 @@ ensure_remote_environment() {
     printf 'REMOTE_ASR_BASE=%s\n' "$a6000_vllm_image"
     printf 'TTS_IMAGE=%s\n' "$vllm_omni_image"
     printf 'LLM_IMAGE=%s\n' "$a6000_vllm_image"
-    printf 'LLM_PROFILE=moe\n'
-    printf 'LLM_MAX_MODEL_LEN=4096\n'
+    printf 'LLM_MAX_MODEL_LEN=2048\n'
     printf 'LLM_GPU_MEMORY_UTILIZATION=0.55\n'
     printf 'GPU_ALLOCATION_MODE=auto\n'
     printf 'GPU_NAME_FILTER=A6000\n'
@@ -332,7 +330,7 @@ check_jetson_host() {
     || fail "Jetson deployment requires Jetson Linux 39.2"
   [ -d /dev/snd ] || fail "audio device directory is missing: /dev/snd"
   require_file "$repository_root/models/silero_vad.onnx"
-  require_file "$repository_root/models/llm/Qwen3-14B-AWQ/config.json"
+  require_file "$repository_root/models/llm/translategemma-4b-it/config.json"
   check_nvidia_container_runtime
 
   require_command nvpmodel
@@ -354,7 +352,7 @@ check_a6000_host() {
   require_command nvidia-smi
   nvidia-smi >/dev/null 2>&1 || fail "nvidia-smi cannot access the A6000"
   check_nvidia_container_runtime
-  require_file "$models_path/llm/Qwen3-30B-A3B-Instruct-2507-AWQ/config.json"
+  require_file "$models_path/llm/translategemma-12b-it/config.json"
 }
 
 load_gpu_environment() {
@@ -575,6 +573,7 @@ uninstall_jetson() {
   if [ "$remove_images" = true ]; then
     remove_project_image kotonohainterpreter-asr
     remove_project_image kotonohainterpreter-asr-verify
+    remove_project_image kotonohainterpreter-llm
     remove_project_image kotonohainterpreter-tts
     remove_project_image kotonohainterpreter-orchestrator
   fi
@@ -610,10 +609,11 @@ uninstall_a6000() {
   if [ "$remove_images" = true ]; then
     remove_project_image kotonohainterpreter-asr
     remove_project_image kotonohainterpreter-asr-verify
+    remove_project_image kotonohainterpreter-llm
     remove_project_image kotonohainterpreter-tts
   fi
 
-  printf 'Preserved: config/remote-server.local.yaml, config/remote-llm.env, config/remote-gpu.env, .env, models/, and the NVIDIA NGC vLLM image.\n'
+  printf 'Preserved: config/remote-server.local.yaml, config/remote-gpu.env, .env, models/, and the NVIDIA NGC vLLM image.\n'
 }
 
 case "$operation:$deployment_target" in

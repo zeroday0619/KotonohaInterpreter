@@ -1,14 +1,19 @@
-"""vLLM translation client using the OpenAI-compatible streaming API."""
+"""TranslateGemma client using the resident service's WebSocket stream."""
 
 from __future__ import annotations
 
+import asyncio
 import json
+import ssl
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
+from websockets.asyncio.client import connect
+from websockets.exceptions import WebSocketException
 
 from kotonoha._config import LanguageModelConfig
 from kotonoha._logging_setup import get_logger
@@ -106,56 +111,58 @@ class LanguageModelClient(BaseClient):
     async def stream_chat(
         self,
         /,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         statistics: GenerationStatistics | None = None,
         max_tokens: int | None = None,
     ) -> AsyncIterator[str]:
         """Yield content deltas one at a time."""
         generation_statistics = statistics or GenerationStatistics()
         payload = {
+            "type": "translation.create",
             "model": self.config.served_model_name,
             "messages": messages,
             "temperature": self.config.temperature,
             "top_p": self.config.top_p,
             "repetition_penalty": self.config.repetition_penalty,
             "max_tokens": max_tokens or self.config.max_tokens,
-            "stream": True,
-            "stream_options": {"include_usage": True},
         }
         try:
-            timeout = httpx.Timeout(120.0, connect=2.0)
-            async with self._client.stream(
-                "POST", "/v1/chat/completions", json=payload, timeout=timeout
-            ) as response:
-                response.raise_for_status()
-                async for line in response.aiter_lines():
-                    if not line or not line.startswith("data:"):
+            async with connect(
+                _websocket_url(self.base_url),
+                additional_headers=_websocket_headers(self._headers),
+                open_timeout=self._connect_timeout,
+                ssl=_websocket_ssl(self.base_url, self._verify),
+            ) as websocket:
+                await websocket.send(json.dumps(payload, ensure_ascii=False))
+                while True:
+                    raw_event = await asyncio.wait_for(websocket.recv(), self._timeout)
+                    decoded_event = json.loads(raw_event)
+                    event_type = decoded_event.get("type")
+                    if event_type == "session.created":
                         continue
-                    event_data = line[5:].strip()
-                    if event_data == "[DONE]":
+                    if event_type == "error":
+                        raise ServiceError(
+                            f"llm application error: {decoded_event.get('error', 'unknown')}"
+                        )
+                    if event_type == "translation.done":
+                        completion_tokens = (decoded_event.get("usage") or {}).get(
+                            "completion_tokens"
+                        )
+                        if isinstance(completion_tokens, int):
+                            generation_statistics.token_count = completion_tokens
                         break
-                    try:
-                        decoded_event = json.loads(event_data)
-                    except json.JSONDecodeError:
+                    if event_type != "translation.delta":
                         continue
-                    completion_tokens = (decoded_event.get("usage") or {}).get(
-                        "completion_tokens"
-                    )
-                    if isinstance(completion_tokens, int):
-                        generation_statistics.token_count = completion_tokens
-                    choices = decoded_event.get("choices") or []
-                    if not choices:
-                        continue
-                    delta = (choices[0].get("delta") or {}).get("content")
-                    if not delta:
+                    delta = decoded_event.get("delta")
+                    if not isinstance(delta, str) or not delta:
                         continue
                     generation_statistics.token_count += 1
                     if generation_statistics.first_token_at is None:
                         generation_statistics.first_token_at = time.perf_counter()
                     yield delta
-        except httpx.TimeoutException as error:
+        except asyncio.TimeoutError as error:
             raise ServiceTimeout("llm stream timeout") from error
-        except httpx.HTTPError as error:
+        except (OSError, WebSocketException, json.JSONDecodeError) as error:
             raise ServiceError(f"llm transport error: {error!r}") from error
         finally:
             generation_statistics.finished_at = time.perf_counter()
@@ -181,3 +188,37 @@ def _safe_json(
         return response.json()
     except Exception:  # noqa: BLE001
         return {}
+
+
+def _websocket_url(
+    base_url: str,
+    /,
+) -> str:
+    parts = urlsplit(base_url)
+    scheme = "wss" if parts.scheme == "https" else "ws"
+    path = f"{parts.path.rstrip('/')}/v1/realtime"
+    return urlunsplit((scheme, parts.netloc, path, "", ""))
+
+
+def _websocket_headers(
+    headers: dict[str, str],
+    /,
+) -> dict[str, str]:
+    return {name: value for name, value in headers.items() if name.lower() != "connection"}
+
+
+def _websocket_ssl(
+    base_url: str,
+    verify: bool | ssl.SSLContext,
+    /,
+) -> ssl.SSLContext | None:
+    if not base_url.startswith("https://"):
+        return None
+    if isinstance(verify, ssl.SSLContext):
+        return verify
+    if verify:
+        return ssl.create_default_context()
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    return context

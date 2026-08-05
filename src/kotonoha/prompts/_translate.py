@@ -14,6 +14,8 @@ the source first would delay the first audio by exactly its length.
 
 from __future__ import annotations
 
+from typing import Any
+
 from kotonoha._languages import LANGUAGE_NAMES, LANGUAGE_NATIVE_NAMES
 from kotonoha.store._db import GlossaryEntry, TurnRecord
 
@@ -81,7 +83,7 @@ def build_translate_messages(
     glossary: list[GlossaryEntry] | None = None,
     verify_hypothesis: str | None = None,
     verify_divergent: bool = False,
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     system = SYSTEM.format(
         source_name=LANGUAGE_NAMES.get(source_language, source_language),
         target_name=LANGUAGE_NAMES.get(target_language, target_language),
@@ -125,9 +127,19 @@ def build_translate_messages(
         f"Now output the {LANGUAGE_NAMES.get(target_language, target_language)} translation."
     )
 
+    prompt = f"{system}\n\n" + "\n\n".join(blocks)
     return [
-        {"role": "system", "content": system},
-        {"role": "user", "content": "\n\n".join(blocks)},
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "source_lang_code": source_language,
+                    "target_lang_code": target_language,
+                    "text": prompt,
+                }
+            ],
+        }
     ]
 
 

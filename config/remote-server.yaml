@@ -3,7 +3,7 @@
 # Only the model sections matter here. perf_mode, placement and remote are the
 # orchestrator's business; a service does not know or care where its caller is.
 #
-# The A6000 profile uses fp16 ASR verification and the MoE translation model.
+# The A6000 profile uses fp16 ASR verification and TranslateGemma.
 # Deployment acceptance requires measurements on this host.
 
 asr:
@@ -32,9 +32,15 @@ asr_verify:
   timeout_s: 5.0
 
 llm:
-  profile: moe
+  profile: translategemma
+  profiles:
+    translategemma:
+      repo: google/translategemma-12b-it
+      directory: translategemma-12b-it
+      quantization: null
+      dtype: bfloat16
   models_dir: /models/llm
-  max_model_len: 4096
+  max_model_len: 2048
   gpu_memory_utilization: 0.55
   max_tokens: 768
 

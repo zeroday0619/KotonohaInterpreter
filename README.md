@@ -29,11 +29,12 @@ remain provisional until measured on their deployment hosts:
 |---|---|---|---|
 | Primary ASR runtime | `asr.backend` | `vllm` | Spike 1 acceptance measurement |
 | TTS backend | `tts.backend` | `vllm_omni` | Spike 2 |
-| Translation model class | `llm.profile` | `dense` | Spike 3 |
+| Translation model | `llm.profile` | `translategemma` | Spike 3 |
 
-The primary ASR and translation services use resident vLLM engines. TTS uses the
-vLLM-Omni Speech API with the local Qwen3-TTS snapshot. Translation retains the
-OpenAI-compatible clause stream and uses local AWQ model snapshots. Spikes 1-3
+The primary ASR and translation FastAPI services own resident vLLM engines. TTS uses the
+vLLM-Omni Speech API with the local Qwen3-TTS snapshot. Translation uses TranslateGemma
+4B on Jetson and 12B on A6000, streaming through `/v1/realtime` WebSocket without a
+nested vLLM HTTP server. Spikes 1-3
 must still verify model loading, concurrent residency, latency, throughput, and sm_87
 behavior on the Jetson. No target compatibility or performance result is claimed without
 target measurement. The [Implementation Plan](docs/planning/README.md) defines the phase

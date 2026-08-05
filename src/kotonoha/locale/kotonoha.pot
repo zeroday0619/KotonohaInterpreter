@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Kotonoha Interpreter 0.1.0\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-05 22:54+0900\n"
+"POT-Creation-Date: 2026-08-06 02:44+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -566,7 +566,7 @@ msgid "Speech onset probability, 0 to 1."
 msgstr ""
 
 #: kotonoha/tui/_config_app.py:211
-msgid "moe selects the 30B mixture-of-experts model; dense selects the 14B model."
+msgid "Selects the target-specific TranslateGemma translation model."
 msgstr ""
 
 #: kotonoha/tui/_config_app.py:214

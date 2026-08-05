@@ -126,19 +126,15 @@ asr_verify:
   divergence_cer: 0.25
 
 llm:
-  # [SPIKE-3] Fall back to profile: dense if measured tok/s is under 5.0.
-  profile: dense # moe | dense
+  # Jetson uses 4B. The remote service overlay replaces this snapshot with 12B.
+  # Spike 3 must verify generation rate and one-pass ASR correction on each target.
+  profile: translategemma
   profiles:
-    moe:
-      repo: ELVISIO/Qwen3-30B-A3B-Instruct-2507-AWQ
-      directory: Qwen3-30B-A3B-Instruct-2507-AWQ
-      quantization: awq
-      dtype: half
-    dense:
-      repo: Qwen/Qwen3-14B-AWQ
-      directory: Qwen3-14B-AWQ
-      quantization: awq
-      dtype: half
+    translategemma:
+      repo: google/translategemma-4b-it
+      directory: translategemma-4b-it
+      quantization: null
+      dtype: bfloat16
   models_dir: ./models/llm
   served_model_name: kotonoha-translation
   max_model_len: 2048
@@ -146,9 +142,9 @@ llm:
   max_num_seqs: 1
   # Eager mode remains enabled until CUDA graph behavior is measured on each target.
   enforce_eager: true
-  temperature: 0.2
-  top_p: 0.9
-  repetition_penalty: 1.05
+  temperature: 0.0
+  top_p: 1.0
+  repetition_penalty: 1.0
   max_tokens: 512
   stream: true
   timeout_s: 3.0 # §10: on timeout, show the transcript only and skip TTS
