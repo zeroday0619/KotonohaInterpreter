@@ -30,7 +30,17 @@ x-spike-runtime: &spike-runtime
 services:
   asr:
     <<: *spike-runtime
-    image: ${SPIKE_VLLM_IMAGE:-ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04}
+    image: ${SPIKE_ASR_IMAGE:-kotonohainterpreter-spike-asr}
+    environment:
+      HOME: /tmp/kotonoha-spike
+      HF_HOME: /models/hf
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      NVIDIA_VISIBLE_DEVICES: ${SPIKE_GPU_DEVICE:-all}
+      KOTONOHA_SPIKE_IMAGE: ${SPIKE_ASR_IMAGE:-kotonohainterpreter-spike-asr}
+      SPIKE_GROUP_ID: ${SPIKE_GROUP_ID:-0}
+      SPIKE_PYTHON: ${SPIKE_PYTHON:-python3}
+      SPIKE_USER_ID: ${SPIKE_USER_ID:-0}
     entrypoint: ["bash", "spikes/container_entrypoint.sh", "spikes/spike1_asr_load.py"]
 
   tts:

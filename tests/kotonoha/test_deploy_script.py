@@ -219,7 +219,7 @@ def test_editable_container_installs_include_the_custom_build_hook() -> None:
     for dockerfile_path in standalone_dockerfiles:
         dockerfile = dockerfile_path.read_text(encoding="utf-8")
         assert required_copy in dockerfile
-        editable_install = "uv pip install --no-cache --no-deps -e ."
+        editable_install = "--no-cache --no-deps -e ."
         assert dockerfile.index(required_copy) < dockerfile.index(editable_install)
 
     remote_dockerfile = (PROJECT_ROOT / "docker" / "Dockerfile.remote").read_text(

@@ -12,6 +12,7 @@ from pathlib import Path
 import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+ASR_DOCKERFILE = PROJECT_ROOT / "docker" / "Dockerfile.asr"
 PERFORMANCE_DOCUMENT = PROJECT_ROOT / "docs" / "performance" / "measurement.md"
 REPORT_SCRIPT = PROJECT_ROOT / "spikes" / "report.py"
 RUNNER_SCRIPT = PROJECT_ROOT / "spikes" / "run_all.sh"
@@ -19,6 +20,7 @@ SPIKE_README = PROJECT_ROOT / "spikes" / "README.md"
 SPIKE3_SCRIPT = PROJECT_ROOT / "spikes" / "spike3_llm_tokrate.py"
 SPIKE_COMPOSE = PROJECT_ROOT / "docker" / "compose.spikes.yaml"
 SPIKE_ENTRYPOINT = PROJECT_ROOT / "spikes" / "container_entrypoint.sh"
+TTS_DOCKERFILE = PROJECT_ROOT / "docker" / "Dockerfile.tts"
 PROJECT_CONFIGURATION = PROJECT_ROOT / "pyproject.toml"
 
 
@@ -155,6 +157,7 @@ def test_performance_document_owns_measurement_procedure() -> None:
 
 
 def test_hardware_spikes_use_target_specific_docker_images() -> None:
+    asr_dockerfile = ASR_DOCKERFILE.read_text(encoding="utf-8")
     project_configuration = PROJECT_CONFIGURATION.read_text(encoding="utf-8")
     performance_document = PERFORMANCE_DOCUMENT.read_text(encoding="utf-8")
     runner_source = RUNNER_SCRIPT.read_text(encoding="utf-8")
@@ -172,8 +175,14 @@ def test_hardware_spikes_use_target_specific_docker_images() -> None:
         for service in compose["services"].values()
     )
     assert all("SPIKE_PYTHON" in service["environment"] for service in compose["services"].values())
+    assert "SPIKE_ASR_IMAGE" in compose["services"]["asr"]["image"]
+    assert 'build_asr_image()' in runner_source
+    assert '--file docker/Dockerfile.asr' in runner_source
+    assert 'SPIKE_ASR_IMAGE=$SPIKE_ASR_IMAGE' in runner_source
     assert 'SPIKE_PYTHON:=/opt/venv/bin/python' in runner_source
     assert 'SPIKE_PYTHON:=python3' in runner_source
+    assert 'UV_PYTHON=/opt/venv/bin/python' in asr_dockerfile
+    assert 'uv pip install --python "$UV_PYTHON"' in asr_dockerfile
     assert "r36.4.tegra-aarch64-cu126-22.04" in compose_source
     assert "nvcr.io/nvidia/vllm:26.07-py3" in runner_source
     assert "bash scripts/manage.sh benchmark a6000 --only 1" in performance_document
@@ -187,3 +196,12 @@ def test_spike_entrypoint_restores_output_ownership_contract() -> None:
     assert 'chown "${SPIKE_USER_ID}:${SPIKE_GROUP_ID}" "$output_path"' in source
     assert '"$SPIKE_PYTHON" "$@"' in source
     assert 'exit "$command_status"' in source
+
+
+def test_jetson_tts_image_installs_native_audio_tools() -> None:
+    source = TTS_DOCKERFILE.read_text(encoding="utf-8")
+
+    assert "libsndfile1 sox libsox-fmt-all" in source
+    assert "sox --version" in source
+    assert '"$UV_PYTHON" -c' in source
+    assert "import soxr, torch" in source

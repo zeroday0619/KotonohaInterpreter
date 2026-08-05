@@ -96,7 +96,8 @@ the standard sudo policy removes exported shell variables.
 |---|---|
 | `MODELS_DIR` | Model download and validation root |
 | `KOTONOHA_SERVICE_TOKEN` | Remote service authentication and link benchmark |
-| `SPIKE_VLLM_IMAGE` | Hardware Spike ASR and LLM image override |
+| `SPIKE_VLLM_IMAGE` | Hardware Spike vendor vLLM image override |
+| `SPIKE_ASR_IMAGE` | Hardware Spike prepared ASR image override |
 | `SPIKE_TTS_IMAGE` | Hardware Spike TTS image override |
 | `SPIKE_GPU_DEVICE` | GPU exposed to Spike containers |
 | `OUT` | Hardware Spike output directory |

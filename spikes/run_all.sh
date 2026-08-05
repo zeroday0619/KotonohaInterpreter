@@ -64,7 +64,11 @@ esac
 docker_command=(docker)
 docker_display_command="docker"
 docker_requires_sudo=false
+asr_image_was_configured=false
 tts_image_was_configured=false
+if [ -n "${SPIKE_ASR_IMAGE:-}" ]; then
+  asr_image_was_configured=true
+fi
 if [ -n "${SPIKE_TTS_IMAGE:-}" ]; then
   tts_image_was_configured=true
 fi
@@ -90,6 +94,7 @@ configure_docker_access() {
 configure_target() {
   if [ "$deployment_target" = "jetson" ]; then
     : "${SPIKE_VLLM_IMAGE:=ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04}"
+    : "${SPIKE_ASR_IMAGE:=kotonohainterpreter-spike-asr:jetson}"
     : "${SPIKE_TTS_IMAGE:=kotonohainterpreter-spike-tts:jetson}"
     : "${SPIKE_GPU_DEVICE:=all}"
     : "${SPIKE_PYTHON:=/opt/venv/bin/python}"
@@ -99,6 +104,7 @@ configure_target() {
     patch_name=local.yaml
   else
     : "${SPIKE_VLLM_IMAGE:=nvcr.io/nvidia/vllm:26.07-py3}"
+    : "${SPIKE_ASR_IMAGE:=kotonohainterpreter-spike-asr:a6000}"
     : "${SPIKE_TTS_IMAGE:=kotonohainterpreter-spike-tts:a6000}"
     : "${SPIKE_GPU_DEVICE:=0}"
     : "${SPIKE_PYTHON:=python3}"
@@ -120,21 +126,57 @@ configure_target() {
   esac
   : "${SPIKE_USER_ID:=$(id -u)}"
   : "${SPIKE_GROUP_ID:=$(id -g)}"
-  export MODELS_DIR OUT SPIKE_GPU_DEVICE SPIKE_GROUP_ID SPIKE_TTS_IMAGE
-  export SPIKE_PYTHON SPIKE_USER_ID SPIKE_VLLM_IMAGE
+  export MODELS_DIR OUT SPIKE_ASR_IMAGE SPIKE_GPU_DEVICE SPIKE_GROUP_ID
+  export SPIKE_PYTHON SPIKE_TTS_IMAGE SPIKE_USER_ID SPIKE_VLLM_IMAGE
+}
+
+build_asr_image() {
+  if [ "$asr_image_was_configured" = true ]; then
+    "${docker_command[@]}" image inspect "$SPIKE_ASR_IMAGE" >/dev/null 2>&1 || {
+      printf 'Configured ASR spike image is missing: %s\n' "$SPIKE_ASR_IMAGE" >&2
+      exit 1
+    }
+    return
+  fi
+  if [ "${SPIKE_SKIP_BUILD:-0}" = "1" ]; then
+    "${docker_command[@]}" image inspect "$SPIKE_ASR_IMAGE" >/dev/null 2>&1 || {
+      printf 'Required ASR spike image is missing: %s\n' "$SPIKE_ASR_IMAGE" >&2
+      exit 1
+    }
+    return
+  fi
+
+  printf 'Building ASR spike image: %s\n' "$SPIKE_ASR_IMAGE"
+  if [ "$deployment_target" = "jetson" ]; then
+    "${docker_command[@]}" build \
+      --build-arg "BASE_IMAGE=$SPIKE_VLLM_IMAGE" \
+      --file docker/Dockerfile.asr \
+      --tag "$SPIKE_ASR_IMAGE" \
+      .
+  else
+    "${docker_command[@]}" build \
+      --build-arg "ASR_BASE_IMAGE=$SPIKE_VLLM_IMAGE" \
+      --file docker/Dockerfile.remote \
+      --target asr \
+      --tag "$SPIKE_ASR_IMAGE" \
+      .
+  fi
 }
 
 build_tts_image() {
-  if "${docker_command[@]}" image inspect "$SPIKE_TTS_IMAGE" >/dev/null 2>&1; then
+  if [ "$tts_image_was_configured" = true ]; then
+    "${docker_command[@]}" image inspect "$SPIKE_TTS_IMAGE" >/dev/null 2>&1 || {
+      printf 'Configured TTS spike image is missing: %s\n' "$SPIKE_TTS_IMAGE" >&2
+      exit 1
+    }
     return
   fi
-  if [ "$tts_image_was_configured" = true ]; then
-    printf 'Configured TTS spike image is missing: %s\n' "$SPIKE_TTS_IMAGE" >&2
-    exit 1
-  fi
   if [ "${SPIKE_SKIP_BUILD:-0}" = "1" ]; then
-    printf 'Required TTS spike image is missing: %s\n' "$SPIKE_TTS_IMAGE" >&2
-    exit 1
+    "${docker_command[@]}" image inspect "$SPIKE_TTS_IMAGE" >/dev/null 2>&1 || {
+      printf 'Required TTS spike image is missing: %s\n' "$SPIKE_TTS_IMAGE" >&2
+      exit 1
+    }
+    return
   fi
 
   printf 'Building TTS spike image: %s\n' "$SPIKE_TTS_IMAGE"
@@ -196,6 +238,9 @@ configure_docker_access
   printf 'Docker Compose plugin is unavailable.\n' >&2
   exit 1
 }
+if [ "$selected_spike" = "1" ] || [ "$selected_spike" = "all" ]; then
+  build_asr_image
+fi
 if [ "$selected_spike" = "2" ] || [ "$selected_spike" = "all" ]; then
   build_tts_image
 fi
@@ -204,6 +249,7 @@ mkdir -p "$OUT"
 compose_environment=(
   "MODELS_DIR=$MODELS_DIR"
   "OUT=$OUT"
+  "SPIKE_ASR_IMAGE=$SPIKE_ASR_IMAGE"
   "SPIKE_GPU_DEVICE=$SPIKE_GPU_DEVICE"
   "SPIKE_GROUP_ID=$SPIKE_GROUP_ID"
   "SPIKE_PYTHON=$SPIKE_PYTHON"
@@ -222,6 +268,7 @@ printf 'Hardware spike target: %s\n' "$deployment_target"
 printf 'Selected spike: %s\n' "$selected_spike"
 printf 'Docker command: %s\n' "$docker_display_command"
 printf 'vLLM image: %s\n' "$SPIKE_VLLM_IMAGE"
+printf 'ASR image: %s\n' "$SPIKE_ASR_IMAGE"
 printf 'TTS image: %s\n' "$SPIKE_TTS_IMAGE"
 printf 'GPU selection: %s\n' "$SPIKE_GPU_DEVICE"
 printf 'Output directory: %s\n' "$OUT"
