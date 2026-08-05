@@ -464,6 +464,23 @@ verify_vllm_cuda_runtime() {
     || fail "$service_name container cannot initialize the CUDA runtime and vLLM"
 }
 
+verify_a6000_asr_configuration() {
+  local compose_file=$1
+  local compose_environment_file=$2
+  local minimum_gpu_memory_utilization=0.28
+  local compose_arguments=(compose)
+  if [ -n "$compose_environment_file" ]; then
+    compose_arguments+=(--env-file "$compose_environment_file")
+  fi
+  compose_arguments+=(-f "$compose_file")
+
+  run_docker "${compose_arguments[@]}" run --rm --no-deps \
+    --entrypoint python3 asr -c \
+    'import sys; from kotonoha._config import load_settings; value = load_settings().asr.vllm_gpu_memory_utilization; minimum = float(sys.argv[1]); value >= minimum or sys.exit(f"effective asr.vllm_gpu_memory_utilization is {value}; expected at least {minimum}. Remove KOTONOHA__ASR__VLLM_GPU_MEMORY_UTILIZATION or update config/remote-server.local.yaml."); print(f"Effective A6000 ASR GPU memory utilization: {value:.2f}")' \
+    "$minimum_gpu_memory_utilization" \
+    || fail "A6000 ASR configuration cannot provide the measured Voxtral KV-cache budget"
+}
+
 verify_vllm_omni_cuda_runtime() {
   local compose_file=$1
   local compose_environment_file=$2
@@ -545,6 +562,7 @@ deploy_a6000() {
   if [ "$build_images" = true ]; then
     "${compose_command[@]}" build asr asr-verify tts
   fi
+  verify_a6000_asr_configuration "$compose_file" "$environment_file"
   verify_vllm_cuda_runtime "$compose_file" "$environment_file" asr
   verify_vllm_cuda_runtime "$compose_file" "$environment_file" llm
   verify_vllm_omni_cuda_runtime "$compose_file" "$environment_file"

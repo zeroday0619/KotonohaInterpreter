@@ -137,6 +137,7 @@ requests. Treat this as a deployment failure on the A6000.
 | LLM reports that `vllm` is unavailable | Inspect the selected LLM image | Restore the pinned vLLM image and recreate the container |
 | Jetson ASR cannot find the model offline | Inspect `asr.vllm_model_id` | Set `/models/Qwen3-ASR-0.6B` in the Jetson override |
 | A6000 ASR cannot find the model offline | Inspect `asr.vllm_model_id` | Set `/models/Voxtral-Mini-4B-Realtime-2602` in the remote override |
+| A6000 ASR reports insufficient KV cache | Inspect the effective utilization printed by deployment and any ASR environment override | Remove the stale environment override or set `asr.vllm_gpu_memory_utilization` to at least 0.28 in the remote override, then redeploy |
 | Realtime ASR WebSocket fails | Inspect `/v1/realtime`, service logs, and the configured realtime architecture | Restore the target model and architecture pair; rerun Spike 1 |
 | Verification downloads `large-v3` | Inspect `asr_verify.model_id` | Set `/models/faster-whisper-large-v3` |
 | LLM reports an incomplete model snapshot | Inspect `/models/llm` and the remote YAML | Correct `llm.models_dir`, profile, or model directory; restart `llm` |

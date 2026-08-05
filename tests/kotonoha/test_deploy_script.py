@@ -134,6 +134,22 @@ def test_remote_services_default_to_mounted_offline_models() -> None:
     )
 
 
+def test_a6000_deploy_rejects_a_stale_asr_memory_override_before_start() -> None:
+    deploy_script = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+    deploy_body = deploy_script.split("deploy_a6000() {", 1)[1].split(
+        "remove_project_image() {", 1
+    )[0]
+
+    assert "minimum_gpu_memory_utilization=0.28" in deploy_script
+    assert "load_settings().asr.vllm_gpu_memory_utilization" in deploy_script
+    assert "update config/remote-server.local.yaml" in deploy_script
+    validation_call = (
+        'verify_a6000_asr_configuration "$compose_file" "$environment_file"'
+    )
+    assert validation_call in deploy_body
+    assert deploy_body.index(validation_call) < deploy_body.index("up -d")
+
+
 def test_remote_compose_uses_distinct_role_images_and_in_process_translation() -> None:
     compose = yaml.safe_load(
         (PROJECT_ROOT / "docker" / "compose.remote.yaml").read_text(encoding="utf-8")

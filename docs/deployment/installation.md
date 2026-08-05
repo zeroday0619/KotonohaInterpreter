@@ -725,6 +725,12 @@ resident and retain the resulting evidence. The allocator rejects a placement wh
 eligible GPU has enough remaining capacity; the current guarded role budgets do not fit
 on one 48 GiB A6000 with the safety reserve.
 
+Before starting the services, the deployment script resolves the ASR configuration inside
+the built container and rejects an effective value below 0.28. This catches an older
+`config/remote-server.local.yaml` value or a
+`KOTONOHA__ASR__VLLM_GPU_MEMORY_UTILIZATION` environment override that would otherwise
+silently take precedence over `config/remote-server.yaml`.
+
 For fixed placement, set `GPU_ALLOCATION_MODE=manual` and define every device by stable
 GPU UUID:
 
