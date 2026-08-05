@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Kotonoha Interpreter 0.1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-06 02:44+0900\n"
+"POT-Creation-Date: 2026-08-06 02:55+0900\n"
 "PO-Revision-Date: 2026-08-05 15:30+0900\n"
 "Last-Translator: Kotonoha Interpreter\n"
 "Language: zh_TW\n"
@@ -1092,3 +1092,4 @@ msgstr "正在停止處理程序"
 
 #~ msgid "moe selects the 30B mixture-of-experts model; dense selects the 14B model."
 #~ msgstr "moe 選用 30B 混合專家模型，dense 選用 14B 模型。"
+
