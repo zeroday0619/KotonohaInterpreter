@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 START_MARKER = "nvml_available = False\ntry:\n"
-END_MARKER = "if nvml_available:"
+SHUTDOWN_MARKER = "pynvml.nvmlShutdown()"
 SWITCH_MARKER = "KOTONOHA_DISABLE_NVML"
 
 
@@ -33,11 +33,17 @@ def _patch_file(
     start = source.find(START_MARKER)
     if start < 0:
         raise RuntimeError(f"vLLM NVML detection block not found: {path}")
-    end = source.rfind(END_MARKER)
+    shutdown = source.find(SHUTDOWN_MARKER, start)
+    if shutdown < 0:
+        raise RuntimeError(f"vLLM NVML shutdown call not found: {path}")
+    end = source.find("\n", shutdown)
     if end < 0:
-        raise RuntimeError(f"vLLM NVML shutdown block not found: {path}")
+        end = len(source)
+    else:
+        end += 1
 
-    block = source[start:end]
+    assignment_end = start + len("nvml_available = False\n")
+    block = source[assignment_end:end]
     indented_block = "\n".join(
         f"    {line}" if line else line for line in block.splitlines()
     )

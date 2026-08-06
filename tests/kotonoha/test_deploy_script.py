@@ -526,6 +526,7 @@ def test_vllm_nvml_patch_generates_valid_guarded_source(
     compile(patched_source, str(cuda_source), "exec")
     assert 'os.environ.get("KOTONOHA_DISABLE_NVML") != "1"' in patched_source
     assert patched_source.count("KOTONOHA_DISABLE_NVML") == 1
+    assert "pynvml.nvmlShutdown()" in patched_source
 
 
 def test_remote_lock_and_dockerfile_use_target_specific_python_environments() -> None:
