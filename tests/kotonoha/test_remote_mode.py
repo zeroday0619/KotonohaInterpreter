@@ -58,6 +58,21 @@ def test_remote_moves_everything_and_flags_the_audio() -> None:
     assert s.audio_leaves_device
 
 
+def test_custom_mode_selects_each_role_independently() -> None:
+    s = _settings(
+        perf_mode="custom",
+        placement={"asr": "remote", "llm": "remote", "tts": "local"},
+    )
+    s.remote.enabled = True
+    assert s.resolved_placement() == {
+        "asr": "remote",
+        "asr_verify": "local",
+        "llm": "remote",
+        "tts": "local",
+    }
+    assert s.audio_leaves_device
+
+
 def test_disabled_remote_collapses_to_local() -> None:
     """A mode pointing at an unreachable box would just be a per-turn timeout."""
     s = _settings(perf_mode="remote")

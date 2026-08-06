@@ -367,13 +367,15 @@ Do not duplicate the translation and TTS tail for text mode.
 
 ### High-performance mode
 
-`perf_mode` controls role placement:
+`perf_mode` controls role placement. `custom` reads the `placement` mapping, and each
+role accepts `local` or `remote`.
 
 | Mode | Placement |
 |---|---|
 | `onboard` | All roles on Jetson |
 | `hybrid` | LLM remote; audio roles remain on Jetson |
 | `remote` | ASR, verification ASR, LLM, and TTS remote |
+| `custom` | Each role follows the `placement` mapping |
 
 Preserve these contracts:
 

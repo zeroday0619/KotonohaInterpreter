@@ -127,6 +127,7 @@ SQLite backup is mandatory before changes that affect storage models.
 - Block outbound network access after container images and model artifacts are staged if
   full offline operation is required.
 - Use `hybrid` mode when utterance audio must remain on the Jetson.
+- Use `custom` mode when only selected model roles should use the A6000.
 - Add operator-managed TLS before routing service traffic across an untrusted network.
 
 ### Authentication Boundaries

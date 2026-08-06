@@ -238,7 +238,7 @@ fallbacks or phase acceptance.
 | Model-stage performance | A6000 ASR, TTS, and TranslateGemma measurements |
 | Concurrent residency | All four services healthy with `nvidia-smi` evidence |
 | Link acceptance | Jetson `netcheck` RTT and six-second PCM upload results |
-| Placement | Accepted `onboard`, `hybrid`, or `remote` configuration |
+| Placement | Accepted `onboard`, `hybrid`, `remote`, or `custom` configuration |
 | Recovery | Transport failures complete through resident Jetson fallbacks |
 | Security | Bearer authentication and restricted service ports |
 

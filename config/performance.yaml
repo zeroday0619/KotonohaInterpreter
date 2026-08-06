@@ -9,7 +9,7 @@
 # Before switching: run `kotonoha netcheck`. Every remote stage pays the RTT,
 # and §6 leaves no slack for a link that does not hold.
 
-perf_mode: remote # hybrid keeps audio on the device; remote is the fast one
+perf_mode: remote # hybrid keeps audio on the device; custom selects each role
 
 accelerator:
   profile: nvidia.rtx.a6000

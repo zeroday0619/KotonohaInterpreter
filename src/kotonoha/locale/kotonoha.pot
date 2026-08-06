@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Kotonoha Interpreter 0.1.0\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-06 19:05+0900\n"
+"POT-Creation-Date: 2026-08-06 19:19+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -395,7 +395,7 @@ msgstr ""
 msgid "Leave text input"
 msgstr ""
 
-#: kotonoha/tui/_app.py:603 kotonoha/tui/_config_app.py:615
+#: kotonoha/tui/_app.py:603 kotonoha/tui/_config_app.py:694
 #: kotonoha/tui/_history_app.py:131
 msgid "Quit"
 msgstr ""
@@ -453,329 +453,354 @@ msgstr ""
 msgid "{role} to {side} ({reason})"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:189
+#: kotonoha/tui/_config_app.py:197
 msgid "Primary ASR"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:190 kotonoha/tui/_tools_app.py:295
+#: kotonoha/tui/_config_app.py:198 kotonoha/tui/_config_app.py:214
+#: kotonoha/tui/_tools_app.py:295
 msgid "Verification ASR"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:191
+#: kotonoha/tui/_config_app.py:199
 msgid "Audio devices"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:192
+#: kotonoha/tui/_config_app.py:200
 msgid "Context and storage"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:193
+#: kotonoha/tui/_config_app.py:201
 msgid "Audio frontend"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:194
+#: kotonoha/tui/_config_app.py:202
 msgid "Interface"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:195
+#: kotonoha/tui/_config_app.py:203
 msgid "Language processing"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:196
+#: kotonoha/tui/_config_app.py:204
 msgid "Translation LLM"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:197
+#: kotonoha/tui/_config_app.py:205
 msgid "Logging and latency budgets"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:198
+#: kotonoha/tui/_config_app.py:206
 msgid "External server"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:199
+#: kotonoha/tui/_config_app.py:207
 msgid "Runtime services"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:200
+#: kotonoha/tui/_config_app.py:208
 msgid "Session"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:201
+#: kotonoha/tui/_config_app.py:209
 msgid "Speech synthesis"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:206
+#: kotonoha/tui/_config_app.py:213
+msgid "ASR"
+msgstr ""
+
+#: kotonoha/tui/_config_app.py:215
+msgid "LLM"
+msgstr ""
+
+#: kotonoha/tui/_config_app.py:216
+msgid "TTS"
+msgstr ""
+
+#: kotonoha/tui/_config_app.py:221
 #, python-brace-format
 msgid "YAML list or mapping for {path}."
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:207
+#: kotonoha/tui/_config_app.py:222
 #, python-brace-format
 msgid "Numeric value for {path}."
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:208
+#: kotonoha/tui/_config_app.py:223
 #, python-brace-format
 msgid "Filesystem path for {path}."
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:209
+#: kotonoha/tui/_config_app.py:224
 #, python-brace-format
 msgid "Text value for {path}."
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:215
+#: kotonoha/tui/_config_app.py:230
 msgid "vLLM is the default; Transformers is the fallback."
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:216
+#: kotonoha/tui/_config_app.py:231
 msgid "Hypotheses returned per utterance. The correction pass consumes all."
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:218
+#: kotonoha/tui/_config_app.py:233
 msgid "conditional verifies only low-confidence turns; always verifies every turn."
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:220
+#: kotonoha/tui/_config_app.py:235
 msgid "Microphone index or name. Empty selects the system default."
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:221
+#: kotonoha/tui/_config_app.py:236
 msgid "Speaker index or name. Empty selects the system default."
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:222
+#: kotonoha/tui/_config_app.py:237
 msgid "DeepFilterNet3 noise suppression."
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:223
+#: kotonoha/tui/_config_app.py:238
 msgid "silero_onnx on the device; energy is a workstation fallback."
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:225
+#: kotonoha/tui/_config_app.py:240
 msgid "Audio retained before speech onset. Below 200 ms the first syllable is clipped."
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:227
+#: kotonoha/tui/_config_app.py:242
 msgid "Silence required before end-of-utterance."
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:228
+#: kotonoha/tui/_config_app.py:243
 msgid "Speech onset probability, 0 to 1."
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:230
+#: kotonoha/tui/_config_app.py:245
 msgid "Selects the target-specific TranslateGemma translation model."
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:233
+#: kotonoha/tui/_config_app.py:248
 msgid ""
 "Show structured application logs in the TUI. Model services emit JSON to their "
 "console."
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:237
+#: kotonoha/tui/_config_app.py:252
 msgid "Optional localhost port for Prometheus turn metrics. Empty disables the exporter."
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:240
+#: kotonoha/tui/_config_app.py:255
 msgid ""
 "onboard runs everything locally. hybrid moves only the LLM and keeps audio on the "
-"device. remote moves every model."
+"device. remote moves every model. custom selects each role independently."
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:243
+#: kotonoha/tui/_config_app.py:259
+msgid "Custom mode placement for ASR, verification ASR, translation LLM, and TTS."
+msgstr ""
+
+#: kotonoha/tui/_config_app.py:261
 msgid "s16le halves the bytes on the wire against f32le."
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:245
+#: kotonoha/tui/_config_app.py:263
 msgid "When false, every role runs locally regardless of perf_mode."
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:247
+#: kotonoha/tui/_config_app.py:265
 msgid "Consecutive transport failures before a role falls back."
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:248
+#: kotonoha/tui/_config_app.py:266
 msgid "ASR service URL on the external server."
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:249
+#: kotonoha/tui/_config_app.py:267
 msgid "Verification service URL on the external server."
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:250
+#: kotonoha/tui/_config_app.py:268
 msgid "Translation service URL on the external server."
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:251
+#: kotonoha/tui/_config_app.py:269
 msgid "Speech synthesis service URL on the external server."
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:253
+#: kotonoha/tui/_config_app.py:271
 msgid ""
 "push_to_talk requires a key press, auto segments on the VAD, and text closes the "
 "microphone and takes utterances from the keyboard."
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:257
+#: kotonoha/tui/_config_app.py:275
 msgid "pair alternates between two languages; fixed always uses one target language."
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:260
+#: kotonoha/tui/_config_app.py:278
 msgid "Source language for typed input. auto reads it from the script."
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:263
+#: kotonoha/tui/_config_app.py:281
 msgid "vllm_omni requires successful vLLM-Omni Spike 2 validation."
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:265
+#: kotonoha/tui/_config_app.py:283
 msgid "Interface language. auto follows the system locale."
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:267
+#: kotonoha/tui/_config_app.py:285
 msgid "Maximum TUI frame scheduler rate. Idle frames do not repaint the terminal."
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:372
+#: kotonoha/tui/_config_app.py:405
 msgid "modified"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:394
+#: kotonoha/tui/_config_app.py:427
 msgid "Select an audio device"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:442
+#: kotonoha/tui/_config_app.py:493
 #, python-brace-format
 msgid "{path}: value required"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:459
+#: kotonoha/tui/_config_app.py:510
 #, python-brace-format
 msgid "Configured device: {device}"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:612
+#: kotonoha/tui/_config_app.py:530
+msgid "Local"
+msgstr ""
+
+#: kotonoha/tui/_config_app.py:531
+msgid "Remote"
+msgstr ""
+
+#: kotonoha/tui/_config_app.py:691
 msgid "Save"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:613 kotonoha/tui/_history_app.py:126
+#: kotonoha/tui/_config_app.py:692 kotonoha/tui/_history_app.py:126
 msgid "Reload"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:614 kotonoha/tui/_config_app.py:641
+#: kotonoha/tui/_config_app.py:693 kotonoha/tui/_config_app.py:720
 msgid "Categories"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:636
+#: kotonoha/tui/_config_app.py:715
 msgid "Local device"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:636
+#: kotonoha/tui/_config_app.py:715
 msgid "Remote A6000"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:663
+#: kotonoha/tui/_config_app.py:743
 msgid "Test selected devices"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:675
+#: kotonoha/tui/_config_app.py:755
 msgid "Kotonoha configuration"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:682
+#: kotonoha/tui/_config_app.py:762
 #, python-brace-format
 msgid "Audio device list unavailable: {error}"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:703
+#: kotonoha/tui/_config_app.py:783
 msgid "Audio device testing is available only for the local device"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:714
+#: kotonoha/tui/_config_app.py:794
 msgid "Testing input and output devices..."
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:767
+#: kotonoha/tui/_config_app.py:847
 msgid "Loading configuration from the remote server"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:774 kotonoha/tui/_config_app.py:1008
+#: kotonoha/tui/_config_app.py:854 kotonoha/tui/_config_app.py:1089
 #, python-brace-format
 msgid "Remote configuration failed: {error}"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:778
+#: kotonoha/tui/_config_app.py:858
 #, python-brace-format
 msgid "Loaded remote configuration from {path}"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:790
+#: kotonoha/tui/_config_app.py:870
 msgid "Reloaded from disk"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:820
+#: kotonoha/tui/_config_app.py:900
 #, python-brace-format
 msgid "Changes are written to {path}"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:843
+#: kotonoha/tui/_config_app.py:923
 #, python-brace-format
 msgid "Audio setting is not available: {path}"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:852
+#: kotonoha/tui/_config_app.py:932
 msgid "Audio device test passed"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:854
+#: kotonoha/tui/_config_app.py:934
 msgid "Input and output streams opened successfully"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:859
+#: kotonoha/tui/_config_app.py:939
 #, python-brace-format
 msgid "Input device test failed: {error}"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:861
+#: kotonoha/tui/_config_app.py:941
 #, python-brace-format
 msgid "Output device test failed: {error}"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:911
+#: kotonoha/tui/_config_app.py:991
 msgid "System default"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:958 kotonoha/tui/_config_app.py:981
+#: kotonoha/tui/_config_app.py:1039 kotonoha/tui/_config_app.py:1062
 #, python-brace-format
 msgid "Rejected because the configuration would be invalid: {error}"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:965
+#: kotonoha/tui/_config_app.py:1046
 msgid "No changes to save"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:991
+#: kotonoha/tui/_config_app.py:1072
 #, python-brace-format
 msgid "Saved {count} settings to {path}"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:993
+#: kotonoha/tui/_config_app.py:1074
 msgid "Restart the interpreter for these values to take effect"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:1003
+#: kotonoha/tui/_config_app.py:1084
 msgid "The remote configuration service is not connected"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:1013
+#: kotonoha/tui/_config_app.py:1094
 #, python-brace-format
 msgid "Saved {count} settings to the remote file {path}"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:1018
+#: kotonoha/tui/_config_app.py:1099
 msgid "Restart the remote services to apply these values"
 msgstr ""
 

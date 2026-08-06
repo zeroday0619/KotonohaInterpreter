@@ -64,11 +64,12 @@ services:
 #            on the device.
 #   remote   ASR, verification and TTS also move to the external server.
 #            Utterance audio crosses the network.
+#   custom   each role follows the matching entry in `placement`.
 #
 # Run `kotonoha netcheck` before trusting any of this: the link adds RTT to
 # every stage, and §6 has no slack for a bad one.
-perf_mode: onboard # onboard | hybrid | remote
-placement: {} # per-role override, e.g. {llm: remote}
+perf_mode: onboard # onboard | hybrid | remote | custom
+placement: {} # custom role map, e.g. {asr: local, llm: remote, tts: remote}
 
 remote:
   enabled: false

@@ -162,10 +162,12 @@ Placement = Literal["local", "remote"]
 #            on the device.
 #   remote   ASR, verification and TTS also move to the external server.
 #            Utterance audio crosses the network.
+#   custom   each role follows the matching entry in `placement`.
 PERF_PLACEMENT: dict[str, dict[str, Placement]] = {
     "onboard": {"asr": "local", "asr_verify": "local", "llm": "local", "tts": "local"},
     "hybrid": {"asr": "local", "asr_verify": "local", "llm": "remote", "tts": "local"},
     "remote": {"asr": "remote", "asr_verify": "remote", "llm": "remote", "tts": "remote"},
+    "custom": {"asr": "local", "asr_verify": "local", "llm": "local", "tts": "local"},
 }
 
 
@@ -384,9 +386,10 @@ class Settings(BaseSettings):
         extra="forbid",
     )
 
-    # onboard | hybrid | remote — see PERF_PLACEMENT.
-    perf_mode: Literal["onboard", "hybrid", "remote"] = "onboard"
-    # Explicit per-role override. Anything omitted follows perf_mode.
+    # onboard | hybrid | remote | custom — see PERF_PLACEMENT.
+    perf_mode: Literal["onboard", "hybrid", "remote", "custom"] = "onboard"
+    # Custom mode uses this map for each resident model role. Other modes retain
+    # their preset and accept explicit per-role overrides for compatibility.
     placement: dict[str, Placement] = {}
 
     session: SessionConfig = SessionConfig()

@@ -221,6 +221,29 @@ async def test_config_editor_uses_device_selectors(
         assert {value for _, value in output_row.editor._options} == {"", 2}
 
 
+async def test_custom_mode_exposes_per_role_placement_selectors(
+    _positional_only: object | None = None,
+    /,
+    *,
+    tmp_path: Any,
+) -> None:
+    settings = load_settings()
+    settings.perf_mode = "custom"
+    settings.placement = {"llm": "remote"}
+    app = ConfigApp(local_path=tmp_path / "local.yaml", settings=settings)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        row = next(r for r in app._rows if r.specification.path == "placement")
+        assert row.specification.kind == "placement"
+        assert row.editor is None
+        assert row.placement_editors["asr"].value == "local"
+        assert row.placement_editors["llm"].value == "remote"
+
+        row.placement_editors["llm"].value = "local"
+        row.placement_editors["asr"].value = "remote"
+        assert row.value() == {"asr": "remote"}
+
+
 async def test_audio_device_selection_is_saved_as_an_index(
     _positional_only: object | None = None,
     /,

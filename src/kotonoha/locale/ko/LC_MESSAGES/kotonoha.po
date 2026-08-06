@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Kotonoha Interpreter 0.1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-06 19:05+0900\n"
+"POT-Creation-Date: 2026-08-06 19:19+0900\n"
 "PO-Revision-Date: 2026-08-05 15:30+0900\n"
 "Last-Translator: Kotonoha Interpreter\n"
 "Language: ko\n"
@@ -396,7 +396,7 @@ msgstr "텍스트 입력"
 msgid "Leave text input"
 msgstr "텍스트 입력 종료"
 
-#: kotonoha/tui/_app.py:603 kotonoha/tui/_config_app.py:615
+#: kotonoha/tui/_app.py:603 kotonoha/tui/_config_app.py:694
 #: kotonoha/tui/_history_app.py:131
 msgid "Quit"
 msgstr "종료"
@@ -454,328 +454,354 @@ msgstr "(LLM 타임아웃, 원문만 표시, TTS 생략)"
 msgid "{role} to {side} ({reason})"
 msgstr "{role} → {side} ({reason})"
 
-#: kotonoha/tui/_config_app.py:189
+#: kotonoha/tui/_config_app.py:197
 msgid "Primary ASR"
 msgstr "1차 ASR"
 
-#: kotonoha/tui/_config_app.py:190 kotonoha/tui/_tools_app.py:295
+#: kotonoha/tui/_config_app.py:198 kotonoha/tui/_config_app.py:214
+#: kotonoha/tui/_tools_app.py:295
 msgid "Verification ASR"
 msgstr "검증 ASR"
 
-#: kotonoha/tui/_config_app.py:191
+#: kotonoha/tui/_config_app.py:199
 msgid "Audio devices"
 msgstr "오디오 장치"
 
-#: kotonoha/tui/_config_app.py:192
+#: kotonoha/tui/_config_app.py:200
 msgid "Context and storage"
 msgstr "컨텍스트와 저장소"
 
-#: kotonoha/tui/_config_app.py:193
+#: kotonoha/tui/_config_app.py:201
 msgid "Audio frontend"
 msgstr "오디오 프런트엔드"
 
-#: kotonoha/tui/_config_app.py:194
+#: kotonoha/tui/_config_app.py:202
 msgid "Interface"
 msgstr "인터페이스"
 
-#: kotonoha/tui/_config_app.py:195
+#: kotonoha/tui/_config_app.py:203
 msgid "Language processing"
 msgstr "언어 처리"
 
-#: kotonoha/tui/_config_app.py:196
+#: kotonoha/tui/_config_app.py:204
 msgid "Translation LLM"
 msgstr "번역 LLM"
 
-#: kotonoha/tui/_config_app.py:197
+#: kotonoha/tui/_config_app.py:205
 msgid "Logging and latency budgets"
 msgstr "로깅과 지연 예산"
 
-#: kotonoha/tui/_config_app.py:198
+#: kotonoha/tui/_config_app.py:206
 msgid "External server"
 msgstr "외부 서버"
 
-#: kotonoha/tui/_config_app.py:199
+#: kotonoha/tui/_config_app.py:207
 msgid "Runtime services"
 msgstr "런타임 서비스"
 
-#: kotonoha/tui/_config_app.py:200
+#: kotonoha/tui/_config_app.py:208
 msgid "Session"
 msgstr "세션"
 
-#: kotonoha/tui/_config_app.py:201
+#: kotonoha/tui/_config_app.py:209
 msgid "Speech synthesis"
 msgstr "음성 합성"
 
-#: kotonoha/tui/_config_app.py:206
+#: kotonoha/tui/_config_app.py:213
+msgid "ASR"
+msgstr "ASR"
+
+#: kotonoha/tui/_config_app.py:215
+msgid "LLM"
+msgstr "LLM"
+
+#: kotonoha/tui/_config_app.py:216
+msgid "TTS"
+msgstr "TTS"
+
+#: kotonoha/tui/_config_app.py:221
 #, python-brace-format
 msgid "YAML list or mapping for {path}."
 msgstr "{path}의 YAML 목록 또는 매핑."
 
-#: kotonoha/tui/_config_app.py:207
+#: kotonoha/tui/_config_app.py:222
 #, python-brace-format
 msgid "Numeric value for {path}."
 msgstr "{path}의 숫자 값."
 
-#: kotonoha/tui/_config_app.py:208
+#: kotonoha/tui/_config_app.py:223
 #, python-brace-format
 msgid "Filesystem path for {path}."
 msgstr "{path}의 파일 시스템 경로."
 
-#: kotonoha/tui/_config_app.py:209
+#: kotonoha/tui/_config_app.py:224
 #, python-brace-format
 msgid "Text value for {path}."
 msgstr "{path}의 텍스트 값."
 
-#: kotonoha/tui/_config_app.py:215
+#: kotonoha/tui/_config_app.py:230
 msgid "vLLM is the default; Transformers is the fallback."
 msgstr "vLLM이 기본값이며, Transformers는 대체 백엔드입니다."
 
-#: kotonoha/tui/_config_app.py:216
+#: kotonoha/tui/_config_app.py:231
 msgid "Hypotheses returned per utterance. The correction pass consumes all."
 msgstr "발화당 반환 가설 수. 정정 패스가 전부 사용한다."
 
-#: kotonoha/tui/_config_app.py:218
+#: kotonoha/tui/_config_app.py:233
 msgid "conditional verifies only low-confidence turns; always verifies every turn."
 msgstr "conditional은 신뢰도가 낮은 턴만 검증하고, always는 모든 턴을 검증합니다."
 
-#: kotonoha/tui/_config_app.py:220
+#: kotonoha/tui/_config_app.py:235
 msgid "Microphone index or name. Empty selects the system default."
 msgstr "마이크 인덱스 또는 이름. 비우면 시스템 기본값."
 
-#: kotonoha/tui/_config_app.py:221
+#: kotonoha/tui/_config_app.py:236
 msgid "Speaker index or name. Empty selects the system default."
 msgstr "스피커 인덱스 또는 이름. 비우면 시스템 기본값."
 
-#: kotonoha/tui/_config_app.py:222
+#: kotonoha/tui/_config_app.py:237
 msgid "DeepFilterNet3 noise suppression."
 msgstr "DeepFilterNet3 잡음 제거."
 
-#: kotonoha/tui/_config_app.py:223
+#: kotonoha/tui/_config_app.py:238
 msgid "silero_onnx on the device; energy is a workstation fallback."
 msgstr "기기에서는 silero_onnx를 사용하고, energy는 개발 PC용 대체 백엔드입니다."
 
-#: kotonoha/tui/_config_app.py:225
+#: kotonoha/tui/_config_app.py:240
 msgid "Audio retained before speech onset. Below 200 ms the first syllable is clipped."
 msgstr "발화 시작 이전에 남겨두는 오디오. 200ms 아래로 내려가면 첫 음절이 잘린다."
 
-#: kotonoha/tui/_config_app.py:227
+#: kotonoha/tui/_config_app.py:242
 msgid "Silence required before end-of-utterance."
 msgstr "발화 종료로 판정하기까지 필요한 침묵 길이."
 
-#: kotonoha/tui/_config_app.py:228
+#: kotonoha/tui/_config_app.py:243
 msgid "Speech onset probability, 0 to 1."
 msgstr "발화 시작 판정 확률, 0에서 1."
 
-#: kotonoha/tui/_config_app.py:230
+#: kotonoha/tui/_config_app.py:245
 msgid "Selects the target-specific TranslateGemma translation model."
 msgstr "대상별 TranslateGemma 번역 모델을 선택합니다."
 
-#: kotonoha/tui/_config_app.py:233
+#: kotonoha/tui/_config_app.py:248
 msgid ""
 "Show structured application logs in the TUI. Model services emit JSON to their "
 "console."
 msgstr "TUI에 구조화된 애플리케이션 로그를 표시한다. 모델 서비스는 콘솔에 JSON을 출력한다."
 
-#: kotonoha/tui/_config_app.py:237
+#: kotonoha/tui/_config_app.py:252
 msgid "Optional localhost port for Prometheus turn metrics. Empty disables the exporter."
 msgstr "Prometheus 턴 메트릭을 위한 선택적 로컬호스트 포트입니다. 비워 두면 익스포터가 비활성화됩니다."
 
-#: kotonoha/tui/_config_app.py:240
+#: kotonoha/tui/_config_app.py:255
 msgid ""
 "onboard runs everything locally. hybrid moves only the LLM and keeps audio on the "
-"device. remote moves every model."
-msgstr "onboard는 전부 로컬. hybrid는 LLM만 옮기고 오디오는 기기에 둔다. remote는 모든 모델을 옮긴다."
+"device. remote moves every model. custom selects each role independently."
+msgstr "온보드는 모든 역할을 로컬에서 실행한다. 하이브리드는 LLM만 원격으로 이동하고 오디오 처리는 장치에 유지한다. 리모트는 모든 모델을 이동한다. 커스텀은 역할별로 선택한다."
 
-#: kotonoha/tui/_config_app.py:243
+#: kotonoha/tui/_config_app.py:259
+msgid "Custom mode placement for ASR, verification ASR, translation LLM, and TTS."
+msgstr "ASR, 검증 ASR, 번역 LLM 및 TTS의 커스텀 모드 배치."
+
+#: kotonoha/tui/_config_app.py:261
 msgid "s16le halves the bytes on the wire against f32le."
 msgstr "s16le는 f32le 대비 전송 바이트를 절반으로 줄인다."
 
-#: kotonoha/tui/_config_app.py:245
+#: kotonoha/tui/_config_app.py:263
 msgid "When false, every role runs locally regardless of perf_mode."
 msgstr "false이면 perf_mode와 무관하게 모든 역할이 로컬에서 실행됩니다."
 
-#: kotonoha/tui/_config_app.py:247
+#: kotonoha/tui/_config_app.py:265
 msgid "Consecutive transport failures before a role falls back."
 msgstr "역할이 대체 서비스로 전환되기까지 허용하는 연속 전송 실패 횟수."
 
-#: kotonoha/tui/_config_app.py:248
+#: kotonoha/tui/_config_app.py:266
 msgid "ASR service URL on the external server."
 msgstr "외부 서버의 ASR 서비스 URL."
 
-#: kotonoha/tui/_config_app.py:249
+#: kotonoha/tui/_config_app.py:267
 msgid "Verification service URL on the external server."
 msgstr "외부 서버의 교차검증 서비스 URL."
 
-#: kotonoha/tui/_config_app.py:250
+#: kotonoha/tui/_config_app.py:268
 msgid "Translation service URL on the external server."
 msgstr "외부 서버의 번역 서비스 URL."
 
-#: kotonoha/tui/_config_app.py:251
+#: kotonoha/tui/_config_app.py:269
 msgid "Speech synthesis service URL on the external server."
 msgstr "외부 서버의 음성 합성 서비스 URL."
 
-#: kotonoha/tui/_config_app.py:253
+#: kotonoha/tui/_config_app.py:271
 msgid ""
 "push_to_talk requires a key press, auto segments on the VAD, and text closes the "
 "microphone and takes utterances from the keyboard."
 msgstr "push_to_talk은 키 입력이 필요하고, auto는 VAD가 발화를 자르며, text는 마이크를 닫고 키보드에서 발화를 받는다."
 
-#: kotonoha/tui/_config_app.py:257
+#: kotonoha/tui/_config_app.py:275
 msgid "pair alternates between two languages; fixed always uses one target language."
 msgstr "pair는 두 언어를 번갈아 사용하고, fixed는 항상 하나의 대상 언어를 사용합니다."
 
-#: kotonoha/tui/_config_app.py:260
+#: kotonoha/tui/_config_app.py:278
 msgid "Source language for typed input. auto reads it from the script."
 msgstr "텍스트 입력의 원문 언어입니다. auto는 문자 체계로 판정합니다."
 
-#: kotonoha/tui/_config_app.py:263
+#: kotonoha/tui/_config_app.py:281
 msgid "vllm_omni requires successful vLLM-Omni Spike 2 validation."
 msgstr "vllm_omni는 vLLM-Omni Spike 2 검증을 통과해야 합니다."
 
-#: kotonoha/tui/_config_app.py:265
+#: kotonoha/tui/_config_app.py:283
 msgid "Interface language. auto follows the system locale."
 msgstr "인터페이스 언어. auto는 시스템 로케일을 따른다."
 
-#: kotonoha/tui/_config_app.py:267
+#: kotonoha/tui/_config_app.py:285
 msgid "Maximum TUI frame scheduler rate. Idle frames do not repaint the terminal."
 msgstr "TUI 프레임 스케줄러의 최대 주사율. 유휴 프레임은 터미널을 다시 그리지 않는다."
 
-#: kotonoha/tui/_config_app.py:372
+#: kotonoha/tui/_config_app.py:405
 msgid "modified"
 msgstr "변경됨"
 
-#: kotonoha/tui/_config_app.py:394
+#: kotonoha/tui/_config_app.py:427
 msgid "Select an audio device"
 msgstr "오디오 장치를 선택하세요"
 
-#: kotonoha/tui/_config_app.py:442
+#: kotonoha/tui/_config_app.py:493
 #, python-brace-format
 msgid "{path}: value required"
 msgstr "{path}: 값을 입력해야 한다"
 
-#: kotonoha/tui/_config_app.py:459
+#: kotonoha/tui/_config_app.py:510
 #, python-brace-format
 msgid "Configured device: {device}"
 msgstr "설정된 장치: {device}"
 
-#: kotonoha/tui/_config_app.py:612
+#: kotonoha/tui/_config_app.py:530
+msgid "Local"
+msgstr "로컬"
+
+#: kotonoha/tui/_config_app.py:531
+msgid "Remote"
+msgstr "원격"
+
+#: kotonoha/tui/_config_app.py:691
 msgid "Save"
 msgstr "저장"
 
-#: kotonoha/tui/_config_app.py:613 kotonoha/tui/_history_app.py:126
+#: kotonoha/tui/_config_app.py:692 kotonoha/tui/_history_app.py:126
 msgid "Reload"
 msgstr "다시 읽기"
 
-#: kotonoha/tui/_config_app.py:614 kotonoha/tui/_config_app.py:641
+#: kotonoha/tui/_config_app.py:693 kotonoha/tui/_config_app.py:720
 msgid "Categories"
 msgstr "카테고리"
 
-#: kotonoha/tui/_config_app.py:636
+#: kotonoha/tui/_config_app.py:715
 msgid "Local device"
 msgstr "로컬 장치"
 
-#: kotonoha/tui/_config_app.py:636
+#: kotonoha/tui/_config_app.py:715
 msgid "Remote A6000"
 msgstr "원격 A6000"
 
-#: kotonoha/tui/_config_app.py:663
+#: kotonoha/tui/_config_app.py:743
 msgid "Test selected devices"
 msgstr "선택한 장치 테스트"
 
-#: kotonoha/tui/_config_app.py:675
+#: kotonoha/tui/_config_app.py:755
 msgid "Kotonoha configuration"
 msgstr "Kotonoha 설정"
 
-#: kotonoha/tui/_config_app.py:682
+#: kotonoha/tui/_config_app.py:762
 #, python-brace-format
 msgid "Audio device list unavailable: {error}"
 msgstr "오디오 장치 목록을 사용할 수 없습니다: {error}"
 
-#: kotonoha/tui/_config_app.py:703
+#: kotonoha/tui/_config_app.py:783
 msgid "Audio device testing is available only for the local device"
 msgstr "오디오 장치 테스트는 로컬 장치에서만 사용할 수 있습니다"
 
-#: kotonoha/tui/_config_app.py:714
+#: kotonoha/tui/_config_app.py:794
 msgid "Testing input and output devices..."
 msgstr "입력 및 출력 장치를 테스트하는 중..."
 
-#: kotonoha/tui/_config_app.py:767
+#: kotonoha/tui/_config_app.py:847
 msgid "Loading configuration from the remote server"
 msgstr "원격 서버에서 설정을 불러오는 중"
 
-#: kotonoha/tui/_config_app.py:774 kotonoha/tui/_config_app.py:1008
+#: kotonoha/tui/_config_app.py:854 kotonoha/tui/_config_app.py:1089
 #, python-brace-format
 msgid "Remote configuration failed: {error}"
 msgstr "원격 설정 작업 실패: {error}"
 
-#: kotonoha/tui/_config_app.py:778
+#: kotonoha/tui/_config_app.py:858
 #, python-brace-format
 msgid "Loaded remote configuration from {path}"
 msgstr "원격 설정을 {path}에서 불러왔다"
 
-#: kotonoha/tui/_config_app.py:790
+#: kotonoha/tui/_config_app.py:870
 msgid "Reloaded from disk"
 msgstr "디스크에서 다시 읽음"
 
-#: kotonoha/tui/_config_app.py:820
+#: kotonoha/tui/_config_app.py:900
 #, python-brace-format
 msgid "Changes are written to {path}"
 msgstr "변경 사항은 {path}에 기록된다"
 
-#: kotonoha/tui/_config_app.py:843
+#: kotonoha/tui/_config_app.py:923
+#, python-brace-format
 msgid "Audio setting is not available: {path}"
 msgstr "오디오 설정을 사용할 수 없습니다: {path}"
 
-#: kotonoha/tui/_config_app.py:852
+#: kotonoha/tui/_config_app.py:932
 msgid "Audio device test passed"
 msgstr "오디오 장치 테스트 통과"
 
-#: kotonoha/tui/_config_app.py:854
+#: kotonoha/tui/_config_app.py:934
 msgid "Input and output streams opened successfully"
 msgstr "입력 및 출력 스트림이 성공적으로 열렸습니다"
 
-#: kotonoha/tui/_config_app.py:859
+#: kotonoha/tui/_config_app.py:939
 #, python-brace-format
 msgid "Input device test failed: {error}"
 msgstr "입력 장치 테스트 실패: {error}"
 
-#: kotonoha/tui/_config_app.py:861
+#: kotonoha/tui/_config_app.py:941
 #, python-brace-format
 msgid "Output device test failed: {error}"
 msgstr "출력 장치 테스트 실패: {error}"
 
-#: kotonoha/tui/_config_app.py:911
+#: kotonoha/tui/_config_app.py:991
 msgid "System default"
 msgstr "시스템 기본값"
 
-#: kotonoha/tui/_config_app.py:958 kotonoha/tui/_config_app.py:981
+#: kotonoha/tui/_config_app.py:1039 kotonoha/tui/_config_app.py:1062
 #, python-brace-format
 msgid "Rejected because the configuration would be invalid: {error}"
 msgstr "설정이 유효하지 않아 거부되었습니다: {error}"
 
-#: kotonoha/tui/_config_app.py:965
+#: kotonoha/tui/_config_app.py:1046
 msgid "No changes to save"
 msgstr "저장할 변경 사항 없음"
 
-#: kotonoha/tui/_config_app.py:991
+#: kotonoha/tui/_config_app.py:1072
 #, python-brace-format
 msgid "Saved {count} settings to {path}"
 msgstr "{count}개 설정을 {path}에 저장"
 
-#: kotonoha/tui/_config_app.py:993
+#: kotonoha/tui/_config_app.py:1074
 msgid "Restart the interpreter for these values to take effect"
 msgstr "이 값들을 반영하려면 통역기를 재시작할 것"
 
-#: kotonoha/tui/_config_app.py:1003
+#: kotonoha/tui/_config_app.py:1084
 msgid "The remote configuration service is not connected"
 msgstr "원격 설정 서비스가 연결되지 않았다"
 
-#: kotonoha/tui/_config_app.py:1013
+#: kotonoha/tui/_config_app.py:1094
 #, python-brace-format
 msgid "Saved {count} settings to the remote file {path}"
 msgstr "설정 {count}개를 원격 파일 {path}에 저장했다"
 
-#: kotonoha/tui/_config_app.py:1018
+#: kotonoha/tui/_config_app.py:1099
 msgid "Restart the remote services to apply these values"
 msgstr "값을 적용하려면 원격 서비스를 다시 시작해야 한다"
 

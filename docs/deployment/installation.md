@@ -35,7 +35,8 @@ shared memory. The orchestrator accesses the microphone and speaker through `/de
 
 The audio frontend and orchestrator remain on the Jetson. The A6000 runs resident model
 services. `hybrid` moves only the LLM. `remote` moves ASR, verification ASR, LLM, and
-TTS. Remote ASR traffic uses multipart binary PCM; it does not use shared memory or
+TTS. `custom` selects local or remote placement for each role through the `placement`
+mapping. Remote ASR traffic uses multipart binary PCM; it does not use shared memory or
 base64 encoding.
 
 | Source | Destination | Ports | Required direction |
@@ -1041,7 +1042,7 @@ backup, rollback, security controls, and troubleshooting. Use
 - [ ] A6000 ports are restricted to approved source hosts.
 - [ ] Python services reject inference requests without the bearer token.
 - [ ] `netcheck` completes from the Jetson.
-- [ ] TUI placement matches the intended `onboard`, `hybrid`, or `remote` mode.
+- [ ] TUI placement matches the intended `onboard`, `hybrid`, `remote`, or `custom` mode.
 - [ ] `placement` and `failovers` appear in turn records.
 - [ ] Audio egress in `remote` mode is approved by the deployment owner.
 

@@ -23,7 +23,7 @@ from rich.text import Text
 from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding, BindingsMap
-from textual.containers import Container, Horizontal, VerticalScroll
+from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.widgets import (
     Button,
     Footer,
@@ -36,7 +36,13 @@ from textual.widgets import (
     Switch,
 )
 
-from kotonoha._config import Settings, load_settings, local_config_path
+from kotonoha._config import (
+    PERF_PLACEMENT,
+    ROLES,
+    Settings,
+    load_settings,
+    local_config_path,
+)
 from kotonoha._config_store import (
     apply_changes,
     get_path,
@@ -59,7 +65,7 @@ class FieldSpec:
 
     path: str
     section: str
-    kind: str  # select | bool | device | value
+    kind: str  # select | bool | device | placement | value
     choices: tuple[str, ...] = ()
     optional: bool = False
     value_kind: str = "text"  # text | number | path | collection
@@ -140,6 +146,8 @@ def _field_spec(
 ) -> FieldSpec:
     if path in {"audio.input_device", "audio.output_device"}:
         return FieldSpec(path, section, "device", optional=True)
+    if path == "placement":
+        return FieldSpec(path, section, "placement", value_kind="collection")
     annotation, optional = _without_none(annotation)
     origin = get_origin(annotation)
     if origin is Literal:
@@ -201,6 +209,13 @@ SECTION_LABELS: dict[str, str] = {
     "tts": N_("Speech synthesis"),
 }
 
+ROLE_LABELS: dict[str, str] = {
+    "asr": N_("ASR"),
+    "asr_verify": N_("Verification ASR"),
+    "llm": N_("LLM"),
+    "tts": N_("TTS"),
+}
+
 # Fallback description, by value kind, for a field with no specific note.
 VALUE_KIND_DESCRIPTIONS: dict[str, str] = {
     "collection": N_("YAML list or mapping for {path}."),
@@ -238,7 +253,10 @@ FIELD_DESCRIPTIONS: dict[str, str] = {
     ),
     "perf_mode": N_(
             "onboard runs everything locally. hybrid moves only the LLM and keeps audio on the "
-            "device. remote moves every model."
+            "device. remote moves every model. custom selects each role independently."
+    ),
+    "placement": N_(
+            "Custom mode placement for ASR, verification ASR, translation LLM, and TTS."
     ),
     "remote.audio_encoding": N_("s16le halves the bytes on the wire against f32le."),
     "remote.enabled": N_(
@@ -335,6 +353,9 @@ class FieldRow(Static):
     from_override: bool
     editor: Select | Switch | Input | None
     device_options: tuple[tuple[str, int | str], ...]
+    placement_defaults: dict[str, str]
+    placement_initial: dict[str, str]
+    placement_editors: dict[str, Select]
 
     @override
     def __init__(
@@ -344,6 +365,7 @@ class FieldRow(Static):
         current: Any,
         from_override: bool,
         device_options: tuple[tuple[str, int | str], ...] = (),
+        placement_defaults: dict[str, str] | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -352,6 +374,9 @@ class FieldRow(Static):
         self.from_override = from_override
         self.editor = None
         self.device_options = device_options
+        self.placement_defaults = placement_defaults or {}
+        self.placement_initial = self._placement_state(current)
+        self.placement_editors = {}
 
     @override
     def compose(
@@ -360,7 +385,15 @@ class FieldRow(Static):
     ) -> ComposeResult:
         yield Static(self._label(), classes="fieldlabel")
         with Horizontal(classes="fieldrow"):
-            yield self._make_editor()
+            if self.specification.kind == "placement":
+                for role in ROLES:
+                    with Vertical(classes="placement-control"):
+                        yield Static(_(ROLE_LABELS[role]), classes="placement-label")
+                        editor = self._make_placement_editor(role)
+                        self.placement_editors[role] = editor
+                        yield editor
+            else:
+                yield self._make_editor()
         yield Static(field_description(self.specification), classes="fielddesc")
 
     def _label(
@@ -394,6 +427,8 @@ class FieldRow(Static):
                 prompt=_("Select an audio device"),
                 allow_blank=False,
             )
+        elif specification.kind == "placement":
+            self.editor = None
         else:
             self.editor = Input(
                 value=_format_value(self.current),
@@ -406,9 +441,12 @@ class FieldRow(Static):
         /,
         current: Any,
         from_override: bool,
+        placement_defaults: dict[str, str] | None = None,
     ) -> None:
         self.current = current
         self.from_override = from_override
+        if placement_defaults is not None:
+            self.placement_defaults = placement_defaults
         self.query_one(".fieldlabel", Static).update(self._label())
         if self.specification.kind == "bool":
             self.editor.value = bool(current)
@@ -418,6 +456,10 @@ class FieldRow(Static):
         elif self.specification.kind == "device":
             self.editor.set_options(self._device_options(current))
             self.editor.value = self._device_value(current)
+        elif self.specification.kind == "placement":
+            self.placement_initial = self._placement_state(current)
+            for role, editor in self.placement_editors.items():
+                editor.value = self.placement_initial[role]
         else:
             self.editor.value = _format_value(current)
 
@@ -434,6 +476,15 @@ class FieldRow(Static):
         if specification.kind == "device":
             value = self.editor.value
             return None if value == "" else value
+        if specification.kind == "placement":
+            selected = {role: str(editor.value) for role, editor in self.placement_editors.items()}
+            if selected == self.placement_initial:
+                return dict(self.current or {})
+            return {
+                role: side
+                for role, side in selected.items()
+                if side != self.placement_defaults.get(role, "local")
+            }
 
         raw = str(self.editor.value).strip()
         if not raw:
@@ -468,6 +519,32 @@ class FieldRow(Static):
         /,
     ) -> int | str:
         return "" if current is None else current
+
+    def _make_placement_editor(
+        self,
+        role: str,
+        /,
+    ) -> Select:
+        return Select(
+            [
+                (_("Local"), "local"),
+                (_("Remote"), "remote"),
+            ],
+            value=self._placement_state(self.current)[role],
+            allow_blank=False,
+            id=f"placement-{role}",
+        )
+
+    def _placement_state(
+        self,
+        current: Any,
+        /,
+    ) -> dict[str, str]:
+        configured = current if isinstance(current, dict) else {}
+        return {
+            role: str(configured.get(role, self.placement_defaults.get(role, "local")))
+            for role in ROLES
+        }
 
 
 class CategoryItem(ListItem):
@@ -563,6 +640,8 @@ class ConfigApp(App):
     }
     .fieldlabel { padding: 1 0 0 0; }
     .fieldrow { height: 3; }
+    .placement-control { width: 1fr; }
+    .placement-label { height: 1; color: $text-muted; }
     .fielddesc { color: $text-muted; }
     #status { height: 2; padding: 0 2; }
     #audio-test-controls { height: 3; }
@@ -654,6 +733,7 @@ class ConfigApp(App):
                                 effective_value(self.settings, specification.path),
                                 get_path(self.overrides, specification.path) is not None,
                                 self._device_options(specification),
+                                PERF_PLACEMENT[self.settings.perf_mode],
                             )
                             self._rows.append(row)
                             yield row
@@ -925,6 +1005,7 @@ class ConfigApp(App):
             row.set_state(
                 effective_value(self.settings, row.specification.path),
                 get_path(self.overrides, row.specification.path) is not None,
+                PERF_PLACEMENT[self.settings.perf_mode],
             )
         for section in SECTIONS:
             self.query_one(f"#category-{section}", CategoryItem).set_modified(

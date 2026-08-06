@@ -84,7 +84,7 @@ Do not translate or rewrite:
 - Product and component names such as Kotonoha, vLLM, Transformers, and DeepFilterNet3
 - Protocol and format names such as JSON, JSONL, YAML, WAV, and PCM
 - Model-role abbreviations such as ASR, LLM, TTS, VAD, PTT, and EOU
-- Enum values such as `onboard`, `hybrid`, `remote`, `conditional`, and `always`
+- Enum values such as `onboard`, `hybrid`, `remote`, `custom`, `conditional`, and `always`
 - Model and backend values such as `vllm_omni`, `silero_onnx`, `s16le`, and `f32le`
 
 Preserve placeholder names, repetition counts, conversions, and format specifications.

@@ -85,6 +85,10 @@ enforce Taiwanese vocabulary, including `軟體`, `影片`, `資訊`, and `滑�
 | `onboard` | Jetson | Jetson | Jetson | Jetson | No |
 | `hybrid` | Jetson | Jetson | A6000 | Jetson | No |
 | `remote` | A6000 | A6000 | A6000 | A6000 | Yes |
+| `custom` | Per-role | Per-role | Per-role | Per-role | Depends on ASR and verification placement |
+
+`custom` reads the `placement` mapping. Each role accepts `local` or `remote`; omitted
+roles inherit the `onboard` placement. Remote roles require `remote.enabled: true`.
 
 Each remote role retains a resident Jetson fallback. Transport failures retry locally.
 HTTP 4xx application errors do not activate failover. Streaming roles fail over only

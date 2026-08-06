@@ -71,6 +71,20 @@ KOTONOHA__REMOTE__SERVICES__LLM=http://a6000.internal:8003 \
 uv run kotonoha doctor
 ```
 
+Use `custom` mode to select each model role independently:
+
+```yaml
+perf_mode: custom
+placement:
+  asr: remote
+  asr_verify: local
+  llm: remote
+  tts: local
+```
+
+Set `remote.enabled: true` when any role uses the remote placement. Unspecified roles
+inherit the local placement.
+
 `kotonoha config` exposes every local `Settings` leaf. Local changes are validated and
 written atomically to `config/local.yaml`. Remote changes use the authenticated
 `/admin/config` endpoint and only accept settings consumed by resident model services.
