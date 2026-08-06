@@ -9,10 +9,14 @@ license = { file = "LICENSE" }
 requires-python = ">=3.10"
 
 dependencies = [
-  # The NGC A6000 runtime ships SciPy and scikit-learn builds for NumPy 2,
-  # while Jetson device dependencies and workstation evaluation still require NumPy 1.
-  "numpy>=2,<2.3 ; sys_platform == 'linux' and platform_machine == 'x86_64'",
-  "numpy>=1.24,<2 ; sys_platform != 'linux' or platform_machine != 'x86_64'",
+  # The NumPy split follows the Python generation of each runtime image, not the
+  # CPU architecture. vllm-omni serves TTS on BOTH hosts (Python 3.12, NumPy 2),
+  # so an architecture marker breaks the Jetson TTS build. Python 3.10 identifies
+  # the Jetson r36.4 vLLM images, whose torch stack requires NumPy 1; every
+  # Python >= 3.11 Linux image (NGC vLLM, vllm-omni, pytorch 2.6) ships NumPy 2.
+  # The macOS workstation keeps NumPy 1 for the evaluation stack.
+  "numpy>=2,<2.3 ; sys_platform == 'linux' and python_full_version >= '3.11'",
+  "numpy>=1.24,<2 ; sys_platform != 'linux' or python_full_version < '3.11'",
   "pydantic>=2.7",
   "pydantic-settings>=2.3",
   "PyYAML>=6.0",
@@ -32,19 +36,22 @@ dependencies = [
   "websockets>=14,<17",
 ]
 
-# Device-only dependencies. Phase 0 verifies aarch64 wheel availability on the
-# Jetson. Do not install this extra on macOS.
+# Device-only dependencies for the Jetson r36.4 vLLM images, which provide Python
+# 3.10. The Python bound is load-bearing, not cosmetic: DeepFilterNet3 requires
+# NumPy 1, so without it this extra injects `numpy<2` into the Python 3.12 split
+# that the vllm-omni TTS image resolves, and the lock becomes unsatisfiable.
+# Phase 0 verifies aarch64 wheel availability. Do not install this extra on macOS.
 #
 # This extra keeps Jetson-only inference packages out of the workstation and
 # A6000 runtime environments.
 [project.optional-dependencies]
 device = [
-  "onnxruntime>=1.18 ; sys_platform == 'linux' and platform_machine == 'aarch64'",          # silero-vad
-  "deepfilternet>=0.5.6 ; sys_platform == 'linux' and platform_machine == 'aarch64'",       # DeepFilterNet3
-  "faster-whisper>=1.0.3 ; sys_platform == 'linux' and platform_machine == 'aarch64'",      # CTranslate2 backend
-  "transformers>=4.57 ; sys_platform == 'linux' and platform_machine == 'aarch64'",         # Qwen3-ASR Transformers fallback
-  "accelerate>=0.33 ; sys_platform == 'linux' and platform_machine == 'aarch64'",
-  "soundfile>=0.12 ; sys_platform == 'linux' and platform_machine == 'aarch64'",
+  "onnxruntime>=1.18 ; sys_platform == 'linux' and platform_machine == 'aarch64' and python_full_version < '3.11'",          # silero-vad
+  "deepfilternet>=0.5.6 ; sys_platform == 'linux' and platform_machine == 'aarch64' and python_full_version < '3.11'",       # DeepFilterNet3
+  "faster-whisper>=1.0.3 ; sys_platform == 'linux' and platform_machine == 'aarch64' and python_full_version < '3.11'",      # CTranslate2 backend
+  "transformers>=4.57 ; sys_platform == 'linux' and platform_machine == 'aarch64' and python_full_version < '3.11'",         # Qwen3-ASR Transformers fallback
+  "accelerate>=0.33 ; sys_platform == 'linux' and platform_machine == 'aarch64' and python_full_version < '3.11'",
+  "soundfile>=0.12 ; sys_platform == 'linux' and platform_machine == 'aarch64' and python_full_version < '3.11'",
 ]
 # Verification ASR runs in one project environment on both inference hosts.
 asr-verify = [

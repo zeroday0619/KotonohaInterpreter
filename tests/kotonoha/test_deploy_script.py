@@ -493,10 +493,12 @@ def test_tts_uses_the_fastapi_service_on_the_official_vllm_omni_base() -> None:
     assert "ARG BASE_IMAGE=vllm/vllm-omni:v0.26.0" in dockerfile
     assert "uv sync --active --frozen" in dockerfile
     assert "--system-site-packages" in dockerfile
+    # The lock is the single source of the NumPy version. A forced reinstall here
+    # contradicts the project metadata, which is what `uv pip check` then reports.
+    assert "--reinstall-package numpy" not in dockerfile
     final_sync = dockerfile.rindex("uv sync --active")
-    numpy_override = dockerfile.index('--reinstall-package numpy "numpy>=2,<2.3"')
     dependency_check = dockerfile.index('uv pip check --python "$UV_PYTHON"')
-    assert final_sync < numpy_override < dependency_check
+    assert final_sync < dependency_check
     assert "'long' in numpy.__dict__" in dockerfile
     assert 'app = FastAPI(title="kotonoha-tts"' in server
     assert '@app.post("/v1/audio/speech")' in server

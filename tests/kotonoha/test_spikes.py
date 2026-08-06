@@ -14,6 +14,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+import tomllib
 import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -377,10 +378,20 @@ def test_spike_entrypoint_restores_output_ownership_contract() -> None:
 
 
 def test_tts_runtime_is_not_installed_into_the_project_environment() -> None:
-    project_configuration = PROJECT_CONFIGURATION.read_text(encoding="utf-8")
+    project = tomllib.loads(PROJECT_CONFIGURATION.read_text(encoding="utf-8"))
     compose_source = SPIKE_COMPOSE.read_text(encoding="utf-8")
 
-    assert "vllm-omni" not in project_configuration
-    assert "qwen-tts" not in project_configuration
-    assert "melotts" not in project_configuration
+    # Inspect declared requirements rather than the file text: the NumPy comment
+    # names vllm-omni to explain which runtime forces the Python 3.12 split.
+    declared = [*project["project"]["dependencies"]]
+    for extra in project["project"].get("optional-dependencies", {}).values():
+        declared.extend(extra)
+    for group in project.get("dependency-groups", {}).values():
+        declared.extend(group)
+
+    for runtime in ("vllm-omni", "vllm", "qwen-tts", "melotts"):
+        assert not any(
+            requirement.split(";")[0].strip().lower().startswith(runtime)
+            for requirement in declared
+        ), f"{runtime} must come from the container image, not the project environment"
     assert "kotonohainterpreter-spike-tts:jetson" in compose_source
