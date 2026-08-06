@@ -349,7 +349,11 @@ check_jetson_host() {
     run_privileged jetson_clocks
   fi
   nvpmodel -q || fail "unable to read the Jetson power mode"
-  jetson_clocks --show || fail "unable to read the Jetson clock state"
+  # jetson_clocks refuses to run as a non-root user even for --show, so the
+  # readback needs the same elevation as the commands that set the state. Without
+  # it the deployment stops here whenever the script itself is not run under sudo,
+  # even though Docker already elevates on its own.
+  run_privileged jetson_clocks --show || fail "unable to read the Jetson clock state"
 }
 
 check_a6000_host() {

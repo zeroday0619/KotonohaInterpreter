@@ -76,6 +76,28 @@ def test_vllm_probes_terminate_before_torch_finalizers_run() -> None:
         assert "_sys.stdout.flush()" in command
 
 
+def test_jetson_power_commands_that_need_root_are_elevated() -> None:
+    """`jetson_clocks` refuses to run as a non-root user, `--show` included.
+
+    Docker elevates itself, so an operator who runs the script without sudo gets
+    as far as the power readback and then stops with
+
+        Error: Run this script(/usr/bin/jetson_clocks) as a root user
+
+    `nvpmodel -q` does report the mode without elevation, so it stays unelevated.
+    """
+    source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+    host_check = source.split("check_jetson_host() {", 1)[1].split("\n}", 1)[0]
+
+    for command in ("nvpmodel -m 0", "jetson_clocks\n", "jetson_clocks --show"):
+        line = next(
+            entry
+            for entry in host_check.splitlines()
+            if command.strip() in entry and "require_command" not in entry
+        )
+        assert "run_privileged" in line, f"{command.strip()} is not elevated: {line.strip()}"
+
+
 def test_deploy_script_preserves_compose_variables_through_sudo() -> None:
     source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
     match = re.search(
