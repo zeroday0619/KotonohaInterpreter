@@ -169,6 +169,22 @@ class Playback:
             self._queue.append(samples)
         self.drained.clear()
 
+    def finish_turn(
+        self,
+        /,
+    ) -> None:
+        """Mark TTS production complete when no samples remain to be played.
+
+        TTS can complete without producing samples, for example after an empty
+        clause or a backend failure. In that case the audio callback has no
+        future invocation that can discover an empty queue, so the producer
+        must complete the drained event explicitly.
+        """
+        with self._lock:
+            queue_empty = not self._queue
+        if queue_empty and self._current is None:
+            self._signal_drained()
+
     def flush(
         self,
         /,

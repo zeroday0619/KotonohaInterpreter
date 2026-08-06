@@ -572,7 +572,10 @@ class Orchestrator:
             self.event_bus.emit("error", where="text", message="busy")
             return False
         async with self._busy:
-            await self._process_text(text, source_language)
+            try:
+                await self._process_text(text, source_language)
+            finally:
+                self._to_idle("text_turn_end")
         return True
 
     async def _process_text(
@@ -721,13 +724,14 @@ class Orchestrator:
 
         await clause_queue.put(None)
         await asyncio.gather(speaker_task, return_exceptions=True)
+        self.playback.finish_turn()
 
         # Wait for the queue to drain. SPEAKING lasts until here.
         drained = await self.playback.wait_drained(timeout=60.0)
         if not drained:
             log.warning("playback.drain_timeout")
         metrics.mark("queue_drained")
-        first_audio_task.cancel()
+        await cancel_and_wait(first_audio_task)
 
         metrics.output_tokens = generation_statistics.token_count
         metrics.tok_per_s = generation_statistics.tokens_per_second
