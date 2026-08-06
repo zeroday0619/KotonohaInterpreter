@@ -130,6 +130,8 @@ celerybeat.pid
 # Environments
 .env
 .venv
+# The CI guard gate builds a second environment on the device Python generation.
+.venv-device
 env/
 venv/
 ENV/

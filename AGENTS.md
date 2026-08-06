@@ -70,7 +70,11 @@ uv run ruff check .
 uv run pytest -q
 ```
 
-Current baseline: 268 tests and zero lint findings.
+Current baseline: 294 tests and zero lint findings.
+
+`.github/workflows/ci.yml` runs these gates plus lock consistency, wheel catalog
+compilation, and Python 3.10 import parity. See
+[Development](docs/development/README.md).
 
 ## Non-negotiable constraints
 

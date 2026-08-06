@@ -1,0 +1,141 @@
+name: CI
+
+# The ruff, lint, and test gates mirror `bash scripts/manage.sh check`. The guard gate
+# adds the deployment contracts a workstation run cannot reach: lock drift against
+# pyproject.toml, install-time catalog compilation, and the Python 3.10 generation used by
+# the Jetson r36.4 service image.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A superseded revision carries no information once its successor is queued.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  ruff:
+    name: ruff
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      # ruff is a dev-group tool, so this gate does not build the project.
+      - name: Install lint tooling
+        run: uv sync --frozen --only-group dev
+      - name: ruff check
+        run: uv run --no-sync ruff check --output-format=github .
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      # scripts/i18n.py reads the committed catalogs through Babel and needs no project
+      # install.
+      - name: Install lint tooling
+        run: uv sync --frozen --only-group dev
+      - name: Shell scripts parse
+        run: git ls-files '*.sh' | xargs -r -n 1 bash -n
+      - name: Translation catalogs are complete
+        run: uv run --no-sync python scripts/i18n.py check
+
+  guard:
+    name: guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      # A lock that no longer matches pyproject.toml resolves differently inside the
+      # deployment images than it does here.
+      - name: Lock file matches pyproject.toml
+        run: uv lock --check
+      # .mo files are never committed. Deployment depends on hatch_build.py compiling them
+      # during the install, so the wheel is the artifact that has to prove it.
+      - name: Wheel carries a compiled catalog for every committed .po
+        run: |
+          uv build --wheel --out-dir dist
+          uv run --no-project python - <<'PY'
+          import glob
+          import sys
+          import zipfile
+          from pathlib import Path
+
+          expected = {
+              f"kotonoha/locale/{path.parents[1].name}/LC_MESSAGES/kotonoha.mo"
+              for path in Path("src/kotonoha/locale").glob("*/LC_MESSAGES/kotonoha.po")
+          }
+          wheels = glob.glob("dist/*.whl")
+          if len(wheels) != 1:
+              sys.exit(f"expected exactly one wheel, found {wheels}")
+          shipped = {
+              name for name in zipfile.ZipFile(wheels[0]).namelist() if name.endswith(".mo")
+          }
+          missing = sorted(expected - shipped)
+          if missing:
+              sys.exit(f"wheel is missing compiled catalogs: {missing}")
+          print(f"wheel carries {len(shipped)} compiled catalogs")
+          PY
+      # The Jetson r36.4 vLLM image provides Python 3.10. ruff enforces 3.10 syntax but
+      # not standard library availability, so the modules have to be imported there.
+      - name: Every module imports on the device Python generation
+        env:
+          UV_PROJECT_ENVIRONMENT: .venv-device
+        run: |
+          uv run --frozen --python 3.10 python - <<'PY'
+          import importlib
+          import pkgutil
+          import sys
+
+          import kotonoha
+
+          failures = []
+          for module in pkgutil.walk_packages(kotonoha.__path__, "kotonoha."):
+              try:
+                  importlib.import_module(module.name)
+              except Exception as error:
+                  failures.append(f"{module.name}: {type(error).__name__}: {error}")
+          if failures:
+              sys.exit("\n".join(["import failures on this Python generation:", *failures]))
+          version = f"{sys.version_info.major}.{sys.version_info.minor}"
+          print(f"every module imports on Python {version}")
+          PY
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Install the project
+        run: uv sync --frozen
+      # tests/kotonoha/conftest.py compiles the catalogs and isolates the suite from
+      # config/local.yaml, so no models, devices, or network access are required.
+      - name: pytest
+        run: uv run --no-sync pytest -q
