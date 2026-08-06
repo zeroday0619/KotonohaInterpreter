@@ -211,12 +211,22 @@ def test_jetson_deploy_rejects_stale_asr_overrides_before_start() -> None:
     primary_call = 'verify_jetson_asr_configuration "$compose_file"'
     verification_call = 'verify_jetson_asr_verification_runtime "$compose_file"'
 
-    assert 'expected_vllm = Path("/models/Qwen3-ASR-0.6B")' in deploy_script
-    assert 'expected_fallback = Path("/models/Qwen3-ASR-0.6B-hf")' in deploy_script
-    assert "Update the stale asr override in config/local.yaml" in deploy_script
-    assert 'config.device == "cpu"' in deploy_script
-    assert 'config.compute_type == "int8"' in deploy_script
-    assert "get_supported_compute_types(config.device)" in deploy_script
+    # Assert the required values and the diagnostics, not the probe's internals.
+    assert '"/models/Qwen3-ASR-0.6B"' in deploy_script
+    assert '"/models/Qwen3-ASR-0.6B-hf"' in deploy_script
+    assert '"qwen3_asr"' in deploy_script
+    assert "Stale asr overrides in config/local.yaml" in deploy_script
+    assert "Stale asr_verify overrides in config/local.yaml" in deploy_script
+    assert '("asr_verify.device", "cpu"' in deploy_script
+    assert '("asr_verify.compute_type", "int8"' in deploy_script
+    assert "get_supported_compute_types(" in deploy_script
+
+    # Every mismatch is reported in one run. Exiting on the first stale key made an
+    # operator repeat an image build and container start once per key.
+    for probe_marker in ("Stale asr overrides", "Stale asr_verify overrides"):
+        probe = deploy_script.split(probe_marker, 1)[0].rsplit("-c \\\n", 1)[1]
+        assert "sys.exit(1)" in deploy_script.split(probe_marker, 1)[1]
+        assert probe.count("sys.exit(") == 0, f"{probe_marker} probe exits early"
     for validation_call in (primary_call, verification_call):
         assert validation_call in deploy_body
         assert deploy_body.index(validation_call) < deploy_body.index("up -d")
