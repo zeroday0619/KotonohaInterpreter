@@ -15,14 +15,16 @@ from typing import Any, ClassVar
 import numpy as np
 import pytest
 import yaml
-from textual.widgets import Button
+from textual.widgets import Button, Select
 
 from kotonoha._config import load_settings
 from kotonoha._config_store import set_path
 from kotonoha._i18n import set_locale, translate_to
+from kotonoha.audio._devices import AudioDevice, AudioProbeResult
 from kotonoha.clients._config_admin import RemoteConfigSnapshot
 from kotonoha.core._events import UiEvent
 from kotonoha.services._config_admin import REMOTE_EDITABLE_PATHS
+from kotonoha.tui import _config_app as config_app
 from kotonoha.tui import _tools_app as tools_app
 from kotonoha.tui._app import KotonohaApp
 from kotonoha.tui._config_app import FIELDS, SECTIONS, ConfigApp
@@ -190,6 +192,100 @@ async def test_config_editor_composes_one_row_per_field(
         await pilot.pause()
         assert len(app._rows) == len(FIELDS)
         assert {r.specification.path for r in app._rows} == {f.path for f in FIELDS}
+
+
+async def test_config_editor_uses_device_selectors(
+    _positional_only: object | None = None,
+    /,
+    *,
+    monkeypatch: Any,
+    tmp_path: Any,
+) -> None:
+    def fake_query_audio_devices() -> tuple[AudioDevice, ...]:
+        return (
+            AudioDevice(1, "Microphone", 2, 0, 48000.0),
+            AudioDevice(2, "Speaker", 0, 2, 48000.0),
+        )
+
+    monkeypatch.setattr(config_app, "query_audio_devices", fake_query_audio_devices)
+    app = ConfigApp(local_path=tmp_path / "local.yaml")
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        input_row = next(r for r in app._rows if r.specification.path == "audio.input_device")
+        output_row = next(r for r in app._rows if r.specification.path == "audio.output_device")
+        assert input_row.specification.kind == "device"
+        assert output_row.specification.kind == "device"
+        assert isinstance(input_row.editor, Select)
+        assert isinstance(output_row.editor, Select)
+        assert {value for _, value in input_row.editor._options} == {"", 1}
+        assert {value for _, value in output_row.editor._options} == {"", 2}
+
+
+async def test_audio_device_selection_is_saved_as_an_index(
+    _positional_only: object | None = None,
+    /,
+    *,
+    monkeypatch: Any,
+    tmp_path: Any,
+) -> None:
+    monkeypatch.setattr(
+        config_app,
+        "query_audio_devices",
+        lambda: (AudioDevice(3, "Microphone", 1, 0, 48000.0),),
+    )
+    target = tmp_path / "local.yaml"
+    app = ConfigApp(local_path=target)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        row = next(r for r in app._rows if r.specification.path == "audio.input_device")
+        row.editor.value = 3
+        app._say = lambda message, style: None  # noqa: ARG005
+        await app.action_save()
+    assert yaml.safe_load(target.read_text(encoding="utf-8"))["audio"]["input_device"] == 3
+
+
+async def test_audio_device_button_runs_the_stream_probe(
+    _positional_only: object | None = None,
+    /,
+    *,
+    monkeypatch: Any,
+    tmp_path: Any,
+) -> None:
+    monkeypatch.setattr(
+        config_app,
+        "query_audio_devices",
+        lambda: (
+            AudioDevice(3, "Microphone", 1, 0, 48000.0),
+            AudioDevice(4, "Speaker", 0, 2, 48000.0),
+        ),
+    )
+    captured: dict[str, Any] = {}
+
+    def fake_probe(
+        input_device: Any,
+        output_device: Any,
+        /,
+        **settings: Any,
+    ) -> AudioProbeResult:
+        captured.update(
+            input_device=input_device,
+            output_device=output_device,
+            settings=settings,
+        )
+        return AudioProbeResult(True, True)
+
+    monkeypatch.setattr(config_app, "probe_audio_devices", fake_probe)
+    app = ConfigApp(local_path=tmp_path / "local.yaml")
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._show_section("audio")
+        await pilot.pause()
+        await app.audio_test_pressed(Button.Pressed(app.query_one("#audio-test", Button)))
+        await pilot.pause()
+        assert str(app.query_one("#audio-test-status").render())
+    assert captured["input_device"] is None
+    assert captured["output_device"] is None
+    assert captured["settings"]["channels"] == 1
 
 
 async def test_config_editor_titles_follow_the_locale(

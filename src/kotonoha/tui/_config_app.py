@@ -24,7 +24,17 @@ from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding, BindingsMap
 from textual.containers import Container, Horizontal, VerticalScroll
-from textual.widgets import Footer, Header, Input, ListItem, ListView, Select, Static, Switch
+from textual.widgets import (
+    Button,
+    Footer,
+    Header,
+    Input,
+    ListItem,
+    ListView,
+    Select,
+    Static,
+    Switch,
+)
 
 from kotonoha._config import Settings, load_settings, local_config_path
 from kotonoha._config_store import (
@@ -33,6 +43,12 @@ from kotonoha._config_store import (
 )
 from kotonoha._i18n import LOCALE_NAMES, N_, _
 from kotonoha._typing import override
+from kotonoha.audio._devices import (
+    AudioDevice,
+    AudioProbeResult,
+    probe_audio_devices,
+    query_audio_devices,
+)
 from kotonoha.clients._base import ServiceError
 from kotonoha.clients._config_admin import RemoteConfigClient, RemoteConfigSnapshot
 
@@ -43,7 +59,7 @@ class FieldSpec:
 
     path: str
     section: str
-    kind: str  # select | bool | value
+    kind: str  # select | bool | device | value
     choices: tuple[str, ...] = ()
     optional: bool = False
     value_kind: str = "text"  # text | number | path | collection
@@ -122,6 +138,8 @@ def _field_spec(
     section: str,
     annotation: Any,
 ) -> FieldSpec:
+    if path in {"audio.input_device", "audio.output_device"}:
+        return FieldSpec(path, section, "device", optional=True)
     annotation, optional = _without_none(annotation)
     origin = get_origin(annotation)
     if origin is Literal:
@@ -316,6 +334,7 @@ class FieldRow(Static):
     current: Any
     from_override: bool
     editor: Select | Switch | Input | None
+    device_options: tuple[tuple[str, int | str], ...]
 
     @override
     def __init__(
@@ -324,6 +343,7 @@ class FieldRow(Static):
         specification: FieldSpec,
         current: Any,
         from_override: bool,
+        device_options: tuple[tuple[str, int | str], ...] = (),
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -331,6 +351,7 @@ class FieldRow(Static):
         self.current = current
         self.from_override = from_override
         self.editor = None
+        self.device_options = device_options
 
     @override
     def compose(
@@ -366,6 +387,13 @@ class FieldRow(Static):
                 else specification.choices[0]
             )
             self.editor = Select(options, value=value, allow_blank=False)
+        elif specification.kind == "device":
+            self.editor = Select(
+                self._device_options(self.current),
+                value=self._device_value(self.current),
+                prompt=_("Select an audio device"),
+                allow_blank=False,
+            )
         else:
             self.editor = Input(
                 value=_format_value(self.current),
@@ -387,6 +415,9 @@ class FieldRow(Static):
         elif self.specification.kind == "select":
             choices = self.specification.choices
             self.editor.value = current if current in choices else choices[0]
+        elif self.specification.kind == "device":
+            self.editor.set_options(self._device_options(current))
+            self.editor.value = self._device_value(current)
         else:
             self.editor.value = _format_value(current)
 
@@ -400,6 +431,9 @@ class FieldRow(Static):
             return bool(self.editor.value)
         if specification.kind == "select":
             return str(self.editor.value)
+        if specification.kind == "device":
+            value = self.editor.value
+            return None if value == "" else value
 
         raw = str(self.editor.value).strip()
         if not raw:
@@ -410,6 +444,30 @@ class FieldRow(Static):
             return yaml.safe_load(raw)
         except yaml.YAMLError as error:
             raise ValueError(f"{specification.path}: {error}") from error
+
+    def _device_options(
+        self,
+        current: Any,
+        /,
+    ) -> tuple[tuple[str, int | str], ...]:
+        options = list(self.device_options)
+        current_value = self._device_value(current)
+        if current_value and current_value not in {value for _, value in options}:
+            options.insert(
+                1,
+                (
+                    _("Configured device: {device}", device=current_value),
+                    current_value,
+                ),
+            )
+        return tuple(options)
+
+    def _device_value(
+        self,
+        current: Any,
+        /,
+    ) -> int | str:
+        return "" if current is None else current
 
 
 class CategoryItem(ListItem):
@@ -473,6 +531,8 @@ class ConfigApp(App):
     _changing_target: bool
     _rows: list[FieldRow]
     _bindings: BindingsMap
+    audio_devices: tuple[AudioDevice, ...]
+    audio_device_error: str | None
 
     CSS: ClassVar[str] = """
     Screen { layout: vertical; }
@@ -505,6 +565,9 @@ class ConfigApp(App):
     .fieldrow { height: 3; }
     .fielddesc { color: $text-muted; }
     #status { height: 2; padding: 0 2; }
+    #audio-test-controls { height: 3; }
+    #audio-test { width: 32; }
+    #audio-test-status { padding: 1 2; color: $text-muted; }
     Input { width: 100%; }
     Select { width: 100%; }
     """
@@ -537,6 +600,12 @@ class ConfigApp(App):
         self.remote_client = None
         self._changing_target = False
         self._rows = []
+        try:
+            self.audio_devices = query_audio_devices()
+            self.audio_device_error = None
+        except Exception as error:  # noqa: BLE001 - the editor remains usable without PortAudio
+            self.audio_devices = ()
+            self.audio_device_error = str(error)
         self.current_section = SECTIONS[0]
         self._bindings = BindingsMap(
             [
@@ -584,9 +653,17 @@ class ConfigApp(App):
                                 specification,
                                 effective_value(self.settings, specification.path),
                                 get_path(self.overrides, specification.path) is not None,
+                                self._device_options(specification),
                             )
                             self._rows.append(row)
                             yield row
+                        if section == "audio":
+                            with Horizontal(id="audio-test-controls"):
+                                yield Button(
+                                    _("Test selected devices"),
+                                    id="audio-test",
+                                )
+                                yield Static("", id="audio-test-status")
         self.status = Static("", id="status")
         yield self.status
         yield Footer()
@@ -599,6 +676,14 @@ class ConfigApp(App):
         self._update_subtitle()
         self._show_section(self.current_section)
         self.query_one("#category-list", ListView).index = 0
+        if self.audio_device_error:
+            self._say(
+                _(
+                    "Audio device list unavailable: {error}",
+                    error=self.audio_device_error,
+                ),
+                "yellow",
+            )
 
     async def on_unmount(
         self,
@@ -606,6 +691,39 @@ class ConfigApp(App):
     ) -> None:
         if self.remote_client is not None:
             await self.remote_client.aclose()
+
+    @on(Button.Pressed, "#audio-test")
+    async def audio_test_pressed(
+        self,
+        /,
+        event: Button.Pressed,
+    ) -> None:
+        del event
+        if self.target != "local":
+            self._say(_("Audio device testing is available only for the local device"), "yellow")
+            return
+        try:
+            input_device = self._row_value("audio.input_device")
+            output_device = self._row_value("audio.output_device")
+        except ValueError as error:
+            self._say(str(error), "red")
+            return
+
+        button = self.query_one("#audio-test", Button)
+        button.disabled = True
+        self._say(_("Testing input and output devices..."), "yellow")
+        try:
+            result = await asyncio.to_thread(
+                probe_audio_devices,
+                input_device,
+                output_device,
+                capture_sample_rate=self.settings.audio.capture_sample_rate,
+                playback_sample_rate=self.settings.audio.playback_sample_rate,
+                channels=self.settings.audio.channels,
+            )
+        finally:
+            button.disabled = False
+        self._report_audio_test(result)
 
     @on(Select.Changed, "#target-select")
     async def target_changed(
@@ -712,6 +830,39 @@ class ConfigApp(App):
             if specification.section == section and self._field_visible(specification)
         )
 
+    def _row_value(
+        self,
+        path: str,
+        /,
+    ) -> Any:
+        row = next(
+            (candidate for candidate in self._rows if candidate.specification.path == path),
+            None,
+        )
+        if row is None:
+            raise ValueError(_("Audio setting is not available: {path}", path=path))
+        return row.value()
+
+    def _report_audio_test(
+        self,
+        result: AudioProbeResult,
+        /,
+    ) -> None:
+        if result.ok:
+            self._say(_("Audio device test passed"), "green")
+            self.query_one("#audio-test-status", Static).update(
+                Text(_("Input and output streams opened successfully"), style="green")
+            )
+            return
+        messages: list[str] = []
+        if result.input_error:
+            messages.append(_("Input device test failed: {error}", error=result.input_error))
+        if result.output_error:
+            messages.append(_("Output device test failed: {error}", error=result.output_error))
+        message = " ".join(messages)
+        self._say(message, "red")
+        self.query_one("#audio-test-status", Static).update(Text(message, style="red"))
+
     def _field_visible(
         self,
         /,
@@ -743,10 +894,28 @@ class ConfigApp(App):
             self.query_one(f"#category-{section}", CategoryItem).display = (
                 section in visible_sections
             )
+        self.query_one("#audio-test-controls").display = self.target == "local"
         if self.current_section not in visible_sections:
             first_section = visible_sections[0]
             self.query_one("#category-list", ListView).index = SECTIONS.index(first_section)
             self._show_section(first_section)
+
+    def _device_options(
+        self,
+        specification: FieldSpec,
+        /,
+    ) -> tuple[tuple[str, int | str], ...]:
+        if specification.kind != "device":
+            return ()
+        direction = "input" if specification.path == "audio.input_device" else "output"
+        options: list[tuple[str, int | str]] = [(_("System default"), "")]
+        options.extend(
+            (device.label, device.index)
+            for device in self.audio_devices
+            if (direction == "input" and device.input_channels > 0)
+            or (direction == "output" and device.output_channels > 0)
+        )
+        return tuple(options)
 
     def _refresh_rows(
         self,
