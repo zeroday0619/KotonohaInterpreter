@@ -495,17 +495,16 @@ locked environment, then checks CPU INT8 capability during construction. Jetson 
 loading, transcription latency, and memory use remain target measurements. An image pull
 or successful build also does not prove vLLM-Omni TTS loading.
 
-The Jetson images use native NVML by default. Deployment calls
-`torch.cuda.device_count()` before starting resident services. If the NGC image reproduces
-the former `_raw_device_count_nvml` segmentation fault, set `JETSON_NVML_BYPASS=1` while
-rebuilding. The opt-in shadow library makes PyTorch use its CUDA runtime device-count
-fallback. Record either result in Phase 0; the fallback does not establish kernel
-compatibility.
+The Jetson images patch vLLM CUDA platform detection to skip NVML and use the non-NVML
+platform. Jetson's `nvgpu` runtime can segfault inside `nvmlInit()` instead of returning a
+Python exception. Deployment probes use the raw CUDA device-count API for the same reason.
+The patch does not establish model or kernel compatibility; those remain target
+measurements.
 
 ### Start model services
 
 Prefer `bash scripts/manage.sh deploy jetson`. It validates the effective 0.6B ASR paths,
-the CPU INT8 verification backend, `torch.cuda.device_count()`, CUDA imports, and
+the CPU INT8 verification backend, raw CUDA device access, CUDA imports, and
 TranslateGemma model configuration before Compose starts the resident containers. A
 segmentation fault in the device-count probe stops deployment before resident services
 enter a restart loop. The commands below are the manual path after those checks have

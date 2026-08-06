@@ -22,6 +22,7 @@ x-jetson: &jetson
     - HF_HOME=/models/hf
     - TRANSFORMERS_OFFLINE=1 # fully offline (§1); models are fetched in advance
     - HF_HUB_OFFLINE=1
+    - KOTONOHA_DISABLE_NVML=${KOTONOHA_DISABLE_NVML:-1}
   volumes:
     - ../:/app
     - ../models:/models
@@ -36,7 +37,6 @@ services:
       dockerfile: docker/Dockerfile.asr
       args:
         BASE_IMAGE: ${ASR_BASE:-nvcr.io/nvidia/vllm:26.07-py3}
-        NVML_BYPASS: ${JETSON_NVML_BYPASS:-0}
     command: uvicorn kotonoha.services._asr_server:app --host 0.0.0.0 --port 8001 --loop uvloop
 
   asr-verify:
@@ -46,7 +46,6 @@ services:
       dockerfile: docker/Dockerfile.asr-verify
       args:
         BASE_IMAGE: ${VERIFY_BASE:-nvcr.io/nvidia/vllm:26.07-py3}
-        NVML_BYPASS: ${JETSON_NVML_BYPASS:-0}
     command: uvicorn kotonoha.services._asr_verify_server:app --host 0.0.0.0 --port 8002 --loop uvloop
 
   llm:
@@ -57,7 +56,6 @@ services:
       dockerfile: docker/Dockerfile.llm
       args:
         BASE_IMAGE: ${LLM_IMAGE:-nvcr.io/nvidia/vllm:26.07-py3}
-        NVML_BYPASS: ${JETSON_NVML_BYPASS:-0}
     environment:
       - KOTONOHA_CONFIG=/app/config/default.yaml
       - KOTONOHA__LLM__MODELS_DIR=/models/llm
@@ -76,7 +74,7 @@ services:
       dockerfile: docker/Dockerfile.tts
       args:
         BASE_IMAGE: ${TTS_IMAGE:-vllm/vllm-omni:v0.26.0}
-        NVML_BYPASS: ${JETSON_NVML_BYPASS:-0}
+        JETSON_NVML_PATCH: ${JETSON_NVML_PATCH:-1}
     environment:
       - KOTONOHA_CONFIG=/app/config/default.yaml
       - HF_HOME=/models/hf

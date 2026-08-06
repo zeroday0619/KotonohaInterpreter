@@ -30,14 +30,11 @@ RUN uv sync --active --frozen --no-dev --extra asr-verify --no-cache \
 RUN "$UV_PYTHON" -c \
  "import ctranslate2, faster_whisper; compute_types = ctranslate2.get_supported_compute_types('cpu'); assert 'int8' in compute_types, compute_types; print('ct2', ctranslate2.__version__, '| fw', faster_whisper.__version__, '| cpu', compute_types)"
 
-# Keep the same opt-in diagnostic control as the resident GPU services.
-ARG NVML_BYPASS=0
-RUN mkdir -p /opt/kotonoha/nvml-bypass \
- && if [ "$NVML_BYPASS" = "1" ]; then \
-      printf 'kotonoha: not a loadable ELF object\n' \
-        > /opt/kotonoha/nvml-bypass/libnvidia-ml.so.1; \
-    fi
-ENV LD_LIBRARY_PATH=/opt/kotonoha/nvml-bypass:${LD_LIBRARY_PATH}
+# Keep vLLM's CUDA platform on the Jetson-safe non-NVML path when this image
+# imports the vendor runtime during service startup.
+COPY docker/patches/disable_vllm_nvml.py /tmp/disable_vllm_nvml.py
+RUN python3 /tmp/disable_vllm_nvml.py && rm /tmp/disable_vllm_nvml.py
+ENV KOTONOHA_DISABLE_NVML=1
 
 EXPOSE 8002
 CMD ["uvicorn", "kotonoha.services._asr_verify_server:app", "--host", "0.0.0.0", "--port", "8002", "--loop", "uvloop"]

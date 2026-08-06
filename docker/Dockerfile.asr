@@ -50,18 +50,11 @@ ENV SPIKE_TRANSFORMERS_PYTHON=/opt/transformers-fallback/bin/python
 RUN "$UV_PYTHON" -c \
  "from importlib.metadata import version; from importlib.util import find_spec; from pathlib import Path; spec = find_spec('vllm'); assert spec and spec.submodule_search_locations, 'vLLM package missing'; root = Path(next(iter(spec.submodule_search_locations))); batch = list(root.rglob('qwen3_asr.py')); realtime = list(root.rglob('qwen3_asr_realtime.py')); connection = list(root.rglob('realtime/connection.py')); assert version('vllm').split('+', 1)[0] == '0.24.0', version('vllm'); assert batch, 'Qwen3-ASR module missing'; assert realtime, 'Qwen3-ASR realtime module missing'; assert connection, 'vLLM realtime connection missing'; print('Qwen3-ASR modules', batch[0], realtime[0], connection[0])"
 
-# Optional NVML bypass for the Jetson runtime.
-#
-# The former CUDA 12.6 image crashed in nvmlInit() on the Jetson Linux 39.2 host.
-# The CUDA 13.3 image uses NVML by default so the migration exercises its native
-# path. Set NVML_BYPASS=1 only when the deployment probe reproduces that crash.
-ARG NVML_BYPASS=0
-RUN mkdir -p /opt/kotonoha/nvml-bypass \
- && if [ "$NVML_BYPASS" = "1" ]; then \
-      printf 'kotonoha: not a loadable ELF object\n' \
-        > /opt/kotonoha/nvml-bypass/libnvidia-ml.so.1; \
-    fi
-ENV LD_LIBRARY_PATH=/opt/kotonoha/nvml-bypass:${LD_LIBRARY_PATH}
+# Jetson exposes the nvgpu driver, whose NVML entry point can segfault instead of
+# returning an exception. Force vLLM's CUDA platform to use raw CUDA device queries.
+COPY docker/patches/disable_vllm_nvml.py /tmp/disable_vllm_nvml.py
+RUN python3 /tmp/disable_vllm_nvml.py && rm /tmp/disable_vllm_nvml.py
+ENV KOTONOHA_DISABLE_NVML=1
 
 EXPOSE 8001
 CMD ["uvicorn", "kotonoha.services._asr_server:app", "--host", "0.0.0.0", "--port", "8001", "--loop", "uvloop"]

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import runpy
 import subprocess
 from pathlib import Path
 
@@ -16,6 +17,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEPLOY_SCRIPT = PROJECT_ROOT / "scripts" / "deploy.sh"
 LLM_SERVER = PROJECT_ROOT / "src" / "kotonoha" / "services" / "_llm_server.py"
 TTS_SERVER = PROJECT_ROOT / "src" / "kotonoha" / "services" / "_tts_server.py"
+NVML_PATCH_SCRIPT = PROJECT_ROOT / "docker" / "patches" / "disable_vllm_nvml.py"
 
 
 def test_deploy_script_has_valid_shell_syntax_and_help() -> None:
@@ -76,15 +78,15 @@ def test_vllm_probes_terminate_before_torch_finalizers_run() -> None:
         assert "_sys.stdout.flush()" in command
 
 
-def test_vllm_probes_execute_the_worker_device_count_path() -> None:
+def test_vllm_probes_use_raw_cuda_device_count_without_nvml() -> None:
     source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
     commands = re.findall(r"-c \\\n\s+'([^']+)' \\", source)
     vllm_probes = [command for command in commands if "vllm.__version__" in command]
 
     assert len(vllm_probes) == 3
     for command in vllm_probes:
-        assert "torch.cuda.device_count()" in command
-        assert 'assert device_count > 0, "PyTorch reported no CUDA devices"' in command
+        assert "torch._C._cuda_getDeviceCount()" in command
+        assert 'assert device_count > 0, "CUDA reported no devices"' in command
 
 
 def test_jetson_power_commands_that_need_root_are_elevated() -> None:
@@ -473,18 +475,57 @@ def test_jetson_gpu_services_bypass_the_crashing_nvml_path() -> None:
 
     for dockerfile_name in dockerfile_names:
         source = (PROJECT_ROOT / "docker" / dockerfile_name).read_text(encoding="utf-8")
-        assert "ARG NVML_BYPASS=" in source
-        assert "libnvidia-ml.so.1" in source
-        assert "LD_LIBRARY_PATH=/opt/kotonoha/nvml-bypass" in source
+        assert "COPY docker/patches/disable_vllm_nvml.py" in source
+        assert "python3 /tmp/disable_vllm_nvml.py" in source
+        assert "libnvidia-ml.so.1" not in source
 
+    assert "KOTONOHA_DISABLE_NVML=${KOTONOHA_DISABLE_NVML:-1}" in (
+        (PROJECT_ROOT / "docker" / "compose.yaml").read_text(encoding="utf-8")
+    )
+    assert "JETSON_NVML_PATCH: ${JETSON_NVML_PATCH:-1}" in (
+        (PROJECT_ROOT / "docker" / "compose.yaml").read_text(encoding="utf-8")
+    )
     for service_name in ("asr", "asr-verify", "llm", "tts"):
         build_arguments = compose["services"][service_name]["build"]["args"]
-        assert build_arguments["NVML_BYPASS"] == "${JETSON_NVML_BYPASS:-0}"
+        assert "NVML_BYPASS" not in build_arguments
 
     remote_compose = yaml.safe_load(
         (PROJECT_ROOT / "docker" / "compose.remote.yaml").read_text(encoding="utf-8")
     )
-    assert "NVML_BYPASS" not in remote_compose["services"]["tts"]["build"]["args"]
+    assert remote_compose["services"]["tts"]["build"]["args"]["JETSON_NVML_PATCH"] == 0
+
+
+def test_vllm_nvml_patch_generates_valid_guarded_source(
+    _positional_only: object | None = None,
+    /,
+    *,
+    tmp_path: Path,
+) -> None:
+    patch_module = runpy.run_path(str(NVML_PATCH_SCRIPT))
+    cuda_source = tmp_path / "cuda.py"
+    cuda_source.write_text(
+        "import os\n\n"
+        "nvml_available = False\n"
+        "try:\n"
+        "    pynvml.nvmlInit()\n"
+        "    nvml_available = True\n"
+        "except Exception:\n"
+        "    nvml_available = False\n"
+        "finally:\n"
+        "    if nvml_available:\n"
+        "        pynvml.nvmlShutdown()\n\n"
+        "if nvml_available:\n"
+        "    CudaPlatform = NvmlCudaPlatform\n"
+        "else:\n"
+        "    CudaPlatform = NonNvmlCudaPlatform\n""",
+        encoding="utf-8",
+    )
+
+    assert patch_module["_patch_file"](cuda_source) is True
+    patched_source = cuda_source.read_text(encoding="utf-8")
+    compile(patched_source, str(cuda_source), "exec")
+    assert 'os.environ.get("KOTONOHA_DISABLE_NVML") != "1"' in patched_source
+    assert patched_source.count("KOTONOHA_DISABLE_NVML") == 1
 
 
 def test_remote_lock_and_dockerfile_use_target_specific_python_environments() -> None:

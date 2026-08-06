@@ -89,6 +89,7 @@ services:
       dockerfile: docker/Dockerfile.tts
       args:
         BASE_IMAGE: ${TTS_IMAGE:-vllm/vllm-omni:v0.26.0}
+        JETSON_NVML_PATCH: 0
     depends_on: [asr]
     ports: ["8004:8004"]
     environment:

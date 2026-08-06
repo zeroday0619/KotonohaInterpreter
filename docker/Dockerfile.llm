@@ -27,16 +27,10 @@ RUN uv sync --active --frozen --no-dev --no-cache \
  && "$UV_PYTHON" -c \
  "from importlib.metadata import version; from importlib.util import find_spec; from pathlib import Path; import kotonoha, numpy, websockets; assert Path(numpy.__file__).is_relative_to('/opt/kotonoha-venv'), numpy.__file__; assert version('vllm').split('+', 1)[0] == '0.24.0', version('vllm'); spec = find_spec('vllm'); assert spec and spec.submodule_search_locations, 'vLLM package missing'; root = Path(next(iter(spec.submodule_search_locations))); assert list(root.rglob('api_server.py')), 'vLLM async engine builder missing'; print('TranslateGemma service dependencies ok | NumPy', numpy.__version__, '| vLLM', version('vllm'))"
 
-# PyTorch probes NVML from torch.cuda.device_count() after vLLM starts its worker.
-# The CUDA 13.3 image exercises native NVML by default. The shadow-library fallback
-# remains available for reproductions of the previous nvmlInit() crash.
-ARG NVML_BYPASS=0
-RUN mkdir -p /opt/kotonoha/nvml-bypass \
- && if [ "$NVML_BYPASS" = "1" ]; then \
-      printf 'kotonoha: not a loadable ELF object\n' \
-        > /opt/kotonoha/nvml-bypass/libnvidia-ml.so.1; \
-    fi
-ENV LD_LIBRARY_PATH=/opt/kotonoha/nvml-bypass:${LD_LIBRARY_PATH}
+# Keep TranslateGemma on the same Jetson-safe non-NVML vLLM platform path as ASR.
+COPY docker/patches/disable_vllm_nvml.py /tmp/disable_vllm_nvml.py
+RUN python3 /tmp/disable_vllm_nvml.py && rm /tmp/disable_vllm_nvml.py
+ENV KOTONOHA_DISABLE_NVML=1
 
 EXPOSE 8003
 CMD ["uvicorn", "kotonoha.services._llm_server:app", "--host", "0.0.0.0", "--port", "8003", "--loop", "uvloop"]

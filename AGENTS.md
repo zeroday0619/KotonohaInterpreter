@@ -71,7 +71,7 @@ uv run ruff check .
 uv run pytest -q
 ```
 
-Current baseline: 305 tests and zero lint findings.
+Current baseline: 306 tests and zero lint findings.
 
 `.github/workflows/ci.yml` runs these gates plus lock consistency, wheel catalog
 compilation, and Python 3.10 import parity. See
@@ -454,7 +454,7 @@ Do not mix application logs and turn metrics in one file.
 | History search | Escape `%` and `_` before SQL LIKE matching |
 | Test isolation | Keep `KOTONOHA_SKIP_LOCAL_CONFIG`; local config contains device secrets |
 | Privileged Compose | Pass the interpolation allowlist through `sudo env`; sudo removes exported variables |
-| Jetson NVML | Probe `torch.cuda.device_count()` before startup; set `JETSON_NVML_BYPASS=1` only if native NVML reproduces the previous worker crash |
+| Jetson NVML | Build Jetson images with the vLLM non-NVML platform patch; use raw CUDA device queries in deployment probes |
 
 ## Documentation and reporting
 
