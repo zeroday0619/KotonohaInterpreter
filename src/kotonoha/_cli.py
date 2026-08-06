@@ -488,7 +488,7 @@ def doctor(
     print()
 
     modules = [
-        ("numpy", True), ("httpx", True), ("structlog", True), ("textual", True),
+        ("numpy", True), ("httpx2", True), ("structlog", True), ("textual", True),
         ("prometheus_client", True),
         ("uvloop", True),
         ("soxr", True), ("sounddevice", False), ("opencc", False),
@@ -560,7 +560,7 @@ def netcheck(
     # rather than assumed.
     import statistics
 
-    import httpx
+    import httpx2
 
     from kotonoha._transport import encode_pcm
     from kotonoha.clients._base import remote_transport_kwargs
@@ -599,10 +599,10 @@ def netcheck(
         upload_times: dict[str, float] = {}
         failed_roles: list[str] = []
 
-        async with httpx.AsyncClient(
+        async with httpx2.AsyncClient(
             headers=transport_options["headers"],
             verify=transport_options["verify"],
-            timeout=httpx.Timeout(10.0, connect=transport_options["connect_timeout"]),
+            timeout=httpx2.Timeout(10.0, connect=transport_options["connect_timeout"]),
         ) as client:
             for role in remote_roles:
                 url = settings.url_for(role, "remote").rstrip("/")

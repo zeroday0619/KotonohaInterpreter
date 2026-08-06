@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any, ClassVar, Final
 
-import httpx
+import httpx2
 import numpy as np
 import pytest
 
@@ -128,7 +128,7 @@ def test_payload_carries_both_forms() -> None:
     assert len(payload.encoded("s16le")) == 32_000
 
 
-def test_bearer_token_and_tls_flags_reach_httpx() -> None:
+def test_bearer_token_and_tls_flags_reach_httpx2() -> None:
     tk = remote_transport_kwargs(RemoteConfig(token="secret", verify_tls=False))
     assert tk["headers"]["authorization"] == "Bearer secret"
     assert tk["verify"] is False
@@ -247,17 +247,17 @@ async def test_vllm_omni_tts_request_streams_openai_compatible_pcm() -> None:
     captured_payload: dict[str, Any] = {}
 
     def handle_request(
-        request: httpx.Request,
+        request: httpx2.Request,
         /,
-    ) -> httpx.Response:
+    ) -> httpx2.Response:
         captured_payload.update(json.loads(request.content))
-        return httpx.Response(200, content=b"\x00\x00\xff\x7f")
+        return httpx2.Response(200, content=b"\x00\x00\xff\x7f")
 
     client = TextToSpeechClient("http://test", settings.tts)
     await client._client.aclose()
-    client._client = httpx.AsyncClient(
+    client._client = httpx2.AsyncClient(
         base_url="http://test",
-        transport=httpx.MockTransport(handle_request),
+        transport=httpx2.MockTransport(handle_request),
     )
     try:
         chunks = [chunk async for chunk in client.synthesize("안녕하세요.", "ko")]
@@ -283,16 +283,16 @@ async def test_vllm_omni_health_accepts_an_empty_success_response() -> None:
     settings = load_settings()
 
     def handle_request(
-        request: httpx.Request,
+        request: httpx2.Request,
         /,
-    ) -> httpx.Response:
-        return httpx.Response(200)
+    ) -> httpx2.Response:
+        return httpx2.Response(200)
 
     client = TextToSpeechClient("http://test", settings.tts)
     await client._client.aclose()
-    client._client = httpx.AsyncClient(
+    client._client = httpx2.AsyncClient(
         base_url="http://test",
-        transport=httpx.MockTransport(handle_request),
+        transport=httpx2.MockTransport(handle_request),
     )
     try:
         health = await client.health()

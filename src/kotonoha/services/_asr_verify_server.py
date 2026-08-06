@@ -127,10 +127,10 @@ class WhisperCppBackend:
         /,
         url: str,
     ) -> None:
-        import httpx
+        import httpx2
 
         self.url = url.rstrip("/")
-        self.client = httpx.Client(timeout=10.0)
+        self.client = httpx2.Client(timeout=10.0)
         log.info("verify.whisper_cpp", url=self.url)
 
     def transcribe(

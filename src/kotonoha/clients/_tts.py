@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Any, ClassVar
 
-import httpx
+import httpx2
 import numpy as np
 
 from kotonoha._config import TextToSpeechConfig
@@ -87,7 +87,7 @@ class TextToSpeechClient(BaseClient):
         }
         remainder = b""
         try:
-            timeout = httpx.Timeout(self.config.timeout_s, connect=2.0)
+            timeout = httpx2.Timeout(self.config.timeout_s, connect=2.0)
             async with self._client.stream(
                 "POST", "/v1/audio/speech", json=payload, timeout=timeout
             ) as response:
@@ -104,10 +104,10 @@ class TextToSpeechClient(BaseClient):
                     raise ServiceError(
                         f"{self.label} returned an incomplete 16-bit PCM sample"
                     )
-        except httpx.TimeoutException as error:
+        except httpx2.TimeoutException as error:
             raise ServiceTimeout(f"{self.label} timeout") from error
-        except httpx.HTTPStatusError as error:
+        except httpx2.HTTPStatusError as error:
             detail = f"{self.label} {error.response.status_code}: {error.response.text[:200]}"
             raise ServiceError(detail) from error
-        except httpx.HTTPError as error:
+        except httpx2.HTTPError as error:
             raise ServiceError(f"{self.label} transport error: {error!r}") from error

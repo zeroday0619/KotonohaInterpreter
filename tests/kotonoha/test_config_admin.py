@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-import httpx
+import httpx2
 import pytest
 import yaml
 from fastapi import FastAPI
@@ -43,8 +43,8 @@ async def test_admin_api_requires_the_service_token(
     *,
     admin_environment: Any,
 ) -> None:
-    transport = httpx.ASGITransport(app=build_admin_app())
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+    transport = httpx2.ASGITransport(app=build_admin_app())
+    async with httpx2.AsyncClient(transport=transport, base_url="http://test") as client:
         assert (await client.get("/admin/config")).status_code == 401
         response = await client.get(
             "/admin/config", headers={"authorization": "Bearer test-secret"}
@@ -59,8 +59,8 @@ async def test_admin_api_validates_and_persists_overrides(
     admin_environment: Any,
 ) -> None:
     override = admin_environment
-    transport = httpx.ASGITransport(app=build_admin_app())
-    async with httpx.AsyncClient(
+    transport = httpx2.ASGITransport(app=build_admin_app())
+    async with httpx2.AsyncClient(
         transport=transport,
         base_url="http://test",
         headers={"authorization": "Bearer test-secret"},
@@ -96,8 +96,8 @@ async def test_admin_api_rejects_invalid_values_without_writing(
     admin_environment: Any,
 ) -> None:
     override = admin_environment
-    transport = httpx.ASGITransport(app=build_admin_app())
-    async with httpx.AsyncClient(
+    transport = httpx2.ASGITransport(app=build_admin_app())
+    async with httpx2.AsyncClient(
         transport=transport,
         base_url="http://test",
         headers={"authorization": "Bearer test-secret"},
@@ -116,8 +116,8 @@ async def test_admin_api_rejects_client_owned_settings(
     admin_environment: Any,
 ) -> None:
     override = admin_environment
-    transport = httpx.ASGITransport(app=build_admin_app())
-    async with httpx.AsyncClient(
+    transport = httpx2.ASGITransport(app=build_admin_app())
+    async with httpx2.AsyncClient(
         transport=transport,
         base_url="http://test",
         headers={"authorization": "Bearer test-secret"},
@@ -141,8 +141,8 @@ async def test_remote_config_client_reads_and_updates(
     settings.remote.token = "test-secret"
     client = RemoteConfigClient("http://remote.test", settings.remote)
     await client._client.aclose()
-    client._client = httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=application),
+    client._client = httpx2.AsyncClient(
+        transport=httpx2.ASGITransport(app=application),
         base_url="http://remote.test",
         headers={"authorization": "Bearer test-secret"},
     )

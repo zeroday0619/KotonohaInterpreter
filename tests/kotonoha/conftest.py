@@ -10,7 +10,10 @@ from __future__ import annotations
 
 from typing import Any
 
+import httpx2
 import pytest
+
+httpx2.alias_httpx()
 
 
 @pytest.fixture(autouse=True, scope="session")

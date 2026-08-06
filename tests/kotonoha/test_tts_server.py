@@ -54,7 +54,7 @@ def test_vllm_omni_service_wraps_the_engine_without_an_internal_server() -> None
     assert "OmniOpenAIServingSpeech" in source
     assert "class VllmOmniRuntime" in source
     assert "create_subprocess_exec" not in source
-    assert "httpx.AsyncClient" not in source
+    assert "httpx2.AsyncClient" not in source
     assert "TTS_UPSTREAM_PORT" not in source
 
 

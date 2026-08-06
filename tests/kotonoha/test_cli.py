@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any, ClassVar, Final
 
-import httpx
+import httpx2
 import pytest
 from typer.testing import CliRunner
 
@@ -81,7 +81,7 @@ def test_netcheck_executes_localized_output_before_measurement_loops(
     *,
     monkeypatch: Any,
 ) -> None:
-    monkeypatch.setattr(httpx, "AsyncClient", HealthyAsyncClient)
+    monkeypatch.setattr(httpx2, "AsyncClient", HealthyAsyncClient)
     runner = CliRunner()
 
     result = runner.invoke(

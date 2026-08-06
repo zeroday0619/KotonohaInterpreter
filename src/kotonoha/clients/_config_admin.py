@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
-import httpx
+import httpx2
 
 from kotonoha._config import RemoteConfig
 from kotonoha._typing import override
@@ -25,7 +25,7 @@ class RemoteConfigClient:
     __slots__: ClassVar[tuple[str, ...]] = (
         "_client",
     )
-    _client: httpx.AsyncClient
+    _client: httpx2.AsyncClient
 
     @override
     def __init__(
@@ -35,11 +35,11 @@ class RemoteConfigClient:
         remote: RemoteConfig,
     ) -> None:
         transport = remote_transport_kwargs(remote)
-        self._client = httpx.AsyncClient(
+        self._client = httpx2.AsyncClient(
             base_url=base_url.rstrip("/"),
             headers=transport["headers"],
             verify=transport["verify"],
-            timeout=httpx.Timeout(10.0, connect=transport["connect_timeout"]),
+            timeout=httpx2.Timeout(10.0, connect=transport["connect_timeout"]),
         )
 
     async def aclose(
@@ -74,10 +74,10 @@ class RemoteConfigClient:
             response = await self._client.request(method, path, **kwargs)
             response.raise_for_status()
             return response.json()
-        except httpx.TimeoutException as error:
+        except httpx2.TimeoutException as error:
             raise ServiceTimeout(f"remote config timeout on {path}") from error
-        except httpx.HTTPStatusError as error:
+        except httpx2.HTTPStatusError as error:
             detail = error.response.text[:300]
             raise ServiceError(f"remote config {error.response.status_code}: {detail}") from error
-        except httpx.HTTPError as error:
+        except httpx2.HTTPError as error:
             raise ServiceError(f"remote config transport error: {error!r}") from error

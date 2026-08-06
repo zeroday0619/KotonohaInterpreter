@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any, ClassVar
 from urllib.parse import urlsplit, urlunsplit
 
-import httpx
+import httpx2
 from websockets.asyncio.client import connect
 from websockets.exceptions import WebSocketException
 
@@ -181,7 +181,7 @@ class LanguageModelClient(BaseClient):
 
 
 def _safe_json(
-    response: httpx.Response,
+    response: httpx2.Response,
     /,
 ) -> dict:
     try:

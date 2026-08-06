@@ -7,7 +7,7 @@ import time
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from typing import Any, ClassVar
 
-import httpx
+import httpx2
 from fastapi import FastAPI, Request
 from fastapi.responses import Response
 from prometheus_client import (
@@ -159,7 +159,7 @@ class MetricsAggregator:
         """Fetch metrics from every currently active role endpoint."""
         self.placement = dict(placement)
         transport = remote_transport_kwargs(self.settings.remote)
-        timeout = httpx.Timeout(
+        timeout = httpx2.Timeout(
             3.0,
             connect=float(transport["connect_timeout"]),
         )
@@ -181,7 +181,7 @@ class MetricsAggregator:
                 self._payloads.pop(key, None)
                 role, source = key
                 REMOTE_SCRAPE_UP.labels(service=role, source=source).set(0)
-        async with httpx.AsyncClient(
+        async with httpx2.AsyncClient(
             verify=transport["verify"],
             timeout=timeout,
         ) as client:
@@ -223,7 +223,7 @@ class MetricsAggregator:
 
     async def _fetch(
         self,
-        client: httpx.AsyncClient,
+        client: httpx2.AsyncClient,
         role: str,
         source: str,
         url: str,
@@ -236,7 +236,7 @@ class MetricsAggregator:
                 headers=headers,
             )
             response.raise_for_status()
-        except httpx.HTTPError:
+        except httpx2.HTTPError:
             return role, source, None
         return role, source, response.text
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import ClassVar
 
-import httpx
+import httpx2
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -159,7 +159,7 @@ async def test_remote_service_metrics_are_merged_into_one_registry(
     settings.perf_mode = "remote"
     settings.remote.enabled = True
     aggregator = MetricsAggregator(settings, settings.resolved_placement())
-    monkeypatch.setattr(httpx, "AsyncClient", MetricsClient)
+    monkeypatch.setattr(httpx2, "AsyncClient", MetricsClient)
 
     await aggregator.refresh(settings.resolved_placement())
 

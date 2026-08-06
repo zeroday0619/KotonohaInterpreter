@@ -6,7 +6,7 @@ import asyncio
 import ssl
 from typing import Any, ClassVar
 
-import httpx
+import httpx2
 
 from kotonoha._config import RemoteConfig
 from kotonoha._logging_setup import get_logger
@@ -63,7 +63,7 @@ class BaseClient:
     _connect_timeout: float
     _headers: dict[str, str]
     _verify: bool | ssl.SSLContext
-    _client: httpx.AsyncClient
+    _client: httpx2.AsyncClient
 
     @override
     def __init__(
@@ -85,9 +85,9 @@ class BaseClient:
         self._connect_timeout = connect_timeout
         self._headers = {"connection": "keep-alive", **(headers or {})}
         self._verify = verify
-        self._client = httpx.AsyncClient(
+        self._client = httpx2.AsyncClient(
             base_url=self.base_url,
-            timeout=httpx.Timeout(timeout, connect=connect_timeout),
+            timeout=httpx2.Timeout(timeout, connect=connect_timeout),
             headers=self._headers,
             verify=verify,
         )
@@ -178,12 +178,12 @@ class BaseClient:
             )
             response.raise_for_status()
             return response.json()
-        except httpx.TimeoutException as error:
+        except httpx2.TimeoutException as error:
             raise ServiceTimeout(f"{self.label} timeout on {path}") from error
-        except httpx.HTTPStatusError as error:
+        except httpx2.HTTPStatusError as error:
             detail = (
                 f"{self.label} {error.response.status_code}: {error.response.text[:200]}"
             )
             raise ServiceError(detail) from error
-        except httpx.HTTPError as error:
+        except httpx2.HTTPError as error:
             raise ServiceError(f"{self.label} transport error: {error!r}") from error
