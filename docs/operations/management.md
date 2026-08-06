@@ -136,6 +136,11 @@ the standard sudo policy removes exported shell variables.
 | `SPIKE_GPU_DEVICE` | GPU exposed to Spike containers |
 | `OUT` | Hardware Spike output directory |
 
+Docker accelerator defaults are stored under
+`docker/profiles/accelerators/<vendor>/<family>/<model>.env`. The deployment and spike
+scripts load the profile matching the selected target before invoking Docker. Explicit
+environment variables override profile defaults.
+
 ## Safety
 
 - `setup jetson` and `setup a6000` use deployment `--prepare-only` mode.

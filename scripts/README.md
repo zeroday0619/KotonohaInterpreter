@@ -9,6 +9,7 @@
 | `fetch_models.sh` | Offline model snapshot download workflow |
 | `py/allocate_gpus.py` | Python entry point for memory-aware A6000 GPU allocation |
 | `py/i18n.py` | Python entry point for gettext catalog maintenance |
+| `../docker/profiles/accelerators/` | Container runtime, device-driver, and image profiles |
 
 Use `bash scripts/manage.sh i18n <extract|update|compile|check>` to run catalog
 maintenance through the confirmed management entry point.

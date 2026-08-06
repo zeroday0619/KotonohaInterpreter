@@ -30,6 +30,33 @@ Do not compare measurements from different hosts as one runtime result. Every re
 result must identify the target, GPU, compute capability, runtime versions, and benchmark
 conditions.
 
+## Applied vLLM Profiles
+
+The service passes optimization arguments only when the selected device profile supports
+them. PagedAttention remains an internal vLLM implementation and requires no project
+setting.
+
+| Feature | Jetson AGX Orin | RTX A6000 | Reason |
+|---|---|---|---|
+| Accelerator profile | `nvidia.jetson.agx-orin` | `nvidia.rtx.a6000` | Hardware identity selects the device-specific service defaults |
+| KV cache dtype | FP8 | Automatic | Jetson memory pressure requires a smaller KV cache; A6000 retains model-native dtype selection |
+| GPU memory utilization | 0.35 | 0.90 | Jetson shares unified memory with the host; A6000 reserves headroom for the dedicated translation engine |
+| Prefix caching | Disabled | Enabled | A6000 has capacity for repeated system-prompt reuse; Jetson avoids cache residency growth |
+| Chunked-prefill budget | 2048 tokens | 4096 tokens | Jetson prioritizes inter-token latency and cache pressure; A6000 receives a larger prefill budget |
+| Sequence limit | 1 | 1 | The orchestrator processes one consecutive turn at a time |
+| Compilation | Eager execution | Mode 2 with CUDA graphs for `[1, 2, 4]` | Jetson target compatibility remains the priority; A6000 limits graph capture to the service concurrency |
+| Compilation cache | Disabled | `/models/vllm-compile-cache` | Reuse compiled artifacts across resident-service restarts |
+| Speculative decoding | Not configured | Not configured | No validated draft model is part of the translation deployment |
+| Pipeline or disaggregated prefill | Not configured | Not configured | The 4B and 12B services fit the assigned GPU and run as one resident engine |
+
+These values are initial device-specific settings, not performance results. Spike 3 must
+measure time to first token, generation rate, cache usage, and resident memory before an
+optimization is accepted. vLLM 0.24.0 defines `max_num_batched_tokens`, prefix caching,
+and `compilation_config` as engine arguments, and its optimization guide documents the
+trade-off between chunked-prefill budget, inter-token latency, and time to first token.
+[Engine arguments](https://docs.vllm.ai/en/v0.24.0/configuration/engine_args/),
+[optimization guide](https://docs.vllm.ai/en/v0.24.0/configuration/optimization/)
+
 ## Preconditions
 
 ### Jetson AGX Orin

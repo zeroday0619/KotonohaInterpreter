@@ -6,6 +6,9 @@
 # The A6000 profile uses fp16 ASR verification and TranslateGemma.
 # Deployment acceptance requires measurements on this host.
 
+accelerator:
+  profile: nvidia.rtx.a6000
+
 asr:
   backend: vllm
   model_id: /models/Qwen3-ASR-0.6B-hf
@@ -42,7 +45,6 @@ llm:
       dtype: bfloat16
   models_dir: /models/llm
   max_model_len: 2048
-  gpu_memory_utilization: 0.55
   max_tokens: 768
 
 # Unused by the services, but the config schema requires them.

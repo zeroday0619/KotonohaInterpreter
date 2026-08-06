@@ -21,16 +21,28 @@ reallocate_gpus=false
 prepare_only=false
 a6000_vllm_image="nvcr.io/nvidia/vllm:26.07-py3"
 vllm_omni_image="vllm/vllm-omni:v0.26.0"
+docker_profile_file=""
 docker_display_command="docker"
 docker_requires_sudo=false
 docker_environment_names=(
   ASR_BASE
   ASR_GPU_DEVICE
   ASR_VERIFY_GPU_DEVICE
+  ACCELERATOR_OMNI_IMAGE
+  ACCELERATOR_DEVICE_ENV
+  ACCELERATOR_PROFILE
+  ACCELERATOR_REMOTE_BASE
+  ACCELERATOR_VLLM_IMAGE
+  CONTAINER_RUNTIME
+  GPU_DRIVER
   KOTONOHA_DISABLE_NVML
-  JETSON_NVML_PATCH
+  VLLM_NVML_PATCH
   LLM_GPU_DEVICE
   LLM_GPU_MEMORY_UTILIZATION
+  LLM_KV_CACHE_DTYPE
+  LLM_ENABLE_PREFIX_CACHING
+  LLM_MAX_NUM_BATCHED_TOKENS
+  LLM_COMPILATION_MODE
   LLM_IMAGE
   LLM_MAX_MODEL_LEN
   MODELS_DIR
@@ -86,6 +98,37 @@ require_file() {
 
 require_directory() {
   [ -d "$1" ] || fail "required artifact directory not found: $1"
+}
+
+select_docker_profile() {
+  case "$deployment_target" in
+    jetson)
+      docker_profile_file="$repository_root/docker/profiles/accelerators/nvidia/jetson/agx-orin.env"
+      ;;
+    a6000)
+      docker_profile_file="$repository_root/docker/profiles/accelerators/nvidia/rtx/a6000.env"
+      ;;
+  esac
+  [ -f "$docker_profile_file" ] \
+    || fail "Docker accelerator profile not found: $docker_profile_file"
+}
+
+load_docker_profile() {
+  select_docker_profile
+  local variable_name
+  local variable_value
+  while IFS='=' read -r variable_name variable_value; do
+    case "$variable_name" in
+      ''|'#'*) continue ;;
+    esac
+    if [ "${!variable_name+x}" != x ]; then
+      export "$variable_name=$variable_value"
+    fi
+  done < "$docker_profile_file"
+  a6000_vllm_image="${ACCELERATOR_VLLM_IMAGE:-$a6000_vllm_image}"
+  vllm_omni_image="${ACCELERATOR_OMNI_IMAGE:-$vllm_omni_image}"
+  printf 'Docker accelerator profile: %s\n' "${ACCELERATOR_PROFILE:-unknown}"
+  printf 'Docker runtime: %s\n' "${CONTAINER_RUNTIME:-unknown}"
 }
 
 while [ "$#" -gt 0 ]; do
@@ -160,6 +203,8 @@ esac
 [ "$reallocate_gpus" = false ] || { [ "$operation" = "deploy" ] \
   && [ "$deployment_target" = "a6000" ]; } \
   || fail "--reallocate-gpus is valid only with A6000 deployment"
+
+load_docker_profile
 
 require_command docker
 
@@ -263,16 +308,19 @@ ensure_remote_environment() {
   {
     printf 'KOTONOHA_SERVICE_TOKEN=%s\n' "$service_token"
     printf 'MODELS_DIR=../models\n'
-    printf 'REMOTE_BASE=pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime\n'
+    printf 'REMOTE_BASE=%s\n' "${ACCELERATOR_REMOTE_BASE:-pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime}"
     printf 'REMOTE_ASR_BASE=%s\n' "$a6000_vllm_image"
     printf 'TTS_IMAGE=%s\n' "$vllm_omni_image"
     printf 'LLM_IMAGE=%s\n' "$a6000_vllm_image"
     printf 'LLM_MAX_MODEL_LEN=2048\n'
-    printf 'LLM_GPU_MEMORY_UTILIZATION=0.55\n'
+    printf 'LLM_GPU_MEMORY_UTILIZATION=0.90\n'
+    printf 'LLM_MAX_NUM_BATCHED_TOKENS=4096\n'
+    printf 'LLM_ENABLE_PREFIX_CACHING=1\n'
+    printf 'LLM_COMPILATION_MODE=2\n'
     printf 'GPU_ALLOCATION_MODE=auto\n'
     printf 'GPU_NAME_FILTER=A6000\n'
     printf 'GPU_MEMORY_RESERVE_MIB=1024\n'
-    printf 'LLM_GPU_MEMORY_MIB=27648\n'
+    printf 'LLM_GPU_MEMORY_MIB=43008\n'
     printf 'ASR_GPU_MEMORY_MIB=14336\n'
     printf 'ASR_VERIFY_GPU_MEMORY_MIB=6144\n'
     printf 'TTS_GPU_MEMORY_MIB=3072\n'

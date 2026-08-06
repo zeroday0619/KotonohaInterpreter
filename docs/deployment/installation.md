@@ -507,6 +507,18 @@ sequential Jetson interpreter. A6000 keeps the upstream profile.
 The patch does not establish model or kernel compatibility; those remain target
 measurements.
 
+Jetson translation keeps the `translategemma-4b-it` checkpoint and selects the
+`nvidia.jetson.agx-orin` accelerator profile from
+`config/profiles/accelerators/nvidia/jetson/agx-orin.yaml`. The profile uses FP8 KV cache,
+one active sequence, a `0.35` GPU memory utilization limit, disabled prefix caching, and
+zero limits for unused image, audio, and video inputs. The A6000 deployment selects
+`nvidia.rtx.a6000` from `config/profiles/accelerators/nvidia/rtx/a6000.yaml`. It uses
+automatic KV cache dtype selection, automatic prefix caching, a `4096` chunked-prefill
+token budget, and compilation mode `2` with CUDA graph capture enabled by setting
+`enforce_eager` to `false`. Its GPU memory utilization limit is `0.90`. CUDA Graph capture
+is limited to batch sizes `[1, 2, 4]`, and compiled artifacts are persisted under
+`/models/vllm-compile-cache`.
+
 ### Start model services
 
 Prefer `bash scripts/manage.sh deploy jetson`. It validates the effective 0.6B ASR paths,
@@ -706,11 +718,14 @@ REMOTE_ASR_BASE=nvcr.io/nvidia/vllm:26.07-py3
 TTS_IMAGE=vllm/vllm-omni:v0.26.0
 LLM_IMAGE=nvcr.io/nvidia/vllm:26.07-py3
 LLM_MAX_MODEL_LEN=2048
-LLM_GPU_MEMORY_UTILIZATION=0.55
+LLM_GPU_MEMORY_UTILIZATION=0.90
+LLM_MAX_NUM_BATCHED_TOKENS=4096
+LLM_ENABLE_PREFIX_CACHING=1
+LLM_COMPILATION_MODE=2
 GPU_ALLOCATION_MODE=auto
 GPU_NAME_FILTER=A6000
 GPU_MEMORY_RESERVE_MIB=1024
-LLM_GPU_MEMORY_MIB=27648
+LLM_GPU_MEMORY_MIB=43008
 ASR_GPU_MEMORY_MIB=14336
 ASR_VERIFY_GPU_MEMORY_MIB=6144
 TTS_GPU_MEMORY_MIB=3072
@@ -723,6 +738,18 @@ HF_HUB_OFFLINE=1
 ```bash
 chmod 600 .env
 ```
+
+The deployment script loads the container profile matching the selected accelerator.
+NVIDIA defaults are defined in
+`docker/profiles/accelerators/nvidia/jetson/agx-orin.env` and
+`docker/profiles/accelerators/nvidia/rtx/a6000.env`. The profiles select the Docker
+runtime, Compose GPU driver, visible-device environment variable, base images, and the
+vLLM NVML patch policy. Explicit environment variables override profile defaults.
+
+To add another accelerator, create a matching application profile under
+`config/profiles/accelerators/` and a Docker profile under
+`docker/profiles/accelerators/`, then validate the base images, GPU runtime, device
+reservation, and service startup probes on the target host.
 
 Existing deployments must set both `REMOTE_ASR_BASE` and `LLM_IMAGE` to
 `nvcr.io/nvidia/vllm:26.07-py3`, or remove those variables to use the Compose defaults.

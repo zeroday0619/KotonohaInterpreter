@@ -4,7 +4,7 @@
 name: kotonoha-spikes
 
 x-spike-runtime: &spike-runtime
-  runtime: nvidia
+  runtime: ${CONTAINER_RUNTIME:-nvidia}
   ipc: host
   network_mode: host
   restart: "no"
@@ -18,7 +18,8 @@ x-spike-runtime: &spike-runtime
     HF_HOME: /models/hf
     HF_HUB_OFFLINE: "1"
     TRANSFORMERS_OFFLINE: "1"
-    NVIDIA_VISIBLE_DEVICES: ${SPIKE_GPU_DEVICE:-all}
+    ACCELERATOR_PROFILE: ${ACCELERATOR_PROFILE:-nvidia.jetson.agx-orin}
+    ${ACCELERATOR_DEVICE_ENV:-NVIDIA_VISIBLE_DEVICES}: ${SPIKE_GPU_DEVICE:-all}
     KOTONOHA_SPIKE_IMAGE: ${SPIKE_VLLM_IMAGE:-nvcr.io/nvidia/vllm:26.07-py3}
     SPIKE_GROUP_ID: ${SPIKE_GROUP_ID:-0}
     SPIKE_PYTHON: ${SPIKE_PYTHON:-python3}
@@ -36,7 +37,8 @@ services:
       HF_HOME: /models/hf
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
-      NVIDIA_VISIBLE_DEVICES: ${SPIKE_GPU_DEVICE:-all}
+      ACCELERATOR_PROFILE: ${ACCELERATOR_PROFILE:-nvidia.jetson.agx-orin}
+      ${ACCELERATOR_DEVICE_ENV:-NVIDIA_VISIBLE_DEVICES}: ${SPIKE_GPU_DEVICE:-all}
       KOTONOHA_SPIKE_IMAGE: ${SPIKE_ASR_IMAGE:-kotonohainterpreter-spike-asr}
       SPIKE_GROUP_ID: ${SPIKE_GROUP_ID:-0}
       SPIKE_PYTHON: ${SPIKE_PYTHON:-python3}
@@ -51,7 +53,8 @@ services:
       HF_HOME: /models/hf
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
-      NVIDIA_VISIBLE_DEVICES: ${SPIKE_GPU_DEVICE:-all}
+      ACCELERATOR_PROFILE: ${ACCELERATOR_PROFILE:-nvidia.jetson.agx-orin}
+      ${ACCELERATOR_DEVICE_ENV:-NVIDIA_VISIBLE_DEVICES}: ${SPIKE_GPU_DEVICE:-all}
       KOTONOHA_SPIKE_IMAGE: ${SPIKE_TTS_IMAGE:-kotonohainterpreter-spike-tts:jetson}
       SPIKE_GROUP_ID: ${SPIKE_GROUP_ID:-0}
       SPIKE_PYTHON: ${SPIKE_TTS_PYTHON:-/opt/kotonoha-venv/bin/python}
@@ -66,7 +69,8 @@ services:
       HF_HOME: /models/hf
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
-      NVIDIA_VISIBLE_DEVICES: ${SPIKE_GPU_DEVICE:-all}
+      ACCELERATOR_PROFILE: ${ACCELERATOR_PROFILE:-nvidia.jetson.agx-orin}
+      ${ACCELERATOR_DEVICE_ENV:-NVIDIA_VISIBLE_DEVICES}: ${SPIKE_GPU_DEVICE:-all}
       KOTONOHA_SPIKE_IMAGE: ${SPIKE_LLM_IMAGE:-kotonohainterpreter-spike-llm:jetson}
       SPIKE_GROUP_ID: ${SPIKE_GROUP_ID:-0}
       SPIKE_PYTHON: ${SPIKE_LLM_PYTHON:-/opt/kotonoha-venv/bin/python}

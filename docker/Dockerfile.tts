@@ -28,9 +28,9 @@ RUN uv sync --active --frozen --no-dev --no-cache \
 
 # Keep Jetson vLLM-Omni startup on the non-NVML platform path. The same Dockerfile
 # serves the A6000 Compose stack, where the native NVML path remains enabled.
-ARG JETSON_NVML_PATCH=0
+ARG VLLM_NVML_PATCH=0
 COPY docker/patches/disable_vllm_nvml.py /tmp/disable_vllm_nvml.py
-RUN if [ "$JETSON_NVML_PATCH" = "1" ]; then \
+RUN if [ "$VLLM_NVML_PATCH" = "1" ]; then \
       python3 /tmp/disable_vllm_nvml.py; \
     fi \
  && rm /tmp/disable_vllm_nvml.py

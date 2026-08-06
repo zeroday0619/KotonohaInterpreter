@@ -160,6 +160,13 @@ def test_engine_arguments_select_local_bfloat16_snapshot() -> None:
 
     assert arguments["model"].endswith("models/llm/translategemma-4b-it")
     assert arguments["dtype"] == "bfloat16"
+    assert settings.accelerator.profile == "nvidia.jetson.agx-orin"
+    assert arguments["kv_cache_dtype"] == "fp8"
+    assert arguments["max_num_seqs"] == 1
+    assert arguments["max_num_batched_tokens"] == 2048
+    assert arguments["enable_prefix_caching"] is False
+    assert "compilation_config" not in arguments
+    assert arguments["limit_mm_per_prompt"] == {"image": 0, "audio": 0, "video": 0}
     assert "quantization" not in arguments
     assert arguments["served_model_name"] == ["kotonoha-translation"]
 
@@ -170,6 +177,19 @@ def test_remote_engine_arguments_select_twelve_billion_parameter_snapshot() -> N
 
     assert arguments["model"] == "/models/llm/translategemma-12b-it"
     assert arguments["dtype"] == "bfloat16"
+    assert settings.accelerator.profile == "nvidia.rtx.a6000"
+    assert settings.llm.enforce_eager is False
+    assert settings.llm.gpu_memory_utilization == 0.90
+    assert "kv_cache_dtype" not in arguments
+    assert arguments["max_num_seqs"] == 1
+    assert arguments["max_num_batched_tokens"] == 4096
+    assert arguments["enable_prefix_caching"] is True
+    assert arguments["compilation_config"] == {
+        "mode": 2,
+        "cudagraph_capture_sizes": [1, 2, 4],
+        "cache_dir": "/models/vllm-compile-cache",
+    }
+    assert "limit_mm_per_prompt" not in arguments
     assert "quantization" not in arguments
 
 

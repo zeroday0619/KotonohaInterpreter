@@ -54,9 +54,13 @@ translation as distinct messages in chronological order.
 Configuration layers merge in this order, with later values taking precedence:
 
 1. `config/default.yaml`
-2. The file selected with `--config` or `KOTONOHA_CONFIG`
-3. `config/local.yaml`, or `KOTONOHA_LOCAL_CONFIG`
-4. `KOTONOHA__*` environment variables
+2. The selected accelerator profile under `config/profiles/accelerators/`
+3. The file selected with `--config` or `KOTONOHA_CONFIG`
+4. `config/local.yaml`, or `KOTONOHA_LOCAL_CONFIG`
+5. `KOTONOHA__*` environment variables
+
+Set `accelerator.profile` using `<vendor>.<family>.<model>` naming. The environment
+variable `KOTONOHA__ACCELERATOR__PROFILE` selects a profile without editing YAML.
 
 Nested environment keys use a double underscore:
 

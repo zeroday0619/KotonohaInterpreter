@@ -3,6 +3,11 @@
 # Settings that Phase 0 has to decide are marked [SPIKE-n]. ASR now uses the
 # vLLM runtime by default; target measurements still decide deployment acceptance.
 
+# Accelerator identity selects a profile from config/profiles/accelerators.
+# Profile identifiers use <vendor>.<family>.<model> naming.
+accelerator:
+  profile: nvidia.jetson.agx-orin
+
 session:
   mode: push_to_talk # push_to_talk | auto | text   (§4: start with PTT)
   # Source language for typed input. auto reads it from the script.
@@ -140,10 +145,6 @@ llm:
   models_dir: ./models/llm
   served_model_name: kotonoha-translation
   max_model_len: 2048
-  gpu_memory_utilization: 0.55
-  max_num_seqs: 1
-  # Eager mode remains enabled until CUDA graph behavior is measured on each target.
-  enforce_eager: true
   temperature: 0.0
   top_p: 1.0
   repetition_penalty: 1.0

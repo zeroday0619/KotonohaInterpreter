@@ -131,10 +131,26 @@ def _engine_arguments(
         "dtype": config.active.dtype,
         "max_model_len": config.max_model_len,
         "gpu_memory_utilization": config.gpu_memory_utilization,
-        "max_num_seqs": config.max_num_seqs,
         "enforce_eager": config.enforce_eager,
         "trust_remote_code": True,
     }
+    if config.kv_cache_dtype != "auto":
+        arguments["kv_cache_dtype"] = config.kv_cache_dtype
+    arguments["max_num_seqs"] = config.max_num_seqs
+    arguments["enable_prefix_caching"] = config.enable_prefix_caching
+    if config.limit_mm_per_prompt is not None:
+        arguments["limit_mm_per_prompt"] = config.limit_mm_per_prompt
+    if config.max_num_batched_tokens is not None:
+        arguments["max_num_batched_tokens"] = config.max_num_batched_tokens
+    if config.compilation_mode is not None:
+        compilation_config: dict[str, Any] = {"mode": config.compilation_mode}
+        if config.compilation_cudagraph_capture_sizes:
+            compilation_config["cudagraph_capture_sizes"] = list(
+                config.compilation_cudagraph_capture_sizes
+            )
+        if config.compilation_cache_dir is not None:
+            compilation_config["cache_dir"] = str(config.compilation_cache_dir)
+        arguments["compilation_config"] = compilation_config
     if config.active.quantization is not None:
         arguments["quantization"] = config.active.quantization
     return arguments

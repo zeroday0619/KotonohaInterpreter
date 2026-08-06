@@ -191,6 +191,9 @@ def test_remote_override_template_validates() -> None:
 
 def test_remote_services_default_to_mounted_offline_models() -> None:
     remote_config = read_yaml(PROJECT_ROOT / "config" / "remote-server.yaml")
+    accelerator_profile = read_yaml(
+        PROJECT_ROOT / "config" / "profiles" / "accelerators" / "nvidia" / "rtx" / "a6000.yaml"
+    )
     compose = (PROJECT_ROOT / "docker" / "compose.remote.yaml").read_text(encoding="utf-8")
     deploy_script = DEPLOY_SCRIPT.read_text(encoding="utf-8")
 
@@ -211,6 +214,15 @@ def test_remote_services_default_to_mounted_offline_models() -> None:
     assert remote_config["llm"]["profiles"]["translategemma"]["directory"] == (
         "translategemma-12b-it"
     )
+    assert remote_config["accelerator"]["profile"] == "nvidia.rtx.a6000"
+    assert accelerator_profile["llm"]["gpu_memory_utilization"] == 0.90
+    assert accelerator_profile["llm"]["max_num_seqs"] == 1
+    assert accelerator_profile["llm"]["max_num_batched_tokens"] == 4096
+    assert accelerator_profile["llm"]["enable_prefix_caching"] is True
+    assert accelerator_profile["llm"]["compilation_mode"] == 2
+    assert accelerator_profile["llm"]["compilation_cudagraph_capture_sizes"] == [1, 2, 4]
+    assert accelerator_profile["llm"]["compilation_cache_dir"] == "/models/vllm-compile-cache"
+    assert accelerator_profile["llm"]["enforce_eager"] is False
 
 
 def test_a6000_deploy_rejects_a_stale_asr_memory_override_before_start() -> None:
@@ -482,7 +494,7 @@ def test_jetson_gpu_services_bypass_the_crashing_nvml_path() -> None:
     assert "KOTONOHA_DISABLE_NVML=${KOTONOHA_DISABLE_NVML:-1}" in (
         (PROJECT_ROOT / "docker" / "compose.yaml").read_text(encoding="utf-8")
     )
-    assert "JETSON_NVML_PATCH: ${JETSON_NVML_PATCH:-1}" in (
+    assert "VLLM_NVML_PATCH: ${VLLM_NVML_PATCH:-1}" in (
         (PROJECT_ROOT / "docker" / "compose.yaml").read_text(encoding="utf-8")
     )
     for service_name in ("asr", "asr-verify", "llm", "tts"):
@@ -492,7 +504,9 @@ def test_jetson_gpu_services_bypass_the_crashing_nvml_path() -> None:
     remote_compose = yaml.safe_load(
         (PROJECT_ROOT / "docker" / "compose.remote.yaml").read_text(encoding="utf-8")
     )
-    assert remote_compose["services"]["tts"]["build"]["args"]["JETSON_NVML_PATCH"] == 0
+    assert remote_compose["services"]["tts"]["build"]["args"]["VLLM_NVML_PATCH"] == (
+        "${VLLM_NVML_PATCH:-0}"
+    )
 
 
 def test_vllm_nvml_patch_generates_valid_guarded_source(

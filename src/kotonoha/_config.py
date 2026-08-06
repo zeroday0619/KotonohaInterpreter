@@ -1,7 +1,8 @@
 """Configuration loading — YAML plus environment variables (pydantic-settings).
 
-Precedence: environment (KOTONOHA__*) > the YAML given with --config >
-config/default.yaml. Nested keys are overridden with a double underscore,
+Precedence: environment (KOTONOHA__*) > local YAML > the selected overlay >
+the selected accelerator profile > config/default.yaml. Nested keys use a double
+underscore for overrides,
 e.g. KOTONOHA__LLM__PROFILE=translategemma
 """
 
@@ -19,6 +20,7 @@ from kotonoha._typing import override
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG = REPO_ROOT / "config" / "default.yaml"
+ACCELERATOR_PROFILES_ROOT = REPO_ROOT / "config" / "profiles" / "accelerators"
 
 SupportedLanguage = Literal["ko", "en", "zh-TW", "ja"]
 ChineseVoice = Literal["Vivian", "Serena", "Uncle_Fu", "Dylan", "Eric"]
@@ -138,6 +140,18 @@ class ServiceEndpointsConfig(BaseModel):
     tts: str = "http://127.0.0.1:8004"
 
 
+class AcceleratorConfig(BaseModel):
+    """Identify the accelerator and runtime selected by the active profile."""
+
+    __slots__: ClassVar[tuple[str, ...]] = ()
+    profile: str = "nvidia.jetson.agx-orin"
+    vendor: str = "nvidia"
+    family: str = "jetson"
+    model: str = "agx-orin"
+    runtime: str = "cuda"
+    architecture: str = "sm_87"
+
+
 ROLES = ("asr", "asr_verify", "llm", "tts")
 Placement = Literal["local", "remote"]
 
@@ -244,8 +258,15 @@ class LanguageModelConfig(BaseModel):
     models_dir: Path = Path("./models/llm")
     served_model_name: str = "kotonoha-translation"
     max_model_len: int = Field(2048, ge=512)
-    gpu_memory_utilization: float = Field(0.55, gt=0.0, le=1.0)
+    gpu_memory_utilization: float = Field(0.35, gt=0.0, le=1.0)
+    kv_cache_dtype: Literal["auto", "fp8", "fp8_e4m3", "fp8_e5m2"] = "auto"
     max_num_seqs: int = Field(1, ge=1)
+    max_num_batched_tokens: int | None = Field(None, ge=1)
+    enable_prefix_caching: bool = False
+    limit_mm_per_prompt: dict[Literal["image", "audio", "video"], int] | None = None
+    compilation_mode: int | None = Field(None, ge=0, le=3)
+    compilation_cudagraph_capture_sizes: tuple[int, ...] = ()
+    compilation_cache_dir: Path | None = None
     enforce_eager: bool = True
     temperature: float = 0.0
     top_p: float = 1.0
@@ -373,6 +394,7 @@ class Settings(BaseSettings):
     shm: SharedMemoryConfig = SharedMemoryConfig()
     services: ServiceEndpointsConfig = ServiceEndpointsConfig()
     remote: RemoteConfig = RemoteConfig()
+    accelerator: AcceleratorConfig = AcceleratorConfig()
     asr: AsrConfig = AsrConfig()
     asr_verify: AsrVerificationConfig = AsrVerificationConfig()
     llm: LanguageModelConfig
@@ -471,7 +493,99 @@ def read_yaml(
     path: Path,
     /,
 ) -> dict[str, Any]:
-    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    if not isinstance(data, dict):
+        raise ValueError(f"configuration root must be a mapping: {path}")
+    llm_data = data.get("llm")
+    legacy_memory_profile = (
+        llm_data.pop("vllm_memory_profile", None) if isinstance(llm_data, dict) else None
+    )
+    if legacy_memory_profile is not None:
+        legacy_profiles = {
+            "jetson": "nvidia.jetson.agx-orin",
+            "a6000": "nvidia.rtx.a6000",
+        }
+        if legacy_memory_profile in legacy_profiles:
+            accelerator_data = data.setdefault("accelerator", {})
+            if isinstance(accelerator_data, dict):
+                accelerator_data["profile"] = legacy_profiles[legacy_memory_profile]
+    return data
+
+
+def accelerator_profile_path(
+    profile: str,
+    /,
+) -> Path:
+    """Resolve a dotted accelerator profile identifier to its YAML source."""
+    components = profile.split(".")
+    invalid_component = any(
+        not component or component in {".", ".."} for component in components
+    )
+    if len(components) < 3 or invalid_component:
+        raise ValueError(
+            "accelerator profile must use <vendor>.<family>.<model> naming"
+        )
+    path = ACCELERATOR_PROFILES_ROOT.joinpath(*components[:-1], f"{components[-1]}.yaml")
+    if not path.is_file():
+        raise FileNotFoundError(f"accelerator profile not found: {profile} ({path})")
+    return path
+
+
+def _profile_identifier(
+    default_data: dict[str, Any],
+    /,
+    *,
+    chosen_data: dict[str, Any],
+    local_data: dict[str, Any],
+    local_override: dict[str, Any] | None = None,
+) -> str:
+    candidates = (
+        os.environ.get("KOTONOHA__ACCELERATOR__PROFILE"),
+        (local_override or {}).get("accelerator", {}).get("profile"),
+        local_data.get("accelerator", {}).get("profile"),
+        chosen_data.get("accelerator", {}).get("profile"),
+        default_data.get("accelerator", {}).get("profile"),
+    )
+    for candidate in candidates:
+        if isinstance(candidate, str) and candidate:
+            return candidate
+    return AcceleratorConfig().profile
+
+
+def _configuration_layers(
+    path: str | Path | None = None,
+    /,
+    *,
+    local_override: dict[str, Any] | None = None,
+) -> list[Path]:
+    chosen = Path(path or os.environ.get("KOTONOHA_CONFIG") or DEFAULT_CONFIG)
+    if not chosen.exists() and (path is not None or os.environ.get("KOTONOHA_CONFIG")):
+        raise FileNotFoundError(f"config not found: {chosen}")
+
+    default_data = read_yaml(DEFAULT_CONFIG) if DEFAULT_CONFIG.exists() else {}
+    chosen_data = read_yaml(chosen) if chosen.exists() else {}
+    local = local_config_path()
+    skip_local = bool(os.environ.get("KOTONOHA_SKIP_LOCAL_CONFIG")) and not os.environ.get(
+        "KOTONOHA_LOCAL_CONFIG"
+    )
+    local_data = read_yaml(local) if local.exists() and not skip_local else {}
+    profile = accelerator_profile_path(
+        _profile_identifier(
+            default_data,
+            chosen_data=chosen_data,
+            local_data=local_data,
+            local_override=local_override,
+        )
+    )
+
+    layers: list[Path] = []
+    if DEFAULT_CONFIG.exists():
+        layers.append(DEFAULT_CONFIG)
+    if profile.resolve() not in {layer.resolve() for layer in layers}:
+        layers.append(profile)
+    if chosen.exists() and chosen.resolve() != DEFAULT_CONFIG.resolve():
+        layers.append(chosen)
+    return layers
 
 
 def load_settings(
@@ -482,9 +596,10 @@ def load_settings(
 
     Layers, each merged over the previous:
 
-      1. config/default.yaml       the full baseline
-      2. the file given by --config or KOTONOHA_CONFIG, if it is a different one
-      3. config/local.yaml         per-device overrides, if present
+      1. config/default.yaml                         the full baseline
+      2. the selected accelerator profile            measured device defaults
+      3. the file given by --config or KOTONOHA_CONFIG, if it is a different one
+      4. config/local.yaml                           per-device overrides, if present
 
     Layer 2 exists so files like performance.yaml can be small overlays that say
     only what differs, instead of duplicating the whole baseline and drifting
@@ -496,15 +611,7 @@ def load_settings(
     server instead of running offline. An explicit KOTONOHA_LOCAL_CONFIG still
     applies, so the layer itself remains testable.
     """
-    chosen = Path(path or os.environ.get("KOTONOHA_CONFIG") or DEFAULT_CONFIG)
-    if not chosen.exists() and (path is not None or os.environ.get("KOTONOHA_CONFIG")):
-        raise FileNotFoundError(f"config not found: {chosen}")
-
-    layers: list[Path] = []
-    if DEFAULT_CONFIG.exists():
-        layers.append(DEFAULT_CONFIG)
-    if chosen.exists() and chosen.resolve() != DEFAULT_CONFIG.resolve():
-        layers.append(chosen)
+    layers = _configuration_layers(path)
     # The skip applies to this machine's own file, not to the mechanism: a caller
     # that names a path with KOTONOHA_LOCAL_CONFIG still gets that layer, which is
     # how the management API and its tests exercise it.
@@ -527,19 +634,15 @@ def load_settings(
 def config_layers(
     path: str | Path | None = None,
     /,
+    *,
+    local_override: dict[str, Any] | None = None,
 ) -> list[Path]:
     """The YAML files load_settings would merge, in order.
 
     The configuration editor needs this to validate a candidate local.yaml against
-    the same layering the runtime uses.
+    the same profile and overlay layering the runtime uses.
     """
-    chosen = Path(path or os.environ.get("KOTONOHA_CONFIG") or DEFAULT_CONFIG)
-    layers: list[Path] = []
-    if DEFAULT_CONFIG.exists():
-        layers.append(DEFAULT_CONFIG)
-    if chosen.exists() and chosen.resolve() != DEFAULT_CONFIG.resolve():
-        layers.append(chosen)
-    return layers
+    return _configuration_layers(path, local_override=local_override)
 
 
 LOCAL_CONFIG = DEFAULT_CONFIG.parent / "local.yaml"

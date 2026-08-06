@@ -68,6 +68,7 @@ SECTIONS = (
 )
 
 TOP_LEVEL_SECTIONS = {
+    "accelerator": "runtime",
     "ui": "interface",
     "session": "session",
     "audio": "audio",

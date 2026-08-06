@@ -1,0 +1,25 @@
+# NVIDIA Jetson AGX Orin profile.
+# Values are constrained by unified memory and the Jetson vLLM runtime.
+
+accelerator:
+  profile: nvidia.jetson.agx-orin
+  vendor: nvidia
+  family: jetson
+  model: agx-orin
+  runtime: cuda
+  architecture: sm_87
+
+llm:
+  gpu_memory_utilization: 0.35
+  kv_cache_dtype: fp8
+  max_num_seqs: 1
+  max_num_batched_tokens: 2048
+  enable_prefix_caching: false
+  limit_mm_per_prompt:
+    image: 0
+    audio: 0
+    video: 0
+  compilation_mode: null
+  compilation_cudagraph_capture_sizes: []
+  compilation_cache_dir: null
+  enforce_eager: true

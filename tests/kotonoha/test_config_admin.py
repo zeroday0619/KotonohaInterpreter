@@ -79,6 +79,7 @@ async def test_admin_api_validates_and_persists_overrides(
     assert body["config"]["llm"]["max_model_len"] == 8192
     assert "llm.max_model_len" in body["editable_paths"]
     assert "asr.vllm_realtime_architecture" in body["editable_paths"]
+    assert "accelerator.profile" in body["editable_paths"]
     assert "remote.token" not in body["editable_paths"]
     assert body["restart_required"] is True
 
@@ -150,10 +151,11 @@ async def test_remote_config_client_reads_and_updates(
         assert before.config["llm"]["profiles"]["translategemma"]["directory"] == (
             "translategemma-12b-it"
         )
-        assert "llm.max_num_seqs" in before.editable_paths
+        assert "llm.max_num_batched_tokens" in before.editable_paths
+        assert "llm.compilation_mode" in before.editable_paths
         assert not any(path.startswith("tts.") for path in before.editable_paths)
-        after = await client.update({"llm.max_num_seqs": 2})
-        assert after.config["llm"]["max_num_seqs"] == 2
-        assert after.overrides["llm"]["max_num_seqs"] == 2
+        after = await client.update({"llm.max_num_batched_tokens": 8192})
+        assert after.config["llm"]["max_num_batched_tokens"] == 8192
+        assert after.overrides["llm"]["max_num_batched_tokens"] == 8192
     finally:
         await client.aclose()

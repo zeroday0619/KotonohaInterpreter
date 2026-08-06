@@ -285,9 +285,10 @@ template requires it.
 Settings merge in this order, with later sources taking precedence:
 
 1. `config/default.yaml`
-2. The file passed through `--config`
-3. `config/local.yaml`
-4. Environment variables using `KOTONOHA__SECTION__FIELD`
+2. The selected accelerator profile under `config/profiles/accelerators/`
+3. The file passed through `--config`
+4. `config/local.yaml`
+5. Environment variables using `KOTONOHA__SECTION__FIELD`
 
 Pending hardware decisions remain configuration values, not hard-coded branches.
 
@@ -299,6 +300,10 @@ When adding a setting:
 4. Confirm that the local configuration TUI exposes the new leaf.
 5. Add a specific field description only when the generic type description is
    insufficient.
+
+Accelerator profiles use `<vendor>.<family>.<model>` identifiers and live under
+`config/profiles/accelerators/<vendor>/<family>/<model>.yaml`. Keep hardware-specific
+engine tuning in the profile file, and keep runtime code independent of product names.
 
 The configuration editor writes local changes to `config/local.yaml`. Remote changes use
 the authenticated `/admin/config` endpoint and write
@@ -454,7 +459,9 @@ Do not mix application logs and turn metrics in one file.
 | History search | Escape `%` and `_` before SQL LIKE matching |
 | Test isolation | Keep `KOTONOHA_SKIP_LOCAL_CONFIG`; local config contains device secrets |
 | Privileged Compose | Pass the interpolation allowlist through `sudo env`; sudo removes exported variables |
+| Accelerator profiles | Use `config/profiles/accelerators/<vendor>/<family>/<model>.yaml`; select profiles with `<vendor>.<family>.<model>` identifiers and keep engine argument generation data-driven |
 | Jetson NVML | Build Jetson images with the vLLM non-NVML platform patch; use raw CUDA device queries in deployment probes |
+| Docker accelerator profiles | Load `docker/profiles/accelerators/<vendor>/<family>/<model>.env`; keep runtime, driver, visible-device, image, and patch settings out of service-specific branches |
 | Jetson TTS memory | Use `docker/tts/qwen3_tts_jetson.yaml` with one sequence per stage; the upstream profile is H100-tuned |
 
 ## Documentation and reporting

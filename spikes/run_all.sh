@@ -97,7 +97,7 @@ configure_docker_access() {
 
 configure_target() {
   if [ "$deployment_target" = "jetson" ]; then
-    : "${SPIKE_VLLM_IMAGE:=nvcr.io/nvidia/vllm:26.07-py3}"
+    : "${SPIKE_VLLM_IMAGE:=${ACCELERATOR_VLLM_IMAGE:-nvcr.io/nvidia/vllm:26.07-py3}}"
     : "${SPIKE_ASR_IMAGE:=kotonohainterpreter-spike-asr:jetson}"
     : "${SPIKE_LLM_IMAGE:=kotonohainterpreter-spike-llm:jetson}"
     : "${SPIKE_TTS_IMAGE:=kotonohainterpreter-spike-tts:jetson}"
@@ -115,7 +115,7 @@ configure_target() {
     report_name=PHASE0.md
     patch_name=local.yaml
   else
-    : "${SPIKE_VLLM_IMAGE:=nvcr.io/nvidia/vllm:26.07-py3}"
+    : "${SPIKE_VLLM_IMAGE:=${ACCELERATOR_VLLM_IMAGE:-nvcr.io/nvidia/vllm:26.07-py3}}"
     : "${SPIKE_ASR_IMAGE:=kotonohainterpreter-spike-asr:a6000}"
     : "${SPIKE_LLM_IMAGE:=kotonohainterpreter-spike-llm:a6000}"
     : "${SPIKE_TTS_IMAGE:=kotonohainterpreter-spike-tts:a6000}"
@@ -151,6 +151,29 @@ configure_target() {
   export SPIKE_TTS_PYTHON SPIKE_USER_ID SPIKE_VLLM_IMAGE
 }
 
+load_docker_profile() {
+  local profile_file
+  if [ "$deployment_target" = "jetson" ]; then
+    profile_file="$repository_root/docker/profiles/accelerators/nvidia/jetson/agx-orin.env"
+  else
+    profile_file="$repository_root/docker/profiles/accelerators/nvidia/rtx/a6000.env"
+  fi
+  [ -f "$profile_file" ] || {
+    printf 'Docker accelerator profile is missing: %s\n' "$profile_file" >&2
+    exit 1
+  }
+  local variable_name
+  local variable_value
+  while IFS='=' read -r variable_name variable_value; do
+    case "$variable_name" in
+      ''|'#'*) continue ;;
+    esac
+    if [ "${!variable_name+x}" != x ]; then
+      export "$variable_name=$variable_value"
+    fi
+  done < "$profile_file"
+}
+
 build_asr_image() {
   if [ "$asr_image_was_configured" = true ]; then
     "${docker_command[@]}" image inspect "$SPIKE_ASR_IMAGE" >/dev/null 2>&1 || {
@@ -171,6 +194,7 @@ build_asr_image() {
   if [ "$deployment_target" = "jetson" ]; then
     "${docker_command[@]}" build \
       --build-arg "BASE_IMAGE=$SPIKE_VLLM_IMAGE" \
+      --build-arg "VLLM_NVML_PATCH=${VLLM_NVML_PATCH:-0}" \
       --file docker/Dockerfile.asr \
       --tag "$SPIKE_ASR_IMAGE" \
       .
@@ -202,7 +226,8 @@ prepare_tts_image() {
 
   printf 'Building TTS spike image: %s\n' "$SPIKE_TTS_IMAGE"
   "${docker_command[@]}" build \
-    --build-arg "BASE_IMAGE=vllm/vllm-omni:v0.26.0" \
+    --build-arg "BASE_IMAGE=${ACCELERATOR_OMNI_IMAGE:-vllm/vllm-omni:v0.26.0}" \
+    --build-arg "VLLM_NVML_PATCH=${VLLM_NVML_PATCH:-0}" \
     --file docker/Dockerfile.tts \
     --tag "$SPIKE_TTS_IMAGE" \
     .
@@ -228,6 +253,7 @@ build_llm_image() {
   if [ "$deployment_target" = "jetson" ]; then
     "${docker_command[@]}" build \
       --build-arg "BASE_IMAGE=$SPIKE_VLLM_IMAGE" \
+      --build-arg "VLLM_NVML_PATCH=${VLLM_NVML_PATCH:-0}" \
       --file docker/Dockerfile.llm \
       --tag "$SPIKE_LLM_IMAGE" \
       .
@@ -275,6 +301,7 @@ validate_models() {
   fi
 }
 
+load_docker_profile
 configure_target
 validate_models
 configure_docker_access
@@ -303,6 +330,9 @@ fi
 mkdir -p "$OUT"
 
 compose_environment=(
+  "ACCELERATOR_DEVICE_ENV=${ACCELERATOR_DEVICE_ENV:-NVIDIA_VISIBLE_DEVICES}"
+  "ACCELERATOR_PROFILE=${ACCELERATOR_PROFILE:-unknown}"
+  "CONTAINER_RUNTIME=${CONTAINER_RUNTIME:-nvidia}"
   "MODELS_DIR=$MODELS_DIR"
   "OUT=$OUT"
   "SPIKE_ASR_IMAGE=$SPIKE_ASR_IMAGE"

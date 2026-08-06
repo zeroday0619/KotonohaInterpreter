@@ -24,6 +24,7 @@ router = APIRouter(prefix="/admin", tags=["administration"])
 # credentials, transport, and local storage remain owned by the Orin configuration.
 REMOTE_EDITABLE_PATHS = frozenset(
     {
+        "accelerator.profile",
         "asr.backend",
         "asr.dtype",
         "asr.model_id",
@@ -37,8 +38,13 @@ REMOTE_EDITABLE_PATHS = frozenset(
         "asr_verify.compute_type",
         "asr_verify.device",
         "asr_verify.model_id",
+        "llm.compilation_mode",
+        "llm.compilation_cudagraph_capture_sizes",
+        "llm.compilation_cache_dir",
+        "llm.enable_prefix_caching",
         "llm.enforce_eager",
         "llm.gpu_memory_utilization",
+        "llm.max_num_batched_tokens",
         "llm.max_model_len",
         "llm.max_num_seqs",
         "llm.models_dir",

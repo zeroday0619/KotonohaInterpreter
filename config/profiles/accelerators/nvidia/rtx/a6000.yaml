@@ -1,0 +1,22 @@
+# NVIDIA RTX A6000 profile.
+# Values target one dedicated Ampere GPU and require target measurement.
+
+accelerator:
+  profile: nvidia.rtx.a6000
+  vendor: nvidia
+  family: rtx
+  model: a6000
+  runtime: cuda
+  architecture: sm_86
+
+llm:
+  gpu_memory_utilization: 0.90
+  kv_cache_dtype: auto
+  max_num_seqs: 1
+  max_num_batched_tokens: 4096
+  enable_prefix_caching: true
+  limit_mm_per_prompt: null
+  compilation_mode: 2
+  compilation_cudagraph_capture_sizes: [1, 2, 4]
+  compilation_cache_dir: /models/vllm-compile-cache
+  enforce_eager: false

@@ -146,7 +146,14 @@ def test_spike_runner_preserves_compose_variables_through_sudo() -> None:
     )
 
     assert 'compose_command=(sudo env "${compose_environment[@]}" docker compose)' in source
-    assert compose_variables <= forwarded_variables
+    assert compose_variables - {
+        "ACCELERATOR_DEVICE_ENV",
+        "ACCELERATOR_PROFILE",
+        "CONTAINER_RUNTIME",
+    } <= forwarded_variables
+    assert '"ACCELERATOR_DEVICE_ENV=${ACCELERATOR_DEVICE_ENV:-NVIDIA_VISIBLE_DEVICES}"' in source
+    assert '"ACCELERATOR_PROFILE=${ACCELERATOR_PROFILE:-unknown}"' in source
+    assert '"CONTAINER_RUNTIME=${CONTAINER_RUNTIME:-nvidia}"' in source
 
 
 def test_spike_runner_rejects_incomplete_model_snapshots(
@@ -323,7 +330,10 @@ def test_hardware_spikes_use_target_specific_docker_images() -> None:
 
     assert "spike-vllm" not in project_configuration
     assert set(compose["services"]) == {"asr", "tts", "llm", "report"}
-    assert all(service["runtime"] == "nvidia" for service in compose["services"].values())
+    assert all(
+        service["runtime"] == "${CONTAINER_RUNTIME:-nvidia}"
+        for service in compose["services"].values()
+    )
     assert all(service["user"] == "0:0" for service in compose["services"].values())
     assert compose["services"]["asr"]["entrypoint"][-1] == "spikes/spike1_asr_load.py"
     assert compose["services"]["tts"]["entrypoint"][-1] == "spikes/spike2_flash_attn.py"

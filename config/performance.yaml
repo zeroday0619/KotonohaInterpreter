@@ -11,6 +11,9 @@
 
 perf_mode: remote # hybrid keeps audio on the device; remote is the fast one
 
+accelerator:
+  profile: nvidia.rtx.a6000
+
 remote:
   enabled: true
   services:

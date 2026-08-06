@@ -94,6 +94,26 @@ The ASR and translation services run separate vLLM engines. Their GPU memory uti
 limits are independent and must leave capacity for verification ASR and TTS. The checked-in
 split is provisional until concurrent-residency measurements pass on each target.
 
+## Accelerator Profiles
+
+Hardware identity and engine tuning are defined by accelerator profiles under
+`config/profiles/accelerators/<vendor>/<family>/<model>.yaml`. Profile identifiers use the
+stable `<vendor>.<family>.<model>` format.
+
+| Profile | Runtime | Current use |
+|---|---|---|
+| `nvidia.jetson.agx-orin` | CUDA, `sm_87` | Onboard services with unified-memory limits |
+| `nvidia.rtx.a6000` | CUDA, `sm_86` | Remote services on one dedicated Ampere GPU |
+
+The configuration loader applies the selected profile between the default configuration
+and the deployment overlay. vLLM argument construction consumes typed profile values and
+does not branch on product names. This allows future CUDA, ROCm, Metal, and accelerator
+runtime profiles to add measured settings without changing the translation service.
+
+Profile selection uses `accelerator.profile` or the
+`KOTONOHA__ACCELERATOR__PROFILE` environment variable. The profile metadata is exposed in
+the configuration TUI and is editable through the authenticated remote configuration API.
+
 On a multi-GPU A6000 host, `scripts/py/allocate_gpus.py` reads GPU UUID, model name, total
 memory, and free memory from `nvidia-smi`. It applies per-role memory reservations and
 selects the placement with the lowest projected maximum memory utilization. Compose pins

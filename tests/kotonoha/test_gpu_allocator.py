@@ -177,7 +177,7 @@ def test_remote_compose_pins_each_role_to_its_allocated_gpu() -> None:
         ]
         assert devices == [
             {
-                "driver": "nvidia",
+                "driver": "${GPU_DRIVER:-nvidia}",
                 "device_ids": [expected_variable],
                 "capabilities": ["gpu"],
             }

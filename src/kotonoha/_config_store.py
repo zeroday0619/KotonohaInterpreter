@@ -45,7 +45,7 @@ def validate_candidate(
 ) -> str | None:
     """Return None when the candidate loads, otherwise a one-line reason."""
     merged: dict = {}
-    for layer in config_layers(config_path):
+    for layer in config_layers(config_path, local_override=local):
         merged = deep_merge(merged, read_yaml(layer))
     merged = deep_merge(merged, local)
     try:

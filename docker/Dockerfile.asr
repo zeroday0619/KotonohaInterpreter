@@ -52,9 +52,13 @@ RUN "$UV_PYTHON" -c \
 
 # Jetson exposes the nvgpu driver, whose NVML entry point can segfault instead of
 # returning an exception. Force vLLM's CUDA platform to use raw CUDA device queries.
+ARG VLLM_NVML_PATCH=1
 COPY docker/patches/disable_vllm_nvml.py /tmp/disable_vllm_nvml.py
-RUN python3 /tmp/disable_vllm_nvml.py && rm /tmp/disable_vllm_nvml.py
-ENV KOTONOHA_DISABLE_NVML=1
+RUN if [ "$VLLM_NVML_PATCH" = "1" ]; then \
+      python3 /tmp/disable_vllm_nvml.py; \
+    fi \
+ && rm /tmp/disable_vllm_nvml.py
+ENV KOTONOHA_DISABLE_NVML=0
 
 EXPOSE 8001
 CMD ["uvicorn", "kotonoha.services._asr_server:app", "--host", "0.0.0.0", "--port", "8001", "--loop", "uvloop"]
