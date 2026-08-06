@@ -36,7 +36,7 @@ RUN vllm_version=$(/opt/venv/bin/python -c \
       /tmp/vllm-0.19.0-translategemma-nested-rope.patch \
  && /opt/venv/bin/python -m py_compile "$vllm_configuration" \
  && grep -Fq \
-      "if not is_rope_parameters_nested(config.rope_parameters):" \
+      "if rope_parameters is not None and not is_rope_parameters_nested(rope_parameters):" \
       "$vllm_configuration"
 
 WORKDIR /app

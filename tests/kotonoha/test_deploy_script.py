@@ -416,11 +416,23 @@ def test_jetson_llm_preserves_translategemma_nested_rope_configuration() -> None
     assert 'test "$vllm_version" = "0.19.0"' in dockerfile
     assert 'patch --batch --forward --fuzz=0 "$vllm_configuration"' in dockerfile
     assert '/opt/venv/bin/python -m py_compile "$vllm_configuration"' in dockerfile
-    guard = "if not is_rope_parameters_nested(config.rope_parameters):"
+    guard = (
+        "if rope_parameters is not None "
+        "and not is_rope_parameters_nested(rope_parameters):"
+    )
     assert "grep -Fq" in dockerfile
     assert f'"{guard}"' in dockerfile
     assert f"+        {guard}" in patch_source
-    assert patch_source.count('+                config.rope_parameters["') == 3
+    assert patch_source.count('+                rope_parameters["') == 3
+
+    # Gemma3Config is a composite configuration with no top-level rope fields. The
+    # first version of this patch read config.rope_parameters unconditionally,
+    # where the upstream lines it replaced only touched the attribute inside
+    # `if rope_theta is not None`, so vLLM raised AttributeError while loading
+    # TranslateGemma. The read stays guarded.
+    added = [line for line in patch_source.splitlines() if line.startswith("+")]
+    assert any('getattr(config, "rope_parameters", None)' in line for line in added)
+    assert not any("is_rope_parameters_nested(config.rope_parameters)" in line for line in added)
     assert "full_attention" not in patch_source
     assert "sliding_attention" not in patch_source
     assert '"rope_type": "linear"' not in patch_source

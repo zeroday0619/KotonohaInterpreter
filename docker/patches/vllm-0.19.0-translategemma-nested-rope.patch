@@ -1,6 +1,6 @@
 --- a/vllm/transformers_utils/config.py
 +++ b/vllm/transformers_utils/config.py
-@@ -371,13 +371,14 @@ def patch_rope_parameters(config: PretrainedConfig) -> None:
+@@ -371,13 +371,15 @@ def patch_rope_parameters(config: PretrainedConfig) -> None:
          ) and not getattr(config, "rope_parameters", None):
              config.rope_parameters = {"rope_type": "default"}
          # Patch legacy fields into rope_parameters
@@ -10,13 +10,14 @@
 -            config.rope_parameters["partial_rotary_factor"] = partial_rotary_factor
 -        if ompe is not None:
 -            config.rope_parameters["original_max_position_embeddings"] = ompe
-+        if not is_rope_parameters_nested(config.rope_parameters):
++        rope_parameters = getattr(config, "rope_parameters", None)
++        if rope_parameters is not None and not is_rope_parameters_nested(rope_parameters):
 +            if rope_theta is not None:
-+                config.rope_parameters["rope_theta"] = rope_theta
++                rope_parameters["rope_theta"] = rope_theta
 +            if partial_rotary_factor is not None:
-+                config.rope_parameters["partial_rotary_factor"] = partial_rotary_factor
++                rope_parameters["partial_rotary_factor"] = partial_rotary_factor
 +            if ompe is not None:
-+                config.rope_parameters["original_max_position_embeddings"] = ompe
++                rope_parameters["original_max_position_embeddings"] = ompe
      elif rope_theta is not None or getattr(config, "rope_parameters", None):
          # Transformers v5 installed
          # Patch these fields in case they used non-standard names
