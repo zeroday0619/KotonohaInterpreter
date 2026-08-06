@@ -9,6 +9,27 @@ dry_run=false
 assume_yes=false
 image_removal=ask
 management_arguments=()
+docker_requires_sudo=false
+docker_environment_names=(
+  ACCELERATOR_OMNI_IMAGE
+  ACCELERATOR_PROFILE
+  ACCELERATOR_VLLM_IMAGE
+  ASR_BASE
+  CONTAINER_RUNTIME
+  KOTONOHA_DISABLE_NVML
+  LLM_ENABLE_PREFIX_CACHING
+  LLM_GPU_MEMORY_UTILIZATION
+  LLM_IMAGE
+  LLM_KV_CACHE_DTYPE
+  LLM_MAX_MODEL_LEN
+  LLM_MAX_NUM_BATCHED_TOKENS
+  ORCH_BASE
+  TTS_ENFORCE_EAGER
+  TTS_GPU_MEMORY_UTILIZATION
+  TTS_IMAGE
+  VERIFY_BASE
+  VLLM_NVML_PATCH
+)
 
 for argument in "$@"; do
   case "$argument" in
@@ -42,6 +63,7 @@ Usage:
   bash scripts/manage.sh [--dry-run] [-y|--yes] benchmark [auto|jetson|a6000] [--only 1|2|3|all]
   bash scripts/manage.sh [--dry-run] [-y|--yes] benchmark link [netcheck options]
   bash scripts/manage.sh [--dry-run] [-y|--yes] deploy [auto|jetson|a6000] [deploy options]
+  bash scripts/manage.sh [--dry-run] [-y|--yes] tui
   bash scripts/manage.sh [--dry-run] [-y|--yes] uninstall [auto|jetson|a6000] [--remove-images|--keep-images]
   bash scripts/manage.sh [--dry-run] [-y|--yes] gpu allocate [allocator options]
   bash scripts/manage.sh [--dry-run] [-y|--yes] doctor [doctor options]
@@ -54,6 +76,7 @@ Commands:
   i18n        Extract, update, compile, or check gettext catalogs.
   benchmark   Run Docker hardware spikes or the Jetson-to-A6000 link benchmark.
   deploy      Build and start resident model services on the detected inference host.
+  tui         Start the interactive orchestrator in Docker.
   uninstall   Remove project containers and optionally Kotonoha Docker images.
   gpu         Run memory-aware A6000 GPU allocation.
   doctor      Report application environment and service health.
@@ -82,6 +105,45 @@ run_command() {
     return
   fi
   "$@"
+}
+
+run_docker() {
+  if [ "$docker_requires_sudo" = false ]; then
+    docker "$@"
+    return
+  fi
+
+  local docker_environment=()
+  local variable_name
+  for variable_name in "${docker_environment_names[@]}"; do
+    if [ "${!variable_name+x}" = x ]; then
+      docker_environment+=("$variable_name=${!variable_name}")
+    fi
+  done
+  sudo env "${docker_environment[@]}" docker "$@"
+}
+
+configure_docker_access() {
+  command -v docker >/dev/null 2>&1 || fail "required command not found: docker"
+  if docker info >/dev/null 2>&1; then
+    docker_requires_sudo=false
+    return
+  fi
+  command -v sudo >/dev/null 2>&1 || fail "required command not found: sudo"
+  sudo docker info >/dev/null 2>&1 \
+    || fail "Docker daemon is not available through docker or sudo docker"
+  docker_requires_sudo=true
+  printf 'Docker requires elevated access; using sudo docker.\n'
+}
+
+run_tui() {
+  local compose_file="$repository_root/docker/compose.yaml"
+  if [ "$dry_run" = true ]; then
+    run_command docker compose -f "$compose_file" run --rm orchestrator
+    return
+  fi
+  configure_docker_access
+  run_docker compose -f "$compose_file" run --rm orchestrator
 }
 
 require_no_arguments() {
@@ -314,6 +376,11 @@ case "$command_name" in
     deployment_target=$(resolve_inference_equipment "$deployment_target")
     confirm "Deploy services on $deployment_target"
     run_command bash scripts/deploy.sh "$deployment_target" "$@"
+    ;;
+  tui)
+    require_no_arguments "$@"
+    confirm "Start the integrated TUI"
+    run_tui
     ;;
   uninstall)
     deployment_target=${1:-auto}

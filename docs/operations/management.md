@@ -65,6 +65,7 @@ bash scripts/manage.sh deploy jetson
 | Allocate A6000 GPUs | `bash scripts/manage.sh gpu allocate` |
 | Deploy Jetson services | `bash scripts/manage.sh deploy jetson` |
 | Deploy A6000 services | `bash scripts/manage.sh deploy a6000` |
+| Start the integrated TUI | `bash scripts/manage.sh tui` |
 | Remove Jetson containers | `bash scripts/manage.sh uninstall jetson` |
 | Remove A6000 containers | `bash scripts/manage.sh uninstall a6000` |
 | Run environment diagnostics | `bash scripts/manage.sh doctor` |
