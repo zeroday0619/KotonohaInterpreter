@@ -107,10 +107,10 @@ Typer renders command help during import. Set `KOTONOHA_LANG` to localize help o
 Catalog maintenance:
 
 ```bash
-uv run python scripts/i18n.py extract
-uv run python scripts/i18n.py update
-uv run python scripts/i18n.py compile
-uv run python scripts/i18n.py check
+uv run python scripts/py/i18n.py extract
+uv run python scripts/py/i18n.py update
+uv run python scripts/py/i18n.py compile
+uv run python scripts/py/i18n.py check
 ```
 
 Commit `.po` files. The build hook compiles `.mo` files during installation.

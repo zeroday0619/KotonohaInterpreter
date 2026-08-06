@@ -387,7 +387,7 @@ load_gpu_environment() {
 
 allocate_a6000_gpus() {
   local arguments=(
-    python3 "$repository_root/scripts/allocate_gpus.py"
+    python3 "$repository_root/scripts/py/allocate_gpus.py"
     --environment-file "$environment_file"
     --output "$gpu_environment_file"
   )
@@ -640,13 +640,21 @@ deploy_a6000() {
   printf '%s\n' "$environment_file"
 }
 
-remove_project_image() {
-  local image_name=$1
-  if run_docker image inspect "$image_name" >/dev/null 2>&1; then
-    run_docker image rm "$image_name"
-  else
-    printf 'Image not present: %s\n' "$image_name"
+remove_project_images() {
+  local image_name
+  local project_images=()
+  while IFS= read -r image_name; do
+    case "$image_name" in
+      kotonohainterpreter-*:*'<none>'*) ;;
+      kotonohainterpreter-*:*) project_images+=("$image_name") ;;
+    esac
+  done < <(run_docker image ls --format '{{.Repository}}:{{.Tag}}')
+
+  if [ "${#project_images[@]}" -eq 0 ]; then
+    printf 'No Kotonoha project images are present.\n'
+    return
   fi
+  run_docker image rm "${project_images[@]}"
 }
 
 uninstall_jetson() {
@@ -655,11 +663,7 @@ uninstall_jetson() {
   run_docker compose -f "$compose_file" down --remove-orphans
 
   if [ "$remove_images" = true ]; then
-    remove_project_image kotonohainterpreter-asr
-    remove_project_image kotonohainterpreter-asr-verify
-    remove_project_image kotonohainterpreter-llm
-    remove_project_image kotonohainterpreter-tts
-    remove_project_image kotonohainterpreter-orchestrator
+    remove_project_images
   fi
 
   printf 'Preserved: config/local.yaml, models/, data/, and upstream base images.\n'
@@ -691,10 +695,7 @@ uninstall_a6000() {
   [ "$compose_status" -eq 0 ] || return "$compose_status"
 
   if [ "$remove_images" = true ]; then
-    remove_project_image kotonohainterpreter-asr
-    remove_project_image kotonohainterpreter-asr-verify
-    remove_project_image kotonohainterpreter-llm
-    remove_project_image kotonohainterpreter-tts
+    remove_project_images
   fi
 
   printf 'Preserved: config/remote-server.local.yaml, config/remote-gpu.env, .env, models/, and the NVIDIA NGC vLLM image.\n'

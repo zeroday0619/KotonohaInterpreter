@@ -142,7 +142,7 @@ msgid "Translation catalogs not compiled: {locales}"
 msgstr ""
 
 #: kotonoha/_cli.py:522
-msgid "Run: uv run python scripts/i18n.py compile"
+msgid "Run: uv run python scripts/py/i18n.py compile"
 msgstr ""
 
 #: kotonoha/_cli.py:524
@@ -1079,4 +1079,3 @@ msgstr ""
 #: kotonoha/tui/_tools_app.py:503
 msgid "Stopping the process"
 msgstr ""
-

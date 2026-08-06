@@ -97,8 +97,8 @@ Preserve leading whitespace, trailing whitespace, tabs, and explicit newlines ex
 3. Extract and merge the catalogs:
 
    ```bash
-   uv run python scripts/i18n.py extract
-   uv run python scripts/i18n.py update
+   uv run python scripts/py/i18n.py extract
+   uv run python scripts/py/i18n.py update
    ```
 
 4. Translate every non-obsolete entry in each `.po` file.
@@ -106,8 +106,8 @@ Preserve leading whitespace, trailing whitespace, tabs, and explicit newlines ex
 6. Compile and validate the catalogs:
 
    ```bash
-   uv run python scripts/i18n.py compile
-   uv run python scripts/i18n.py check
+   uv run python scripts/py/i18n.py compile
+   uv run python scripts/py/i18n.py check
    uv run pytest -q tests/kotonoha/test_i18n.py
    ```
 

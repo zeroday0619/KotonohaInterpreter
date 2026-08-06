@@ -17,12 +17,12 @@ copy — including the editable install the Jetson containers use — therefore 
 carries catalogs compiled from the current `.po`.
 
 A source checkout that has not been installed has no `.mo` and falls back to
-English. `kotonoha doctor` reports that; `scripts/i18n.py compile` fixes it.
+English. `kotonoha doctor` reports that; `scripts/py/i18n.py compile` fixes it.
 
-    uv run python scripts/i18n.py extract    # rebuild the .pot template
-    uv run python scripts/i18n.py update     # merge new strings into each .po
-    uv run python scripts/i18n.py compile    # compile without reinstalling
-    uv run python scripts/i18n.py check      # report untranslated and uncompiled
+    uv run python scripts/py/i18n.py extract    # rebuild the .pot template
+    uv run python scripts/py/i18n.py update     # merge new strings into each .po
+    uv run python scripts/py/i18n.py compile    # compile without reinstalling
+    uv run python scripts/py/i18n.py check      # report untranslated and uncompiled
 
 Resolution order, highest first:
 

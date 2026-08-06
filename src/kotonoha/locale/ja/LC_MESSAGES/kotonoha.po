@@ -143,8 +143,8 @@ msgid "Translation catalogs not compiled: {locales}"
 msgstr "翻訳カタログが未コンパイル: {locales}"
 
 #: kotonoha/_cli.py:522
-msgid "Run: uv run python scripts/i18n.py compile"
-msgstr "実行: uv run python scripts/i18n.py compile"
+msgid "Run: uv run python scripts/py/i18n.py compile"
+msgstr "実行: uv run python scripts/py/i18n.py compile"
 
 #: kotonoha/_cli.py:524
 #, python-brace-format
@@ -1092,4 +1092,3 @@ msgstr "プロセスを停止中"
 
 #~ msgid "moe selects the 30B mixture-of-experts model; dense selects the 14B model."
 #~ msgstr "moe は 30B の混合エキスパートモデルを選択し、dense は 14B モデルを選択します。"
-

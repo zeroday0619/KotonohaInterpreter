@@ -7,7 +7,7 @@ import sys
 from importlib import import_module
 from pathlib import Path
 
-SOURCE_DIRECTORY = Path(__file__).resolve().parents[1] / "src"
+SOURCE_DIRECTORY = Path(__file__).resolve().parents[2] / "src"
 sys.path.insert(0, str(SOURCE_DIRECTORY))
 
 deployment_module = import_module("kotonoha.deployment")

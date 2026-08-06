@@ -18,7 +18,7 @@ from kotonoha.deployment import (
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-ALLOCATOR_SCRIPT = PROJECT_ROOT / "scripts" / "allocate_gpus.py"
+ALLOCATOR_SCRIPT = PROJECT_ROOT / "scripts" / "py" / "allocate_gpus.py"
 REMOTE_COMPOSE = PROJECT_ROOT / "docker" / "compose.remote.yaml"
 
 

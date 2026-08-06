@@ -519,7 +519,7 @@ def doctor(
     ]
     if uncompiled:
         print(_("Translation catalogs not compiled: {locales}", locales=", ".join(uncompiled)))
-        print(_("Run: uv run python scripts/i18n.py compile"))
+        print(_("Run: uv run python scripts/py/i18n.py compile"))
     else:
         print(_("Translation catalogs compiled: {locales}", locales=", ".join(
             code for code in available_locales() if code != DEFAULT_LOCALE

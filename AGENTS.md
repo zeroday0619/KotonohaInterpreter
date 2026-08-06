@@ -49,8 +49,9 @@ does not verify Jetson behavior.
 | Integrated TUI | `uv run kotonoha tui` |
 | Configuration editor | `uv run kotonoha config` |
 | History browser | `uv run kotonoha history browse` |
-| Translation catalog check | `uv run python scripts/i18n.py check` |
-| Translation catalog compile | `uv run python scripts/i18n.py compile` |
+| Translation catalog check | `uv run python scripts/py/i18n.py check` |
+| Translation catalog compile | `uv run python scripts/py/i18n.py compile` |
+| Translation catalog management | `bash scripts/manage.sh i18n check` |
 | Typed turn | `uv run kotonoha text "<utterance>"` |
 | WAV replay | `uv run kotonoha replay <wav> --seconds 12` |
 | External link measurement | `bash scripts/manage.sh benchmark link` |
@@ -70,7 +71,7 @@ uv run ruff check .
 uv run pytest -q
 ```
 
-Current baseline: 296 tests and zero lint findings.
+Current baseline: 305 tests and zero lint findings.
 
 `.github/workflows/ci.yml` runs these gates plus lock consistency, wheel catalog
 compilation, and Python 3.10 import parity. See
@@ -322,7 +323,7 @@ protected content, and the catalog review workflow.
 | `src/kotonoha/locale/kotonoha.pot` | Generated extraction template |
 | `src/kotonoha/locale/<lang>/LC_MESSAGES/kotonoha.po` | Translation source |
 | `src/kotonoha/locale/<lang>/LC_MESSAGES/kotonoha.mo` | Generated, gitignored catalog |
-| `scripts/i18n.py` | Extract, update, compile, and check workflow |
+| `scripts/py/i18n.py` | Extract, update, compile, and check workflow |
 
 Locale resolution order is `KOTONOHA_LANG`, `ui.language`, system locale, then English.
 
@@ -330,11 +331,11 @@ For a new operator-facing string:
 
 1. Add the English source inline through `_()`.
 2. Use `N_()` for strings stored in import-time tables, then call `_()` when rendering.
-3. Run `uv run python scripts/i18n.py extract` and
-   `uv run python scripts/i18n.py update`.
+3. Run `uv run python scripts/py/i18n.py extract` and
+   `uv run python scripts/py/i18n.py update`.
 4. Translate every `.po`; use Taiwanese vocabulary in `zh_TW`.
-5. Run `uv run python scripts/i18n.py compile` and
-   `uv run python scripts/i18n.py check`.
+5. Run `uv run python scripts/py/i18n.py compile` and
+   `uv run python scripts/py/i18n.py check`.
 6. Commit `.po` files only. The build compiles `.mo` files.
 
 Do not localize dotted configuration paths, identifiers shared with YAML, log event names,

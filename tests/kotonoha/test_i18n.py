@@ -58,7 +58,7 @@ def read_catalog(
 @pytest.fixture(scope="module")
 def i18n_tool() -> Any:
     spec = importlib.util.spec_from_file_location(
-        "kotonoha_i18n_tool", REPO_ROOT / "scripts" / "i18n.py"
+        "kotonoha_i18n_tool", REPO_ROOT / "scripts" / "py" / "i18n.py"
     )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -178,7 +178,7 @@ def test_compiled_catalog_matches_its_source(
 
     A stale .mo serves yesterday's text with no other symptom.
     """
-    assert mo_path(locale).exists(), f"{locale}: run scripts/i18n.py compile"
+    assert mo_path(locale).exists(), f"{locale}: run scripts/py/i18n.py compile"
     catalog = translation(locale)
     stale = [
         entry.id
@@ -188,7 +188,7 @@ def test_compiled_catalog_matches_its_source(
         and isinstance(entry.id, str)
         and catalog.gettext(entry.id) != entry.string
     ]
-    assert not stale, f"{locale}: .mo is stale for {stale[:5]}; run scripts/i18n.py compile"
+    assert not stale, f"{locale}: .mo is stale for {stale[:5]}; run scripts/py/i18n.py compile"
 
 
 @pytest.mark.parametrize("locale", TRANSLATED_LOCALES)

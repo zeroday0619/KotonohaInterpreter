@@ -16,10 +16,15 @@ def _run_management_script(
     arguments: tuple[str, ...],
     /,
     *,
+    assume_yes: bool = True,
     environment: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    command = ["bash", str(MANAGEMENT_SCRIPT)]
+    if assume_yes:
+        command.append("--yes")
+    command.extend(arguments)
     return subprocess.run(
-        ["bash", str(MANAGEMENT_SCRIPT), *arguments],
+        command,
         cwd=PROJECT_ROOT,
         env=environment,
         check=False,
@@ -40,25 +45,36 @@ def test_management_script_has_valid_shell_syntax_and_help() -> None:
 
     assert syntax.returncode == 0, syntax.stderr
     assert help_result.returncode == 0
-    assert "setup workstation" in help_result.stdout
+    assert "setup [auto|workstation|jetson|a6000]" in help_result.stdout
     assert "models verify" in help_result.stdout
-    assert "benchmark jetson" in help_result.stdout
+    assert "i18n [extract|update|compile|check]" in help_result.stdout
+    assert "benchmark [auto|jetson|a6000]" in help_result.stdout
     assert "benchmark link" in help_result.stdout
-    assert "deploy a6000" in help_result.stdout
+    assert "deploy [auto|jetson|a6000]" in help_result.stdout
+    assert "detect" in help_result.stdout
+    assert "--yes" in help_result.stdout
+    assert "--keep-images" in help_result.stdout
     assert os.access(MANAGEMENT_SCRIPT, os.X_OK)
 
 
 @pytest.mark.parametrize(
     ("arguments", "expected_commands"),
     (
-        (("setup", "workstation", "--eval"), ("uv sync --group eval", "i18n.py compile")),
+        (
+            ("setup", "workstation", "--eval"),
+            ("uv sync --group eval", "scripts/py/i18n.py compile"),
+        ),
         (("setup", "jetson"), ("deploy.sh jetson --prepare-only",)),
         (("models", "fetch"), ("fetch_models.sh",)),
+        (("i18n", "compile"), ("scripts/py/i18n.py compile",)),
         (("benchmark", "a6000", "--only", "3"), ("run_all.sh a6000 --only 3",)),
         (("benchmark", "link", "--samples", "2"), ("netcheck --samples 2",)),
         (("deploy", "a6000", "--no-build"), ("deploy.sh a6000 --no-build",)),
-        (("uninstall", "jetson"), ("deploy.sh uninstall jetson",)),
-        (("gpu", "allocate", "--force"), ("allocate_gpus.py --force",)),
+        (
+            ("uninstall", "jetson"),
+            ("deploy.sh uninstall jetson --remove-images",),
+        ),
+        (("gpu", "allocate", "--force"), ("scripts/py/allocate_gpus.py --force",)),
     ),
 )
 def test_management_dry_run_routes_to_existing_workflows(
@@ -72,6 +88,58 @@ def test_management_dry_run_routes_to_existing_workflows(
 
     assert completed.returncode == 0, completed.stderr
     assert all(command in completed.stdout for command in expected_commands)
+
+
+def test_management_commands_require_confirmation_in_noninteractive_sessions() -> None:
+    completed = _run_management_script(
+        ("--dry-run", "check"),
+        assume_yes=False,
+    )
+
+    assert completed.returncode == 1
+    assert "confirmation requires an interactive terminal" in completed.stderr
+
+
+@pytest.mark.parametrize("equipment", ("workstation", "jetson", "a6000"))
+def test_equipment_detection_accepts_automation_override(
+    _positional_only: object | None = None,
+    /,
+    *,
+    equipment: str,
+) -> None:
+    completed = _run_management_script(
+        ("detect",),
+        environment={**os.environ, "KOTONOHA_EQUIPMENT": equipment},
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.rstrip().endswith(equipment)
+
+
+def test_automatic_target_routes_deployment_to_detected_equipment() -> None:
+    completed = _run_management_script(
+        ("--dry-run", "deploy"),
+        environment={**os.environ, "KOTONOHA_EQUIPMENT": "jetson"},
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert "scripts/deploy.sh jetson" in completed.stdout
+
+
+def test_uninstall_can_preserve_project_images_explicitly() -> None:
+    completed = _run_management_script(
+        ("--dry-run", "uninstall", "jetson", "--keep-images"),
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert "deploy.sh uninstall jetson" in completed.stdout
+    assert "--remove-images" not in completed.stdout
+
+
+def test_python_management_tools_live_under_scripts_py() -> None:
+    assert not list((PROJECT_ROOT / "scripts").glob("*.py"))
+    assert (PROJECT_ROOT / "scripts" / "py" / "allocate_gpus.py").is_file()
+    assert (PROJECT_ROOT / "scripts" / "py" / "i18n.py").is_file()
 
 
 def test_model_verification_reports_every_missing_artifact(

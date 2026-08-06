@@ -144,6 +144,19 @@ def test_remove_images_requires_uninstall() -> None:
     assert "valid only with uninstall" in result.stderr
 
 
+def test_uninstall_image_removal_is_limited_to_kotonoha_repositories() -> None:
+    source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+    removal_body = source.split("remove_project_images() {", 1)[1].split(
+        "uninstall_jetson() {", 1
+    )[0]
+
+    assert "run_docker image ls" in removal_body
+    assert "kotonohainterpreter-*" in removal_body
+    assert 'run_docker image rm "${project_images[@]}"' in removal_body
+    assert "nvcr.io" not in removal_body
+    assert "vllm/vllm" not in removal_body
+
+
 def test_prepare_only_rejects_service_stopping_gpu_reallocation() -> None:
     result = subprocess.run(
         [
@@ -201,7 +214,7 @@ def test_remote_services_default_to_mounted_offline_models() -> None:
 def test_a6000_deploy_rejects_a_stale_asr_memory_override_before_start() -> None:
     deploy_script = DEPLOY_SCRIPT.read_text(encoding="utf-8")
     deploy_body = deploy_script.split("deploy_a6000() {", 1)[1].split(
-        "remove_project_image() {", 1
+        "remove_project_images() {", 1
     )[0]
 
     assert "minimum_gpu_memory_utilization=0.28" in deploy_script
@@ -249,7 +262,7 @@ def test_deploy_builds_and_validates_the_llm_image_before_start() -> None:
         "deploy_a6000() {", 1
     )[0]
     a6000_body = deploy_script.split("deploy_a6000() {", 1)[1].split(
-        "remove_project_image() {", 1
+        "remove_project_images() {", 1
     )[0]
     validation_call = "verify_vllm_translation_runtime"
 

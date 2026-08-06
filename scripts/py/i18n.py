@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Translation catalog maintenance.
 
-    uv run python scripts/i18n.py extract    # rebuild the .pot template from source
-    uv run python scripts/i18n.py update     # merge the template into each .po
-    uv run python scripts/i18n.py compile    # regenerate the .mo files
-    uv run python scripts/i18n.py check      # report untranslated, fuzzy and stale
+    uv run python scripts/py/i18n.py extract    # rebuild the .pot template from source
+    uv run python scripts/py/i18n.py update     # merge the template into each .po
+    uv run python scripts/py/i18n.py compile    # regenerate the .mo files
+    uv run python scripts/py/i18n.py check      # report untranslated, fuzzy and stale
 
 Babel is a development dependency; the runtime needs only the standard library's
 gettext. English is the source language and has no catalog.
@@ -25,7 +25,7 @@ from babel.messages.extract import extract_from_dir
 from babel.messages.mofile import write_mo
 from babel.messages.pofile import read_po, write_po
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from kotonoha._i18n import (  # noqa: E402

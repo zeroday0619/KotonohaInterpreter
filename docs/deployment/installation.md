@@ -167,16 +167,16 @@ creates missing host-specific configuration from committed templates, builds ima
 executes the same CUDA device-count path used by vLLM workers, starts resident model
 services, and waits for health checks.
 
-On the Jetson:
+On the Jetson, automatic detection permits the target to be omitted:
 
 ```bash
-bash scripts/manage.sh deploy jetson
+bash scripts/manage.sh deploy
 ```
 
-On the A6000:
+The same command detects an RTX A6000 server:
 
 ```bash
-bash scripts/manage.sh deploy a6000
+bash scripts/manage.sh deploy
 ```
 
 The first A6000 run creates a protected `.env` file with a random 32-byte service token
@@ -194,6 +194,8 @@ Available options:
 --prepare-only        Validate the host and create configuration without deployment
 --reallocate-gpus     Stop A6000 services and recalculate GPU placement from free memory
 --remove-images       Remove project-built images during uninstall
+--keep-images         Preserve project-built images during uninstall
+-y, --yes             Confirm every management prompt without reading standard input
 ```
 
 The script does not replace `config/local.yaml`, `config/remote-server.local.yaml`, or an
@@ -225,16 +227,18 @@ bash scripts/manage.sh uninstall jetson
 bash scripts/manage.sh uninstall a6000
 ```
 
-Also remove images built by this project:
+Uninstall asks whether to remove images built by this project. Select the behavior
+explicitly for automation:
 
 ```bash
-bash scripts/manage.sh uninstall jetson --remove-images
-bash scripts/manage.sh uninstall a6000 --remove-images
+bash scripts/manage.sh -y uninstall jetson --remove-images
+bash scripts/manage.sh -y uninstall a6000 --keep-images
 ```
 
 Uninstall never removes model artifacts, logs, SQLite data, `.env`,
 `config/remote-gpu.env`, local YAML overrides, or upstream base images.
-`--remove-images` removes only images named for this project.
+Image removal enumerates only image repositories with the `kotonohainterpreter-` prefix.
+It does not remove NVIDIA NGC, vLLM, PyTorch, or other upstream images.
 
 ## macOS Development Installation
 
