@@ -49,12 +49,14 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
-      # scripts/py/i18n.py reads the committed catalogs through Babel and needs no project
-      # install.
+      # Babel reads the committed .po catalogs and generates ignored .mo files for the
+      # completeness check.
       - name: Install lint tooling
         run: uv sync --frozen --only-group dev
       - name: Shell scripts parse
         run: git ls-files '*.sh' | xargs -r -n 1 bash -n
+      - name: Compile translation catalogs
+        run: uv run --no-sync python scripts/py/i18n.py compile
       - name: Translation catalogs are complete
         run: uv run --no-sync python scripts/py/i18n.py check
 

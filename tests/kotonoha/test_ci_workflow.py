@@ -87,6 +87,17 @@ def test_continuous_integration_guards_the_deployment_contracts() -> None:
     assert "bash -n" in commands
 
 
+def test_continuous_integration_compiles_catalogs_before_checking_them() -> None:
+    commands = _run_commands(_workflow())
+
+    compile_command = "uv run --no-sync python scripts/py/i18n.py compile"
+    check_command = "uv run --no-sync python scripts/py/i18n.py check"
+
+    assert compile_command in commands
+    assert check_command in commands
+    assert commands.index(compile_command) < commands.index(check_command)
+
+
 def test_continuous_integration_installs_only_the_locked_dependency_set() -> None:
     commands = _run_commands(_workflow())
 
