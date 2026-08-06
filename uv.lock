@@ -101,6 +101,18 @@ wheels = [
 ]
 
 [[package]]
+name = "aiotools"
+version = "2.2.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "async-lru" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c9/1c/1bf03edb69b4cff18c947006fd4738700b029ae2a6fe6055cc525eb583f0/aiotools-2.2.4.tar.gz", hash = "sha256:f29551fc7632e9537608cea0d154bc63b5847b0972f9a3ed122d509aaa81fa72", size = 150329, upload-time = "2026-07-21T07:17:21.149Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1b/f4/284a4ef469cc5dcc0dd9c73a2c10b82f98df3fa8485e5e050ec5b181bbf9/aiotools-2.2.4-py3-none-any.whl", hash = "sha256:086a3274e805c3b04e8188f60be17b839299e94a4e20cbd8b1466cfef157d03c", size = 48025, upload-time = "2026-07-21T07:17:19.633Z" },
+]
+
+[[package]]
 name = "annotated-doc"
 version = "0.0.5"
 source = { registry = "https://pypi.org/simple" }
@@ -139,6 +151,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/d7/d8/05696357e0311f5b5c316d7b95f46c669dd9c15aaeecbb48c7d0aeb88c40/appdirs-1.4.4.tar.gz", hash = "sha256:7d5d0167b2b1ba821647616af46a749d1c653740dd0d2415100fe26e27afdf41", size = 13470, upload-time = "2020-05-11T07:59:51.037Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/3b/00/2344469e2084fb287c2e0b57b72910309874c3245463acd6cf5e3db69324/appdirs-1.4.4-py2.py3-none-any.whl", hash = "sha256:a841dacd6b99318a741b166adb07e19ee71a274450e68237b4650ca1055ab128", size = 9566, upload-time = "2020-05-11T07:59:49.499Z" },
+]
+
+[[package]]
+name = "async-lru"
+version = "2.3.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e8/1f/989ecfef8e64109a489fff357450cb73fa73a865a92bd8c272170a6922c2/async_lru-2.3.0.tar.gz", hash = "sha256:89bdb258a0140d7313cf8f4031d816a042202faa61d0ab310a0a538baa1c24b6", size = 16332, upload-time = "2026-03-19T01:04:32.413Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e5/e2/c2e3abf398f80732e58b03be77bde9022550d221dd8781bf586bd4d97cc1/async_lru-2.3.0-py3-none-any.whl", hash = "sha256:eea27b01841909316f2cc739807acea1c623df2be8c5cfad7583286397bb8315", size = 8403, upload-time = "2026-03-19T01:04:30.883Z" },
 ]
 
 [[package]]
@@ -787,6 +808,7 @@ name = "kotonoha-interpreter"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "aiotools", marker = "python_full_version >= '3.11'" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "numpy", version = "1.26.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or sys_platform != 'linux'" },
@@ -842,6 +864,7 @@ eval = [
 [package.metadata]
 requires-dist = [
     { name = "accelerate", marker = "python_full_version < '3.11' and platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'device'", specifier = ">=0.33" },
+    { name = "aiotools", marker = "python_full_version >= '3.11'", specifier = ">=2.2.4" },
     { name = "deepfilternet", marker = "python_full_version < '3.11' and platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'device'", specifier = ">=0.5.6" },
     { name = "fastapi", specifier = ">=0.111" },
     { name = "faster-whisper", marker = "python_full_version < '3.11' and platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'device'", specifier = ">=1.0.3" },

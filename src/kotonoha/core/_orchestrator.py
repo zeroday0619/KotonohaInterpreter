@@ -21,6 +21,7 @@ from typing import Any, ClassVar
 
 import numpy as np
 
+from kotonoha._async_tools import cancel_and_wait, create_timer
 from kotonoha._config import Settings
 from kotonoha._logging_setup import get_logger
 from kotonoha._metrics import TurnLog, TurnMetrics
@@ -169,9 +170,9 @@ class Orchestrator:
         self._running = True
         self._frame_task = asyncio.create_task(self._frame_loop(), name="frame-loop")
         self.services.start_probes()
-        self._resource_task = asyncio.create_task(
-            self._resource_loop(),
-            name="resource-loop",
+        self._resource_task = create_timer(
+            self._probe_resources,
+            RESOURCE_POLL_SECONDS,
         )
         log.info(
             "orchestrator.started",
@@ -196,17 +197,11 @@ class Orchestrator:
     ) -> None:
         self._running = False
         if self._frame_task:
-            self._frame_task.cancel()
-            try:
-                await self._frame_task
-            except asyncio.CancelledError:
-                pass
+            await cancel_and_wait(self._frame_task)
+            self._frame_task = None
         if self._resource_task:
-            self._resource_task.cancel()
-            try:
-                await self._resource_task
-            except asyncio.CancelledError:
-                pass
+            await cancel_and_wait(self._resource_task)
+            self._resource_task = None
         await asyncio.to_thread(self.capture.stop)
         await asyncio.to_thread(self.playback.stop)
         await self.services.aclose()
@@ -233,13 +228,13 @@ class Orchestrator:
         log.info("resources.snapshot", services=resource_status)
         self.event_bus.emit("resources", services=resource_status)
 
-    async def _resource_loop(
+    async def _probe_resources(
         self,
+        interval: float,
         /,
     ) -> None:
-        while self._running:
-            await self._probe_services()
-            await asyncio.sleep(RESOURCE_POLL_SECONDS)
+        del interval
+        await self._probe_services()
 
     def _on_placement_change(
         self,

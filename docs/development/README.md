@@ -12,6 +12,13 @@ The Jetson and A6000 NGC service images use Python 3.12. Source and wheel metada
 compatible with Python 3.10. Tests run without models, microphones, target hardware, or
 network access.
 
+The runtime uses aiotools 2.x for periodic task scheduling and cancellation on Python
+3.11 and later. Python 3.10 uses the compatibility implementation in
+`src/kotonoha/_async_tools.py`, so the minimum-version import contract remains unchanged.
+The integration uses `create_timer()` with cancellation-on-delay policy for health probes
+and `cancel_and_wait()` for service shutdown. See the
+[aiotools documentation](https://aiotools.readthedocs.io/en/latest/) for the upstream API.
+
 ## Quality Gates
 
 ```bash

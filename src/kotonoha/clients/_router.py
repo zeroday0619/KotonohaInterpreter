@@ -26,6 +26,7 @@ import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any, ClassVar
 
+from kotonoha._async_tools import cancel_and_wait, create_timer
 from kotonoha._config import RemoteConfig
 from kotonoha._logging_setup import get_logger
 from kotonoha._typing import override
@@ -242,38 +243,38 @@ class FailoverClient:
         if self._on_change:
             self._on_change(self.role, self.side, reason)
 
-    async def _probe_loop(
+    async def _probe_once(
         self,
+        interval: float,
         /,
     ) -> None:
         """Watch a degraded remote and restore it once it stays healthy."""
-        while True:
-            await asyncio.sleep(self.config.health_interval_s)
-            if not self._degraded:
-                self._healthy_since = None
-                continue
-            health = await self.preferred.health()
-            if not health.get("ok"):
-                self._healthy_since = None
-                continue
-            now = time.monotonic()
-            if self._healthy_since is None:
-                self._healthy_since = now
-            elif now - self._healthy_since >= self.config.recover_after_s:
-                self._failure_count = 0
-                self._set_degraded(
-                    False,
-                    f"healthy for {self.config.recover_after_s:.0f}s",
-                )
+        del interval
+        if not self._degraded:
+            self._healthy_since = None
+            return
+        health = await self.preferred.health()
+        if not health.get("ok"):
+            self._healthy_since = None
+            return
+        now = time.monotonic()
+        if self._healthy_since is None:
+            self._healthy_since = now
+        elif now - self._healthy_since >= self.config.recover_after_s:
+            self._failure_count = 0
+            self._set_degraded(
+                False,
+                f"healthy for {self.config.recover_after_s:.0f}s",
+            )
 
     def start_probe(
         self,
         /,
     ) -> None:
         if self.fallback is not None and self._probe_task is None:
-            self._probe_task = asyncio.create_task(
-                self._probe_loop(),
-                name=f"probe-{self.role}",
+            self._probe_task = create_timer(
+                self._probe_once,
+                self.config.health_interval_s,
             )
 
     async def aclose(
@@ -281,11 +282,7 @@ class FailoverClient:
         /,
     ) -> None:
         if self._probe_task is not None:
-            self._probe_task.cancel()
-            try:
-                await self._probe_task
-            except asyncio.CancelledError:
-                pass
+            await cancel_and_wait(self._probe_task)
             self._probe_task = None
         await self.preferred.aclose()
         if self.fallback is not None:

@@ -33,6 +33,8 @@ dependencies = [
   "python-multipart>=0.0.9",
   "uvloop>=0.22.1,<0.23",
   "websockets>=14,<17",
+  # aiotools 2.x requires Python 3.11. `_async_tools` supplies the Python 3.10 path.
+  "aiotools>=2.2.4 ; python_full_version >= '3.11'",
 ]
 
 # Legacy device-only dependencies for Python 3.10 images. The Python bound is
