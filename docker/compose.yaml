@@ -110,4 +110,4 @@ services:
       - audio
     stdin_open: true
     tty: true
-    command: python3 -m kotonoha._cli run
+    command: python3 -m kotonoha tui
