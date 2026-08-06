@@ -8,9 +8,9 @@ Install dependencies with uv:
 bash scripts/manage.sh setup workstation
 ```
 
-The selected Jetson r36.4 service image uses Python 3.10. The JetPack 7.2 host and A6000
-service images use Python 3.12. Source syntax remains compatible with Python 3.10. Tests
-run without models, microphones, target hardware, or network access.
+The Jetson and A6000 NGC service images use Python 3.12. Source and wheel metadata remain
+compatible with Python 3.10. Tests run without models, microphones, target hardware, or
+network access.
 
 ## Quality Gates
 
@@ -43,8 +43,8 @@ The `guard` job covers three contracts a workstation run cannot reach:
   resolves differently inside the deployment images.
 - The wheel must contain a compiled `.mo` for every committed `.po`. `.mo` files are never
   committed, so deployment depends on `hatch_build.py` compiling them during install.
-- Every module must import under Python 3.10, the generation supplied by the Jetson r36.4
-  service image. Ruff enforces 3.10 syntax but not standard library availability.
+- Every module must import under the supported Python 3.10 minimum. Ruff enforces 3.10
+  syntax but not standard library availability.
 
 Jobs install from the locked dependency set with `uv sync --frozen`. CI does not resolve
 dependencies, download models, or contact target hardware.

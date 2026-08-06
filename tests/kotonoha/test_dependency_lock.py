@@ -9,7 +9,7 @@ at install time, inside the container build:
     hint: You're using CPython 3.10 (`cp310`), but `onnxruntime` (v1.24.3) only
     has wheels with the following Python implementation tags: `cp311`, ...
 
-The Jetson service images run Python 3.10, so the constraint in pyproject.toml
+Python 3.10 remains a supported wheel target, so the constraint in pyproject.toml
 holds those distributions to the last release that ships cp310 wheels.
 """
 

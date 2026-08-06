@@ -1,7 +1,7 @@
 # Cross-verification ASR — faster-whisper large-v3 (CTranslate2).
 # The published AArch64 CTranslate2 artifact lacks CUDA support, so the Jetson
 # baseline runs this conditional verifier on CPU with INT8 compute.
-ARG BASE_IMAGE=ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04
+ARG BASE_IMAGE=nvcr.io/nvidia/vllm:26.07-py3
 FROM ${BASE_IMAGE}
 ENTRYPOINT []
 
@@ -11,7 +11,7 @@ ENV UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-RUN uv venv --python /opt/venv/bin/python --system-site-packages /opt/kotonoha-venv
+RUN uv venv --python python3 --system-site-packages /opt/kotonoha-venv
 ENV VIRTUAL_ENV=/opt/kotonoha-venv \
     UV_PYTHON=/opt/kotonoha-venv/bin/python \
     PATH=/opt/kotonoha-venv/bin:${PATH}
@@ -29,6 +29,15 @@ RUN uv sync --active --frozen --no-dev --extra asr-verify --no-cache \
 # by the Jetson configuration instead of treating an import as sufficient.
 RUN "$UV_PYTHON" -c \
  "import ctranslate2, faster_whisper; compute_types = ctranslate2.get_supported_compute_types('cpu'); assert 'int8' in compute_types, compute_types; print('ct2', ctranslate2.__version__, '| fw', faster_whisper.__version__, '| cpu', compute_types)"
+
+# Keep the same opt-in diagnostic control as the resident GPU services.
+ARG NVML_BYPASS=0
+RUN mkdir -p /opt/kotonoha/nvml-bypass \
+ && if [ "$NVML_BYPASS" = "1" ]; then \
+      printf 'kotonoha: not a loadable ELF object\n' \
+        > /opt/kotonoha/nvml-bypass/libnvidia-ml.so.1; \
+    fi
+ENV LD_LIBRARY_PATH=/opt/kotonoha/nvml-bypass:${LD_LIBRARY_PATH}
 
 EXPOSE 8002
 CMD ["uvicorn", "kotonoha.services._asr_verify_server:app", "--host", "0.0.0.0", "--port", "8002", "--loop", "uvloop"]

@@ -8,9 +8,9 @@ x-spike-runtime: &spike-runtime
   ipc: host
   network_mode: host
   restart: "no"
-  # The vendor vLLM images install their Python environment under /opt/venv and
-  # support root as their runtime user. The entrypoint wrapper returns generated
-  # files to the invoking host user after each short-lived probe.
+  # The project images place their environment first on PATH and support root as
+  # their runtime user. The entrypoint wrapper returns generated files to the
+  # invoking host user after each short-lived probe.
   user: "0:0"
   working_dir: /workspace
   environment:
@@ -19,7 +19,7 @@ x-spike-runtime: &spike-runtime
     HF_HUB_OFFLINE: "1"
     TRANSFORMERS_OFFLINE: "1"
     NVIDIA_VISIBLE_DEVICES: ${SPIKE_GPU_DEVICE:-all}
-    KOTONOHA_SPIKE_IMAGE: ${SPIKE_VLLM_IMAGE:-ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04}
+    KOTONOHA_SPIKE_IMAGE: ${SPIKE_VLLM_IMAGE:-nvcr.io/nvidia/vllm:26.07-py3}
     SPIKE_GROUP_ID: ${SPIKE_GROUP_ID:-0}
     SPIKE_PYTHON: ${SPIKE_PYTHON:-python3}
     SPIKE_USER_ID: ${SPIKE_USER_ID:-0}
@@ -75,5 +75,5 @@ services:
 
   report:
     <<: *spike-runtime
-    image: ${SPIKE_VLLM_IMAGE:-ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04}
+    image: ${SPIKE_VLLM_IMAGE:-nvcr.io/nvidia/vllm:26.07-py3}
     entrypoint: ["bash", "spikes/container_entrypoint.sh", "spikes/report.py"]

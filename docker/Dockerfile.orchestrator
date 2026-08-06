@@ -1,5 +1,5 @@
 # Orchestrator, audio frontend and TUI (CPU)
-ARG BASE_IMAGE=ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04
+ARG BASE_IMAGE=nvcr.io/nvidia/vllm:26.07-py3
 FROM ${BASE_IMAGE}
 ENTRYPOINT []
 
@@ -12,34 +12,39 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libportaudio2 portaudio19-dev libsndfile1 alsa-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# Install into the container's system Python. A project venv from uv sync would
-# shadow the CUDA torch build that ships in the base image.
-ENV UV_SYSTEM_PYTHON=1 \
-    UV_LINK_MODE=copy \
+# Keep the vendor packages visible without modifying the image's system Python.
+ENV UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1 \
     PYTHONUNBUFFERED=1
+
+RUN uv venv --python python3 --system-site-packages /opt/kotonoha-venv
+ENV VIRTUAL_ENV=/opt/kotonoha-venv \
+    UV_PYTHON=/opt/kotonoha-venv/bin/python \
+    PATH=/opt/kotonoha-venv/bin:${PATH}
 
 WORKDIR /app
 
 # Runtime dependencies come from the lockfile, pinned. Copy these before the
 # source so the layer is reused when only code changes.
 COPY pyproject.toml uv.lock README.md LICENSE hatch_build.py ./
-RUN uv export --frozen --no-dev --no-emit-project --no-hashes -o /tmp/req.txt \
- && uv pip install --no-cache -r /tmp/req.txt
+RUN uv sync --active --frozen --no-dev --no-install-project --no-cache
 
 COPY src ./src
-RUN uv pip install --no-cache --no-deps -e .
+RUN uv sync --active --frozen --no-dev --no-cache \
+ && uv pip check --python "$UV_PYTHON"
 
 # aarch64 support for onnxruntime (VAD) and deepfilternet (denoise) is verified
 # by measurement in Phase 0. A failure here does not stop the build; the runtime
 # falls back. These stay outside the lockfile because their aarch64 resolution
 # differs from the development machine, so locking them breaks the device.
-RUN (uv pip install --no-cache onnxruntime || echo "!! onnxruntime failed — VAD falls back") \
- && (uv pip install --no-cache deepfilternet || echo "!! deepfilternet failed — no denoise")
+RUN (uv pip install --python "$UV_PYTHON" --no-cache onnxruntime \
+      || echo "!! onnxruntime failed — VAD falls back") \
+ && (uv pip install --python "$UV_PYTHON" --no-cache deepfilternet \
+      || echo "!! deepfilternet failed — no denoise")
 
 # Check whether the installs above replaced the base image's CUDA torch with a
 # PyPI CPU build. Silently clobbered, that would only surface on the device.
-RUN python3 -c "import torch; print('torch', torch.__version__, 'cuda', torch.version.cuda)" \
+RUN "$UV_PYTHON" -c "import torch; print('torch', torch.__version__, 'cuda', torch.version.cuda)" \
     || echo "!! could not check torch"
 
 CMD ["python3", "-m", "kotonoha._cli", "run"]

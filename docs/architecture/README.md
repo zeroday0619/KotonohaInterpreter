@@ -115,7 +115,7 @@ TLS reverse proxy in front of them.
 | Jetson translation model | `google/translategemma-4b-it` |
 | A6000 translation model | `google/translategemma-12b-it` |
 | Translation runtime | In-process vLLM and FastAPI `/v1/realtime` WebSocket |
-| Jetson vLLM image | `ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04` |
+| Jetson vLLM image | `nvcr.io/nvidia/vllm:26.07-py3` |
 | A6000 vLLM image | `nvcr.io/nvidia/vllm:26.07-py3` |
 | TTS service image | `kotonohainterpreter-tts:latest` |
 | TTS runtime base | `vllm/vllm-omni:v0.26.0` |

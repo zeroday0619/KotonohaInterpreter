@@ -97,12 +97,12 @@ configure_docker_access() {
 
 configure_target() {
   if [ "$deployment_target" = "jetson" ]; then
-    : "${SPIKE_VLLM_IMAGE:=ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04}"
+    : "${SPIKE_VLLM_IMAGE:=nvcr.io/nvidia/vllm:26.07-py3}"
     : "${SPIKE_ASR_IMAGE:=kotonohainterpreter-spike-asr:jetson}"
     : "${SPIKE_LLM_IMAGE:=kotonohainterpreter-spike-llm:jetson}"
     : "${SPIKE_TTS_IMAGE:=kotonohainterpreter-spike-tts:jetson}"
     : "${SPIKE_GPU_DEVICE:=all}"
-    : "${SPIKE_PYTHON:=/opt/venv/bin/python}"
+    : "${SPIKE_PYTHON:=python3}"
     : "${SPIKE_TTS_PYTHON:=/opt/kotonoha-venv/bin/python}"
     : "${SPIKE_LLM_PYTHON:=/opt/kotonoha-venv/bin/python}"
     : "${OUT:=spikes/out}"

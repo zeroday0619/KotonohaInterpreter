@@ -1,5 +1,5 @@
-# Primary ASR — Qwen3-ASR 0.6B on the selected NVIDIA Tegra runtime.
-ARG BASE_IMAGE=ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04
+# Primary ASR — Qwen3-ASR 0.6B on the NVIDIA multi-platform vLLM runtime.
+ARG BASE_IMAGE=nvcr.io/nvidia/vllm:26.07-py3
 FROM ${BASE_IMAGE}
 ENTRYPOINT []
 
@@ -8,46 +8,60 @@ COPY --from=ghcr.io/astral-sh/uv:0.12 /uv /uvx /bin/
 RUN apt-get update && apt-get install -y --no-install-recommends libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
-ENV UV_PYTHON=/opt/venv/bin/python \
-    UV_LINK_MODE=copy \
+ENV UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    HF_HOME=/models/hf
+
+# Keep the vendor CUDA, PyTorch, and vLLM packages visible without allowing the
+# project dependency set to replace them.
+RUN uv venv --python python3 --system-site-packages /opt/kotonoha-venv
+ENV VIRTUAL_ENV=/opt/kotonoha-venv \
+    UV_PYTHON=/opt/kotonoha-venv/bin/python \
+    PATH=/opt/kotonoha-venv/bin:${PATH}
 
 ARG TRANSFORMERS_FALLBACK_VERSION=5.13.0
 
 WORKDIR /app
 COPY pyproject.toml uv.lock README.md LICENSE hatch_build.py ./
-RUN uv export --frozen --no-dev --no-emit-project --no-hashes -o /tmp/req.txt \
- && uv pip install --python "$UV_PYTHON" --no-cache -r /tmp/req.txt
+RUN uv sync --active --frozen --no-dev --no-install-project --no-cache
 
 COPY src ./src
-RUN uv pip install --python "$UV_PYTHON" --no-cache --no-deps -e .
+RUN uv sync --active --frozen --no-dev --no-cache \
+ && uv pip check --python "$UV_PYTHON"
 
 # The native Hugging Face checkpoint requires Transformers 5.13 or newer,
-# while the vendor vLLM runtime owns its Transformers 4.x installation. Keep
-# the fallback isolated and inherit only the vendor CUDA/PyTorch packages.
-# Install the fallback packages before exposing the vendor site-packages;
-# otherwise the fallback imports the vendor Transformers distribution. The
-# image-wide uv constraint pins Transformers 4.57.3, so disable that constraint
-# only while populating the isolated fallback environment.
-RUN uv venv --python "$UV_PYTHON" /opt/transformers-fallback \
- && env -u UV_CONSTRAINT uv pip install \
+# while the vendor vLLM runtime owns its Transformers installation. Keep the
+# fallback isolated and inherit only the vendor CUDA/PyTorch packages.
+RUN uv venv --python python3 --system-site-packages /opt/transformers-fallback \
+ && env -u UV_CONSTRAINT -u PIP_CONSTRAINT uv pip install \
       --python /opt/transformers-fallback/bin/python --no-cache \
       "transformers==${TRANSFORMERS_FALLBACK_VERSION}" librosa soundfile \
- && env -u UV_CONSTRAINT uv pip install \
+ && env -u UV_CONSTRAINT -u PIP_CONSTRAINT uv pip install \
       --python /opt/transformers-fallback/bin/python --no-cache --no-deps \
       accelerate==1.12.0 \
  && /opt/transformers-fallback/bin/python -c \
- "from pathlib import Path; import site; vendor = next(Path('/opt/venv/lib').glob('python*/site-packages')); Path(site.getsitepackages()[0], 'vendor-vllm.pth').write_text(f'{vendor}\n', encoding='utf-8')" \
- && /opt/transformers-fallback/bin/python -c \
- "from pathlib import Path; import accelerate, torch, transformers; from transformers import AutoModelForMultimodalLM, AutoProcessor; assert transformers.__version__ == '${TRANSFORMERS_FALLBACK_VERSION}', transformers.__version__; assert Path(torch.__file__).is_relative_to('/opt/venv'), torch.__file__; print('Transformers fallback dependencies ok', transformers.__version__, torch.__version__)"
+ "import accelerate, torch, transformers; from transformers import AutoModelForMultimodalLM, AutoProcessor; assert transformers.__version__ == '${TRANSFORMERS_FALLBACK_VERSION}', transformers.__version__; assert torch.version.cuda is not None, torch.__file__; print('Transformers fallback dependencies ok', transformers.__version__, torch.__version__, torch.version.cuda)"
 
 ENV SPIKE_TRANSFORMERS_PYTHON=/opt/transformers-fallback/bin/python
 
 # BuildKit has no GPU runtime. Verify module presence without importing vLLM;
 # deployment performs the CUDA-aware import after Compose attaches the GPU.
 RUN "$UV_PYTHON" -c \
- "from importlib.util import find_spec; from pathlib import Path; spec = find_spec('vllm'); assert spec and spec.submodule_search_locations, 'vLLM package missing'; root = Path(next(iter(spec.submodule_search_locations))); batch = list(root.rglob('qwen3_asr.py')); realtime = list(root.rglob('qwen3_asr_realtime.py')); connection = list(root.rglob('realtime/connection.py')); assert batch, 'Qwen3-ASR module missing'; assert realtime, 'Qwen3-ASR realtime module missing'; assert connection, 'vLLM realtime connection missing'; print('Qwen3-ASR modules', batch[0], realtime[0], connection[0])"
+ "from importlib.metadata import version; from importlib.util import find_spec; from pathlib import Path; spec = find_spec('vllm'); assert spec and spec.submodule_search_locations, 'vLLM package missing'; root = Path(next(iter(spec.submodule_search_locations))); batch = list(root.rglob('qwen3_asr.py')); realtime = list(root.rglob('qwen3_asr_realtime.py')); connection = list(root.rglob('realtime/connection.py')); assert version('vllm').split('+', 1)[0] == '0.24.0', version('vllm'); assert batch, 'Qwen3-ASR module missing'; assert realtime, 'Qwen3-ASR realtime module missing'; assert connection, 'vLLM realtime connection missing'; print('Qwen3-ASR modules', batch[0], realtime[0], connection[0])"
+
+# Optional NVML bypass for the Jetson runtime.
+#
+# The former CUDA 12.6 image crashed in nvmlInit() on the Jetson Linux 39.2 host.
+# The CUDA 13.3 image uses NVML by default so the migration exercises its native
+# path. Set NVML_BYPASS=1 only when the deployment probe reproduces that crash.
+ARG NVML_BYPASS=0
+RUN mkdir -p /opt/kotonoha/nvml-bypass \
+ && if [ "$NVML_BYPASS" = "1" ]; then \
+      printf 'kotonoha: not a loadable ELF object\n' \
+        > /opt/kotonoha/nvml-bypass/libnvidia-ml.so.1; \
+    fi
+ENV LD_LIBRARY_PATH=/opt/kotonoha/nvml-bypass:${LD_LIBRARY_PATH}
 
 EXPOSE 8001
 CMD ["uvicorn", "kotonoha.services._asr_server:app", "--host", "0.0.0.0", "--port", "8001", "--loop", "uvloop"]

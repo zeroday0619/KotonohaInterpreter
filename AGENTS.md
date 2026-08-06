@@ -70,7 +70,7 @@ uv run ruff check .
 uv run pytest -q
 ```
 
-Current baseline: 294 tests and zero lint findings.
+Current baseline: 296 tests and zero lint findings.
 
 `.github/workflows/ci.yml` runs these gates plus lock consistency, wheel catalog
 compilation, and Python 3.10 import parity. See
@@ -119,18 +119,15 @@ Identifiers confirmed as of 2026-08:
 | Jetson translation model | `google/translategemma-4b-it` |
 | A6000 translation model | `google/translategemma-12b-it` |
 | Translation runtime | In-process vLLM and `/v1/realtime` WebSocket |
-| Jetson vLLM image | `ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04` |
+| Jetson vLLM image | `nvcr.io/nvidia/vllm:26.07-py3` |
 | A6000 vLLM image | `nvcr.io/nvidia/vllm:26.07-py3` |
 | TTS image | `vllm/vllm-omni:v0.26.0` |
 
-The Jetson image manifest is Linux arm64/v8. Its build metadata reports Ubuntu 22.04,
-Python 3.10, CUDA 12.6, vLLM 0.19.0, and CUDA architecture 8.7. The image targets Jetson
-Linux r36.4, while the host contract uses r39.2. Treat the cross-release pairing as
-unverified until Spike 1 executes its CUDA kernels on the target device.
-
-The A6000 image manifest includes Linux amd64. Its metadata reports Python 3.12, CUDA
-13.3.1, vLLM `0.24.0+092c4842`, and compute capability 8.6. Target execution must still
-verify Voxtral realtime transcription, N-best beam search, and TranslateGemma loading.
+The shared NGC manifest includes Linux arm64 and amd64. Its metadata reports Ubuntu
+24.04, Python 3.12, CUDA 13.3.1, vLLM `0.24.0+092c4842`, and CUDA architectures 8.0,
+8.6, 9.0, 10.0, 11.0, and 12.0. It does not list Orin compute capability 8.7. Target
+execution must verify Orin kernel compatibility, both realtime ASR implementations,
+N-best beam search, and TranslateGemma loading.
 
 `VllmBackend` in `src/kotonoha/services/_asr_server.py` owns the vLLM engine in the
 FastAPI process; do not launch a nested vLLM HTTP server. Spike 1 verifies model loading,
@@ -456,6 +453,7 @@ Do not mix application logs and turn metrics in one file.
 | History search | Escape `%` and `_` before SQL LIKE matching |
 | Test isolation | Keep `KOTONOHA_SKIP_LOCAL_CONFIG`; local config contains device secrets |
 | Privileged Compose | Pass the interpolation allowlist through `sudo env`; sudo removes exported variables |
+| Jetson NVML | Probe `torch.cuda.device_count()` before startup; set `JETSON_NVML_BYPASS=1` only if native NVML reproduces the previous worker crash |
 
 ## Documentation and reporting
 

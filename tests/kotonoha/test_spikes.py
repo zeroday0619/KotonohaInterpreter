@@ -336,12 +336,12 @@ def test_hardware_spikes_use_target_specific_docker_images() -> None:
     assert 'build_asr_image()' in runner_source
     assert '--file docker/Dockerfile.asr' in runner_source
     assert 'SPIKE_ASR_IMAGE=$SPIKE_ASR_IMAGE' in runner_source
-    assert 'SPIKE_PYTHON:=/opt/venv/bin/python' in runner_source
     assert 'SPIKE_PYTHON:=python3' in runner_source
-    assert 'UV_PYTHON=/opt/venv/bin/python' in asr_dockerfile
-    assert 'uv pip install --python "$UV_PYTHON"' in asr_dockerfile
-    assert "r36.4.tegra-aarch64-cu126-22.04" in compose_source
+    assert 'UV_PYTHON=/opt/kotonoha-venv/bin/python' in asr_dockerfile
+    assert "uv sync --active --frozen --no-dev" in asr_dockerfile
+    assert "r36.4.tegra-aarch64-cu126-22.04" not in compose_source
     assert "nvcr.io/nvidia/vllm:26.07-py3" in runner_source
+    assert "nvcr.io/nvidia/vllm:26.07-py3" in compose_source
     assert "Qwen3-ASR-0.6B" in runner_source
     assert "Voxtral-Mini-4B-Realtime-2602" in runner_source
     assert '--realtime-architecture "$asr_realtime_architecture"' in runner_source

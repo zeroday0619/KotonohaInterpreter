@@ -145,6 +145,7 @@ requests. Treat this as a deployment failure on the A6000.
 | Speech API returns an application error | Inspect the full response and TTS service log | Correct the model, voice, or language request; HTTP 4xx responses do not activate failover |
 | Remote TTS transport fails before audio | Inspect TTS health and orchestrator `failovers` | Correct the remote endpoint; the turn retries the resident Jetson vLLM-Omni service before the first PCM chunk |
 | CUDA is absent in a container | Inspect image output and `torch.version.cuda` | Restore the pinned CUDA base image; do not install a CPU PyTorch wheel |
+| Jetson worker exits with `SIGSEGV` in `_raw_device_count_nvml` | Run the deployment CUDA probe with native NVML, then repeat with `JETSON_NVML_BYPASS=1` | Record both results; rebuild with the bypass only when the native path reproduces the crash |
 | Docker cannot select the `nvidia` driver | Inspect `docker info --format '{{json .Runtimes}}'` | Install NVIDIA Container Toolkit, configure `nvidia-ctk`, and restart Docker |
 | GPU allocation reports insufficient capacity | Inspect `.env` reservations, `config/remote-gpu.env`, and `nvidia-smi` | Stop competing workloads, correct reservations, then run `bash scripts/manage.sh deploy a6000 --reallocate-gpus` |
 | Service starts on the wrong GPU | Source `.env` and `config/remote-gpu.env`, then inspect rendered `device_ids` | Restore the generated UUID mapping and recreate the affected service |

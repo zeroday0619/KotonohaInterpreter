@@ -4,16 +4,15 @@ version = "0.1.0"
 description = "Consecutive (non-simultaneous) 4-language offline speech interpreter for Jetson AGX Orin"
 readme = "README.md"
 license = { file = "LICENSE" }
-# The selected Jetson r36.4 service image provides Python 3.10. The JetPack 7.2
-# host and A6000 service images use Python 3.12.
+# Deployment images use Python 3.12. Python 3.10 remains the minimum supported
+# source and wheel compatibility target.
 requires-python = ">=3.10"
 
 dependencies = [
   # The NumPy split follows the Python generation of each runtime image, not the
   # CPU architecture. vllm-omni serves TTS on BOTH hosts (Python 3.12, NumPy 2),
-  # so an architecture marker breaks the Jetson TTS build. Python 3.10 identifies
-  # the Jetson r36.4 vLLM images, whose torch stack requires NumPy 1; every
-  # Python >= 3.11 Linux image (NGC vLLM, vllm-omni, pytorch 2.6) ships NumPy 2.
+  # so an architecture marker breaks the Jetson TTS build. Every Python >= 3.11
+  # Linux image used by deployment ships NumPy 2.
   # The macOS workstation keeps NumPy 1 for the evaluation stack.
   "numpy>=2,<2.3 ; sys_platform == 'linux' and python_full_version >= '3.11'",
   "numpy>=1.24,<2 ; sys_platform != 'linux' or python_full_version < '3.11'",
@@ -36,10 +35,9 @@ dependencies = [
   "websockets>=14,<17",
 ]
 
-# Device-only dependencies for the Jetson r36.4 vLLM images, which provide Python
-# 3.10. The Python bound is load-bearing, not cosmetic: DeepFilterNet3 requires
-# NumPy 1, so without it this extra injects `numpy<2` into the Python 3.12 split
-# that the vllm-omni TTS image resolves, and the lock becomes unsatisfiable.
+# Legacy device-only dependencies for Python 3.10 images. The Python bound is
+# load-bearing: DeepFilterNet3 requires NumPy 1, so removing it injects `numpy<2`
+# into the Python 3.12 deployment split and makes the lock unsatisfiable.
 # Phase 0 verifies aarch64 wheel availability. Do not install this extra on macOS.
 #
 # This extra keeps Jetson-only inference packages out of the workstation and
@@ -101,10 +99,8 @@ path = "hatch_build.py"
 # `uv sync` installs development tools by default. Add `--group eval` for evaluation.
 default-groups = ["dev"]
 # onnxruntime 1.24 and later publish no cp310 wheels, although their metadata
-# still admits Python 3.10. faster-whisper pulls onnxruntime transitively, and the
-# Jetson vLLM base image is Ubuntu 22.04 with Python 3.10, so the resolver has to
-# stay on the last release that ships cp310 aarch64 wheels (1.23.2). Remove this
-# once that image moves to Python 3.11 or later.
+# still admits Python 3.10. Keep the constraint for the supported Python 3.10
+# wheel target; Python 3.12 deployment environments do not select it.
 constraint-dependencies = [
   "onnxruntime<1.24 ; python_full_version < '3.11'",
 ]

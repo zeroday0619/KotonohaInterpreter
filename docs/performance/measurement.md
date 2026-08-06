@@ -81,11 +81,11 @@ Run the vLLM path through the hardware spike container:
 ASR_ONLY=vllm bash scripts/manage.sh benchmark jetson --only 1
 ```
 
-The selected image tag targets Jetson Linux r36.4, while the host contract is Jetson
-Linux 39.2. Its build metadata targets CUDA architecture 8.7. A successful image pull
-validates only registry access and the arm64/v8 manifest. Spike 1 must execute CUDA
-kernels on sm_87; reject the image if the container cannot use the host driver or the
-runtime reports an unsupported compute capability or no compatible kernel image.
+The selected `nvcr.io/nvidia/vllm:26.07-py3` image provides an arm64 manifest with CUDA
+13.3.1 and vLLM `0.24.0+092c4842`. Its architecture list does not include Orin sm_87.
+A successful image pull validates only registry access and manifest selection. Spike 1
+must execute CUDA kernels on sm_87; reject the image if the container cannot use the
+host driver or reports an unsupported compute capability or no compatible kernel image.
 
 The Jetson probe loads `Qwen/Qwen3-ASR-0.6B` with vLLM's
 `Qwen3ASRRealtimeGeneration` override. It must exercise both N-best five beam search and

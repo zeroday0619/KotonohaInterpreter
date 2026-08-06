@@ -76,6 +76,17 @@ def test_vllm_probes_terminate_before_torch_finalizers_run() -> None:
         assert "_sys.stdout.flush()" in command
 
 
+def test_vllm_probes_execute_the_worker_device_count_path() -> None:
+    source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+    commands = re.findall(r"-c \\\n\s+'([^']+)' \\", source)
+    vllm_probes = [command for command in commands if "vllm.__version__" in command]
+
+    assert len(vllm_probes) == 3
+    for command in vllm_probes:
+        assert "torch.cuda.device_count()" in command
+        assert 'assert device_count > 0, "PyTorch reported no CUDA devices"' in command
+
+
 def test_jetson_power_commands_that_need_root_are_elevated() -> None:
     """`jetson_clocks` refuses to run as a non-root user, `--show` included.
 
@@ -293,7 +304,7 @@ def test_asr_images_use_target_vllm_runtimes_with_realtime_support_checks() -> N
 
     jetson_base = jetson_compose["services"]["asr"]["build"]["args"]["BASE_IMAGE"]
     remote_base = remote_compose["services"]["asr"]["build"]["args"]["ASR_BASE_IMAGE"]
-    assert "ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04" in jetson_base
+    assert "nvcr.io/nvidia/vllm:26.07-py3" in jetson_base
     assert "nvcr.io/nvidia/vllm:26.07-py3" in remote_base
     assert "rglob('qwen3_asr.py')" in jetson_dockerfile
     assert "rglob('qwen3_asr_realtime.py')" in jetson_dockerfile
@@ -312,6 +323,9 @@ def test_asr_images_use_target_vllm_runtimes_with_realtime_support_checks() -> N
     assert "import vllm" not in remote_dockerfile
     assert "uv venv --python python3 --system-site-packages /opt/kotonoha-venv" in (
         remote_dockerfile
+    )
+    assert "uv venv --python python3 --system-site-packages /opt/kotonoha-venv" in (
+        jetson_dockerfile
     )
     assert "uv sync --active --frozen --no-dev" in remote_dockerfile
     assert "uv pip install --system" not in remote_dockerfile
@@ -356,15 +370,8 @@ def test_asr_images_use_target_vllm_runtimes_with_realtime_support_checks() -> N
     assert "from transformers import GenerationMixin" in remote_llm_stage
     assert "(2, 0) <= numpy_release < (2, 3)" in remote_llm_stage
     assert "import kotonoha, numpy, websockets" in jetson_llm_dockerfile
-    assert "Path('/opt/venv/lib').glob('python*/site-packages')" in (
-        jetson_llm_dockerfile
-    )
-    assert "vendor-vllm.pth" in jetson_llm_dockerfile
-    assert "root.is_relative_to('/opt/venv')" in jetson_llm_dockerfile
-    jetson_final_sync = jetson_llm_dockerfile.rindex("uv sync --active")
-    jetson_vendor_path = jetson_llm_dockerfile.index("vendor-vllm.pth")
-    jetson_vllm_check = jetson_llm_dockerfile.index("root.is_relative_to('/opt/venv')")
-    assert jetson_final_sync < jetson_vendor_path < jetson_vllm_check
+    assert "version('vllm').split('+', 1)[0] == '0.24.0'" in jetson_llm_dockerfile
+    assert "vendor-vllm.pth" not in jetson_llm_dockerfile
     deploy_script = DEPLOY_SCRIPT.read_text(encoding="utf-8")
     assert 'a6000_vllm_image="nvcr.io/nvidia/vllm:26.07-py3"' in deploy_script
     assert "must set REMOTE_ASR_BASE=$a6000_vllm_image" in deploy_script
@@ -385,61 +392,40 @@ def test_asr_images_use_target_vllm_runtimes_with_realtime_support_checks() -> N
     assert "SPIKE_TRANSFORMERS_PYTHON=/opt/transformers-fallback/bin/python" in (
         jetson_dockerfile
     )
-    assert jetson_dockerfile.count("env -u UV_CONSTRAINT uv pip install") == 2
+    assert jetson_dockerfile.count(
+        "env -u UV_CONSTRAINT -u PIP_CONSTRAINT uv pip install"
+    ) == 2
     fallback_install = jetson_dockerfile.index(
         '"transformers==${TRANSFORMERS_FALLBACK_VERSION}" librosa soundfile'
     )
-    vendor_packages = jetson_dockerfile.index("vendor-vllm.pth")
     fallback_import = jetson_dockerfile.index(
         "from transformers import AutoModelForMultimodalLM, AutoProcessor"
     )
-    assert fallback_install < vendor_packages < fallback_import
+    assert fallback_install < fallback_import
     assert "transformers.__version__ == '${TRANSFORMERS_FALLBACK_VERSION}'" in (
         jetson_dockerfile
     )
-    assert "Path(torch.__file__).is_relative_to('/opt/venv')" in jetson_dockerfile
+    assert "torch.version.cuda is not None" in jetson_dockerfile
     assert "from transformers import AutoModelForMultimodalLM, AutoProcessor" in (
         jetson_dockerfile
     )
 
 
-def test_jetson_llm_preserves_translategemma_nested_rope_configuration() -> None:
+def test_jetson_llm_uses_the_ngc_vllm_runtime_without_the_legacy_patch() -> None:
     dockerfile = (PROJECT_ROOT / "docker" / "Dockerfile.llm").read_text(
         encoding="utf-8"
     )
     patch_name = "vllm-0.19.0-translategemma-nested-rope.patch"
-    patch_source = (
-        PROJECT_ROOT / "docker" / "patches" / patch_name
-    ).read_text(encoding="utf-8")
 
-    assert patch_name in dockerfile
-    assert 'test "$vllm_version" = "0.19.0"' in dockerfile
-    assert 'patch --batch --forward --fuzz=0 "$vllm_configuration"' in dockerfile
-    assert '/opt/venv/bin/python -m py_compile "$vllm_configuration"' in dockerfile
-    guard = (
-        "if rope_parameters is not None "
-        "and not is_rope_parameters_nested(rope_parameters):"
-    )
-    assert "grep -Fq" in dockerfile
-    assert f'"{guard}"' in dockerfile
-    assert f"+        {guard}" in patch_source
-    assert patch_source.count('+                rope_parameters["') == 3
-
-    # Gemma3Config is a composite configuration with no top-level rope fields. The
-    # first version of this patch read config.rope_parameters unconditionally,
-    # where the upstream lines it replaced only touched the attribute inside
-    # `if rope_theta is not None`, so vLLM raised AttributeError while loading
-    # TranslateGemma. The read stays guarded.
-    added = [line for line in patch_source.splitlines() if line.startswith("+")]
-    assert any('getattr(config, "rope_parameters", None)' in line for line in added)
-    assert not any("is_rope_parameters_nested(config.rope_parameters)" in line for line in added)
-    assert "full_attention" not in patch_source
-    assert "sliding_attention" not in patch_source
-    assert '"rope_type": "linear"' not in patch_source
+    assert "nvcr.io/nvidia/vllm:26.07-py3" in dockerfile
+    assert "uv venv --python python3 --system-site-packages" in dockerfile
+    assert "version('vllm').split('+', 1)[0] == '0.24.0'" in dockerfile
+    assert patch_name not in dockerfile
+    assert not (PROJECT_ROOT / "docker" / "patches" / patch_name).exists()
 
 
-def test_jetson_images_use_pinned_r36_4_tegra_runtime() -> None:
-    jetson_image = "ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04"
+def test_jetson_images_use_the_pinned_ngc_vllm_runtime() -> None:
+    jetson_image = "nvcr.io/nvidia/vllm:26.07-py3"
     compose_source = (PROJECT_ROOT / "docker" / "compose.yaml").read_text(encoding="utf-8")
     deploy_source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
     dockerfiles = tuple(
@@ -447,6 +433,7 @@ def test_jetson_images_use_pinned_r36_4_tegra_runtime() -> None:
         for name in (
             "Dockerfile.asr",
             "Dockerfile.asr-verify",
+            "Dockerfile.llm",
             "Dockerfile.orchestrator",
         )
     )
@@ -458,6 +445,33 @@ def test_jetson_images_use_pinned_r36_4_tegra_runtime() -> None:
     assert "R39.*REVISION: 2" in deploy_source
     assert all(jetson_image in source for source in dockerfiles)
     assert all("ENTRYPOINT []" in source for source in dockerfiles)
+
+
+def test_jetson_gpu_services_bypass_the_crashing_nvml_path() -> None:
+    compose = yaml.safe_load(
+        (PROJECT_ROOT / "docker" / "compose.yaml").read_text(encoding="utf-8")
+    )
+    dockerfile_names = (
+        "Dockerfile.asr",
+        "Dockerfile.asr-verify",
+        "Dockerfile.llm",
+        "Dockerfile.tts",
+    )
+
+    for dockerfile_name in dockerfile_names:
+        source = (PROJECT_ROOT / "docker" / dockerfile_name).read_text(encoding="utf-8")
+        assert "ARG NVML_BYPASS=" in source
+        assert "libnvidia-ml.so.1" in source
+        assert "LD_LIBRARY_PATH=/opt/kotonoha/nvml-bypass" in source
+
+    for service_name in ("asr", "asr-verify", "llm", "tts"):
+        build_arguments = compose["services"][service_name]["build"]["args"]
+        assert build_arguments["NVML_BYPASS"] == "${JETSON_NVML_BYPASS:-0}"
+
+    remote_compose = yaml.safe_load(
+        (PROJECT_ROOT / "docker" / "compose.remote.yaml").read_text(encoding="utf-8")
+    )
+    assert "NVML_BYPASS" not in remote_compose["services"]["tts"]["build"]["args"]
 
 
 def test_remote_lock_and_dockerfile_use_target_specific_python_environments() -> None:

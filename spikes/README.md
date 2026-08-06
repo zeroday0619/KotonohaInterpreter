@@ -47,15 +47,13 @@ report from the available result files.
 
 The harness does not install or execute vLLM in the host Python environment. The source
 tree remains mounted at `/workspace`, and model snapshots are mounted read-only at
-`/models`. Short-lived probes run as root because the vendor images install their Python
-and vLLM environments for the default root runtime user. Jetson probes invoke
-`/opt/venv/bin/python` explicitly instead of falling back to the Ubuntu system Python.
+`/models`. Short-lived probes run as root because the vendor image supports the default
+root runtime user. Project images place `/opt/kotonoha-venv/bin` first on `PATH`.
 The prepared A6000 ASR image creates `/opt/kotonoha-venv` with access to the NGC system
 packages, then uses `uv sync --frozen --extra a6000-asr` to install the locked project
 dependencies and the Voxtral `mistral-common[audio]` preprocessing support without
-modifying the externally managed system Python. It then replaces the locked NumPy 1.x
-wheel inside that child environment with the NGC SciPy-compatible `>=2,<2.3` range.
-This target-only ABI overlay does not modify the workstation or Jetson environments.
+modifying the externally managed system Python. The Linux Python 3.12 lock selects the
+NGC SciPy-compatible NumPy `>=2,<2.3` range on both inference hosts.
 Other A6000 probes use the Python executable supplied by their image. The container
 entrypoint returns result files and
 their output directory to the invoking user's UID and GID before it exits. Image build
@@ -65,32 +63,32 @@ failure stops the runner before any probe is started.
 
 | Target | Default ASR image | LLM and report image | Default TTS image |
 |---|---|---|---|
-| Jetson | `kotonohainterpreter-spike-asr:jetson` | `ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04` | `kotonohainterpreter-spike-tts:jetson` |
+| Jetson | `kotonohainterpreter-spike-asr:jetson` | `nvcr.io/nvidia/vllm:26.07-py3` | `kotonohainterpreter-spike-tts:jetson` |
 | A6000 | `kotonohainterpreter-spike-asr:a6000` | `nvcr.io/nvidia/vllm:26.07-py3` | `kotonohainterpreter-spike-tts:a6000` |
 
 The default ASR image derives from the target vLLM image and adds the locked application
 runtime dependencies required by the probe, including `soxr`. The native Hugging Face
 ASR fallback remains isolated because it requires Transformers 5.13 or newer. Its install
-clears the Jetson image's `UV_CONSTRAINT` only for that child environment; the vendor
-vLLM environment retains its Transformers 4.57.3 constraint. The TTS image derives from
+clears the image's uv and pip constraints only for that child environment; the vendor
+vLLM environment remains unchanged. The TTS image derives from
 `vllm/vllm-omni:v0.26.0`, installs the locked FastAPI application into a uv environment
 with access to the base system packages, and runs the same
 `kotonoha.services._tts_server` path used by deployment. That service wraps the
 vLLM-Omni engine and speech-serving objects in-process; it does not start an internal
 HTTP server. No second TTS runtime enters the project lock.
 
-The Jetson vLLM image targets CUDA architecture 8.7, but its r36.4 runtime predates the
-Jetson Linux 39.2 host contract. Successful container and kernel execution on Orin sm_87
-remain required Spike 1 results. The vLLM-Omni 0.26.0 manifest contains Linux arm64 and
-amd64 variants; this does not establish Jetson Linux, CUDA, model, or kernel compatibility.
+The NGC vLLM image provides arm64 but does not list CUDA architecture 8.7. Successful
+container and kernel execution on Orin sm_87 remain required Spike 1 results. The
+vLLM-Omni 0.26.0 manifest contains Linux arm64 and amd64 variants; this does not establish
+Jetson Linux, CUDA, model, or kernel compatibility.
 Spike 2 starts the server, executes a FlashAttention kernel, and requests four-language
 raw PCM before accepting the path. Set `SPIKE_SKIP_BUILD=1` to use existing ASR and TTS
 images without building or pulling them. A configured candidate image must already exist.
 On CUDA targets the probe calls vLLM's bundled FlashAttention-2 interface rather than
 requiring the separately packaged `flash_attn` module.
 
-The A6000 NGC image advertises CUDA architecture 8.6 and vLLM `0.24.0+092c4842`.
-Manifest metadata does not replace Spike 1 and Spike 3 execution on the A6000.
+The shared NGC image advertises CUDA architecture 8.6 and vLLM `0.24.0+092c4842`.
+Manifest metadata does not replace target execution of Spike 1 and Spike 3.
 
 ## Configuration
 

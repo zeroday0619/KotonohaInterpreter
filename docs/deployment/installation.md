@@ -108,18 +108,17 @@ Deployment acceptance requires the verification checklist in this document and
 | Power mode | MAXN during validation and operation |
 | Clocks | Locked with `jetson_clocks` during measurement |
 
-The Jetson Compose file pins
-`ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04`. The registry manifest is
-Linux arm64/v8 with digest
-`sha256:817f0f940d2d9c9067d861d2118d7bf58c40873598f0c35e19c8516269ebc4bd`. The image
-contains Ubuntu 22.04, CUDA 12.6, Python 3.10, and vLLM 0.19.0. Its build metadata targets
-CUDA architecture 8.7 and includes FlashAttention 2.8.3 and FlashInfer 0.6.6.
+The Jetson Compose file pins `nvcr.io/nvidia/vllm:26.07-py3`. The manifest list digest is
+`sha256:95c498a475142c20c989c65e5d223348c09fed83ba17ddf44f117610c0bd3268`; its Linux
+arm64 manifest digest is
+`sha256:1de8e6bfdb4c81c1f31a806cc9b13b5c6352714a7cec87f4d24964bcc91159b2`. The image
+contains Ubuntu 24.04, CUDA 13.3.1, Python 3.12, and vLLM `0.24.0+092c4842`.
 
-The image tag targets Jetson Linux r36.4, while the host contract is Jetson Linux 39.2.
-Treat this cross-release pairing as a deployment exception until Phase 0 confirms
-container startup, CUDA access, model loading, and CUDA kernel execution on the target.
-Manifest inspection does not establish runtime compatibility. Do not change the JetPack,
-CUDA, Jetson Linux, or base-image family without separate compatibility validation.
+The image architecture list does not include Orin compute capability 8.7, and its CUDA
+13.3 toolkit is newer than the Jetson host's CUDA 13.2 driver stack. Treat the image as an
+explicit Phase 0 candidate until the target confirms container startup, CUDA access,
+model loading, and kernel execution. Manifest inspection does not establish runtime
+compatibility.
 
 Platform references:
 
@@ -165,7 +164,8 @@ is empty, or when every local file is an intentional host-specific ignored file.
 
 The deployment script performs host validation, verifies required model artifacts,
 creates missing host-specific configuration from committed templates, builds images,
-starts resident model services, and waits for health checks.
+executes the same CUDA device-count path used by vLLM workers, starts resident model
+services, and waits for health checks.
 
 On the Jetson:
 
@@ -459,9 +459,9 @@ therefore use the `kotonohainterpreter-<service>:latest` naming pattern regardle
 `kotonohainterpreter-asr:latest`.
 
 Confirm that the Jetson ASR, verification, translation, and orchestrator roles resolve to
-the pinned Tegra image family:
+the pinned NGC image:
 
-- `ghcr.io/nvidia-ai-iot/vllm:r36.4.tegra-aarch64-cu126-22.04`
+- `nvcr.io/nvidia/vllm:26.07-py3`
 
 The TTS build must use `vllm/vllm-omni:v0.26.0` as its base image. Its multi-platform
 manifest digest is
@@ -477,7 +477,7 @@ docker compose -f docker/compose.yaml build asr asr-verify llm tts orchestrator
 Review the build output for the following conditions:
 
 - PyTorch reports a CUDA build.
-- vLLM reports version 0.19.0 in the ASR and translation images.
+- vLLM reports version `0.24.0+092c4842` in the ASR and translation images.
 - CTranslate2 and faster-whisper import in the verification image.
 - `onnxruntime` and DeepFilterNet installation status is explicit.
 - The TTS service build resolves the official vLLM-Omni base to the arm64 manifest.
@@ -491,17 +491,21 @@ locked environment, then checks CPU INT8 capability during construction. Jetson 
 loading, transcription latency, and memory use remain target measurements. An image pull
 or successful build also does not prove vLLM-Omni TTS loading.
 
-The Jetson translation image applies the vLLM upstream nested-RoPE guard to the pinned
-0.19.0 vendor source. The patch prevents legacy root fields from being inserted into
-TranslateGemma's `full_attention` and `sliding_attention` mappings. Exact version and
-patch-context checks deliberately fail the build if the vendor source changes.
+The Jetson images use native NVML by default. Deployment calls
+`torch.cuda.device_count()` before starting resident services. If the NGC image reproduces
+the former `_raw_device_count_nvml` segmentation fault, set `JETSON_NVML_BYPASS=1` while
+rebuilding. The opt-in shadow library makes PyTorch use its CUDA runtime device-count
+fallback. Record either result in Phase 0; the fallback does not establish kernel
+compatibility.
 
 ### Start model services
 
 Prefer `bash scripts/manage.sh deploy jetson`. It validates the effective 0.6B ASR paths,
-the CPU INT8 verification backend, CUDA imports, and TranslateGemma model configuration
-before Compose starts the resident containers. The commands below are the manual path
-after those checks have passed.
+the CPU INT8 verification backend, `torch.cuda.device_count()`, CUDA imports, and
+TranslateGemma model configuration before Compose starts the resident containers. A
+segmentation fault in the device-count probe stops deployment before resident services
+enter a restart loop. The commands below are the manual path after those checks have
+passed.
 
 ```bash
 docker compose -f docker/compose.yaml up -d asr asr-verify llm tts
@@ -813,8 +817,8 @@ vLLM-Omni runtime through its base image:
 The targets share a cached application layer but install and verify role-specific runtime
 dependencies. The common layer imports `pydantic_settings` during the build. A missing
 core dependency therefore fails the image build instead of entering a restart loop.
-The lock selects NumPy 2.x on A6000 Linux x86_64 for the NGC SciPy and scikit-learn stack,
-while Jetson Linux aarch64 and the macOS workstation retain NumPy 1.x. The A6000 ASR
+The lock selects NumPy 2.x on Linux Python 3.12 for the NGC SciPy and scikit-learn stack,
+while the macOS workstation retains NumPy 1.x. The A6000 ASR
 target additionally synchronizes `a6000-asr`; that extra supplies `mistral-common[audio]`
 for the Voxtral tokenizer and audio preprocessing without installing a second vLLM
 runtime. The image build checks the Transformers lazy imports required by vLLM.
@@ -823,9 +827,8 @@ The Jetson ASR image checks for Qwen3-ASR batch and realtime modules. The A6000 
 checks for Voxtral Realtime, the vLLM realtime connection, and the Mistral audio
 dependencies without importing vLLM.
 The Jetson translation image keeps locked application packages in
-`/opt/kotonoha-venv` and appends the vendor `/opt/venv` site-packages through a `.pth`
-file after synchronization. This preserves the project NumPy while making the Tegra
-vLLM, Torch, and CUDA packages visible to the in-process TranslateGemma service.
+`/opt/kotonoha-venv` with system-site access to the NGC vLLM, PyTorch, and CUDA packages.
+The project environment does not modify the vendor system Python.
 The pinned NVIDIA vLLM 0.24.0 runtime returns only the audio embeddings for a mixed
 offline Voxtral prefill, omitting the trailing text-token position. The A6000 image
 applies a version-scoped compatibility patch that aligns audio embeddings through
