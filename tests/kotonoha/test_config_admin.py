@@ -80,6 +80,7 @@ async def test_admin_api_validates_and_persists_overrides(
     assert "llm.max_model_len" in body["editable_paths"]
     assert "asr.vllm_realtime_architecture" in body["editable_paths"]
     assert "accelerator.profile" in body["editable_paths"]
+    assert "logging.prometheus_port" in body["editable_paths"]
     assert "remote.token" not in body["editable_paths"]
     assert body["restart_required"] is True
 

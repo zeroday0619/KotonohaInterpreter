@@ -717,6 +717,7 @@ Create a repository-root `.env` file. Replace the token placeholder with the out
 
 ```dotenv
 KOTONOHA_SERVICE_TOKEN=<64-hex-character-random-token>
+PROMETHEUS_PORT=9091
 MODELS_DIR=../models
 REMOTE_BASE=pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime
 REMOTE_ASR_BASE=nvcr.io/nvidia/vllm:26.07-py3
@@ -842,10 +843,10 @@ source config/remote-gpu.env
 set +a
 docker compose -f docker/compose.remote.yaml config --quiet
 docker compose -f docker/compose.remote.yaml config --images
-docker compose -f docker/compose.remote.yaml build asr asr-verify llm tts
+docker compose -f docker/compose.remote.yaml build metrics asr asr-verify llm tts
 ```
 
-The build produces four project-specific service images. TTS retains the upstream
+The build produces five project-specific service images. TTS retains the upstream
 vLLM-Omni runtime through its base image:
 
 | Service | Image | Dockerfile target |
@@ -854,6 +855,7 @@ vLLM-Omni runtime through its base image:
 | Verification ASR | `kotonohainterpreter-asr-verify:latest` | `asr-verify` |
 | Translation LLM | `kotonohainterpreter-llm:latest` | `llm` |
 | TTS | `kotonohainterpreter-tts:latest` | `docker/Dockerfile.tts` |
+| Metrics receiver | `kotonohainterpreter-metrics:latest` | `metrics` |
 
 The targets share a cached application layer but install and verify role-specific runtime
 dependencies. The common layer imports `pydantic_settings` during the build. A missing
@@ -888,7 +890,7 @@ measurements.
 ### Start and verify the remote stack
 
 ```bash
-docker compose -f docker/compose.remote.yaml up -d asr asr-verify llm tts
+docker compose -f docker/compose.remote.yaml up -d metrics asr asr-verify llm tts
 docker compose -f docker/compose.remote.yaml ps
 docker compose -f docker/compose.remote.yaml logs --tail=200
 ```
@@ -900,6 +902,8 @@ curl -fsS http://127.0.0.1:8001/health | python3 -m json.tool
 curl -fsS http://127.0.0.1:8002/health | python3 -m json.tool
 curl -fsS http://127.0.0.1:8003/health | python3 -m json.tool
 curl -fsS http://127.0.0.1:8004/health | python3 -m json.tool
+curl -fsS -H "Authorization: Bearer ${KOTONOHA_SERVICE_TOKEN}" \
+  http://127.0.0.1:9091/metrics | head
 ```
 
 Confirm concurrent residency. A service that loads successfully in isolation can still
@@ -971,6 +975,7 @@ after saving:
 | Verification ASR | `docker compose -f docker/compose.remote.yaml restart asr-verify` |
 | Translation LLM | `docker compose -f docker/compose.remote.yaml restart llm` |
 | TTS | `docker compose -f docker/compose.remote.yaml restart tts` |
+| Metrics receiver | `docker compose -f docker/compose.remote.yaml restart metrics` |
 
 ### Start high-performance mode
 

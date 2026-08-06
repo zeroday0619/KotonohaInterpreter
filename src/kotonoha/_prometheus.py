@@ -114,18 +114,26 @@ OVER_BUDGET_TURNS = Counter(
 )
 REMOTE_SCRAPE_UP = Gauge(
     "kotonoha_remote_metrics_scrape_up",
-    "Whether the orchestrator received the latest service metrics payload.",
+    "Whether the metrics receiver received the latest service metrics payload.",
     ("service", "source"),
 )
 
 
 class MetricsAggregator:
-    """Collect active service metrics for the orchestrator exporter."""
+    """Collect active service metrics for a unified exporter."""
 
-    __slots__: ClassVar[tuple[str, ...]] = ("_payloads", "placement", "settings")
+    __slots__: ClassVar[tuple[str, ...]] = (
+        "_endpoint_urls",
+        "_headers",
+        "_payloads",
+        "placement",
+        "settings",
+    )
 
     settings: Settings
     placement: dict[str, str]
+    _endpoint_urls: dict[str, str] | None
+    _headers: dict[str, str] | None
     _payloads: dict[tuple[str, str], tuple[Metric, ...]]
 
     def __init__(
@@ -133,9 +141,14 @@ class MetricsAggregator:
         settings: Settings,
         /,
         placement: Mapping[str, str],
+        *,
+        endpoint_urls: Mapping[str, str] | None = None,
+        headers: Mapping[str, str] | None = None,
     ) -> None:
         self.settings = settings
         self.placement = dict(placement)
+        self._endpoint_urls = dict(endpoint_urls) if endpoint_urls is not None else None
+        self._headers = dict(headers) if headers is not None else None
         self._payloads = {}
 
     async def refresh(
@@ -154,7 +167,11 @@ class MetricsAggregator:
             (
                 role,
                 self.placement[role],
-                self.settings.url_for(role, self.placement[role]),
+                (
+                    self._endpoint_urls[role]
+                    if self._endpoint_urls is not None
+                    else self.settings.url_for(role, self.placement[role])
+                ),
             )
             for role in ROLES
         )
@@ -175,7 +192,11 @@ class MetricsAggregator:
                         role,
                         source,
                         url,
-                        transport["headers"] if source == "remote" else {},
+                        (
+                            self._headers
+                            if self._headers is not None
+                            else transport["headers"] if source == "remote" else {}
+                        ),
                     )
                     for role, source, url in endpoints
                 )
@@ -281,7 +302,7 @@ def create_unified_registry(
     aggregator: MetricsAggregator,
     /,
 ) -> CollectorRegistry:
-    """Create a registry that combines orchestrator and service metrics."""
+    """Create a registry that combines receiver-local and service metrics."""
     registry = CollectorRegistry(auto_describe=True)
     registry.register(UnifiedCollector(aggregator))
     return registry
@@ -291,6 +312,8 @@ def install_metrics(
     app: FastAPI,
     service: str,
     /,
+    *,
+    registry: CollectorRegistry | None = None,
 ) -> None:
     """Install HTTP instrumentation and a protected `/metrics` endpoint."""
 
@@ -318,12 +341,18 @@ def install_metrics(
 
     @app.get("/metrics", include_in_schema=False)
     def _metrics_endpoint() -> Response:
-        return metrics_response()
+        return metrics_response(registry)
 
 
-def metrics_response() -> Response:
+def metrics_response(
+    registry: CollectorRegistry | None = None,
+    /,
+) -> Response:
     """Return the current process metrics in Prometheus exposition format."""
-    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+    return Response(
+        content=generate_latest(registry if registry is not None else REGISTRY),
+        media_type=CONTENT_TYPE_LATEST,
+    )
 
 
 def start_metrics_server(

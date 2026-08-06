@@ -1,10 +1,16 @@
 # Configuration for the services running ON the RTX A6000, not on the Orin.
 #
-# Only the model sections matter here. perf_mode, placement and remote are the
-# orchestrator's business; a service does not know or care where its caller is.
+# Model sections apply to resident inference services. The service endpoints are
+# also used by the A6000 metrics receiver for Docker-network discovery.
 #
 # The A6000 profile uses fp16 ASR verification and TranslateGemma.
 # Deployment acceptance requires measurements on this host.
+
+services:
+  asr: http://asr:8001
+  asr_verify: http://asr-verify:8002
+  llm: http://llm:8003
+  tts: http://tts:8004
 
 accelerator:
   profile: nvidia.rtx.a6000
@@ -55,3 +61,4 @@ logging:
   log_path: /tmp/kotonoha-remote.jsonl
   turn_log_path: /tmp/kotonoha-remote-turns.jsonl
   console: true
+  prometheus_port: 9091

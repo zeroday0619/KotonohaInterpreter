@@ -35,8 +35,8 @@ analysis.
 
 ## Prometheus Metrics
 
-Every resident FastAPI service exposes Prometheus text metrics at its existing service
-port:
+Every A6000 resident FastAPI service exposes Prometheus text metrics at its existing
+service port:
 
 | Service | Endpoint |
 |---|---|
@@ -55,31 +55,32 @@ The `/metrics` endpoint follows the same bearer-token middleware as other servic
 When `KOTONOHA_SERVICE_TOKEN` is set, configure the Prometheus scrape job with the same
 token. The `/health` endpoint remains unauthenticated for deployment probes.
 
-The orchestrator starts a localhost metrics receiver when `logging.prometheus_port` is
-set to a valid port. It binds to `127.0.0.1` and uses the same `/metrics` exposition
-format. In hybrid or remote placement, it polls the active service endpoint for every
-role, caches the latest successful payload, and exposes the service families through the
-same endpoint. Aggregated samples include bounded `role` and `source` labels, where
-`source` is `local` or `remote`. A failed scrape removes the stale payload and sets
-`kotonoha_remote_metrics_scrape_up` to `0`.
+The A6000 Compose deployment starts a dedicated metrics receiver on port `9091` when
+`logging.prometheus_port` is set to a valid port. The receiver polls all four resident
+service endpoints over the Docker network, caches the latest successful payload, and
+exposes the service families through one unified endpoint. Aggregated samples include
+bounded `role` and `source` labels, where `source` is `a6000`. A failed scrape removes the
+stale payload and sets `kotonoha_remote_metrics_scrape_up` to `0`.
 
-An empty `logging.prometheus_port` value disables the receiver. Configure a host-local
-Prometheus instance to scrape the configured port, for example `127.0.0.1:9091`.
+The receiver binds to `0.0.0.0` inside its container and publishes the configured port on
+the A6000 host. `logging.prometheus_port` is required for the receiver process. Configure
+Prometheus on the A6000 host or on an allowed monitoring network to scrape
+`<a6000-host>:9091/metrics`.
 
 ```yaml
 logging:
   prometheus_port: 9091
 ```
 
-The receiver is the unified endpoint for the orchestrator turn metrics and active local
-or remote service metrics. Direct service endpoints remain available for debugging and
-per-service scrape policies.
+The receiver is the unified endpoint for A6000 service metrics. The Jetson orchestrator
+continues to write turn metrics to `data/logs/turns.jsonl`; it does not bind port `9091`.
+Direct service endpoints remain available for debugging and per-service scrape policies.
 
 Example scrape:
 
 ```bash
 curl -fsS -H "Authorization: Bearer ${KOTONOHA_SERVICE_TOKEN}" \
-  http://127.0.0.1:8003/metrics
+  http://127.0.0.1:9091/metrics
 ```
 
 Metrics do not contain source speech, translated text, turn identifiers, or model prompt

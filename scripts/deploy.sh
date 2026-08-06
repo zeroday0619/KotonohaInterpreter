@@ -47,6 +47,7 @@ docker_environment_names=(
   LLM_MAX_MODEL_LEN
   MODELS_DIR
   ORCH_BASE
+  PROMETHEUS_PORT
   REMOTE_ASR_BASE
   REMOTE_BASE
   TRANSFORMERS_OFFLINE
@@ -660,6 +661,7 @@ deploy_jetson() {
 
 deploy_a6000() {
   local compose_file="$repository_root/docker/compose.remote.yaml"
+  local prometheus_port="${PROMETHEUS_PORT:-9091}"
   local compose_command=(
     run_docker compose --env-file "$environment_file" -f "$compose_file"
   )
@@ -684,26 +686,27 @@ deploy_a6000() {
     return
   fi
   if [ "$build_images" = true ]; then
-    "${compose_command[@]}" build asr asr-verify llm tts
+    "${compose_command[@]}" build metrics asr asr-verify llm tts
   fi
   verify_a6000_asr_configuration "$compose_file" "$environment_file"
   verify_vllm_cuda_runtime "$compose_file" "$environment_file" asr
   verify_vllm_translation_runtime "$compose_file" "$environment_file"
   verify_vllm_omni_cuda_runtime "$compose_file" "$environment_file"
   if [ "$build_images" = false ]; then
-    "${compose_command[@]}" up -d --no-build asr asr-verify llm tts
+    "${compose_command[@]}" up -d --no-build metrics asr asr-verify llm tts
   else
-    "${compose_command[@]}" up -d asr asr-verify llm tts
+    "${compose_command[@]}" up -d metrics asr asr-verify llm tts
   fi
 
-  if ! wait_for_service asr http://127.0.0.1:8001 python \
+  if ! wait_for_service metrics "http://127.0.0.1:$prometheus_port" python \
+    || ! wait_for_service asr http://127.0.0.1:8001 python \
     || ! wait_for_service asr-verify http://127.0.0.1:8002 python \
     || ! wait_for_service llm http://127.0.0.1:8003 http \
     || ! wait_for_service tts http://127.0.0.1:8004 python; then
-    show_failed_health "$compose_file" "$environment_file" asr asr-verify llm tts
+    show_failed_health "$compose_file" "$environment_file" metrics asr asr-verify llm tts
   fi
 
-  printf '\nA6000 model services are ready. Configure the Jetson with the token in:\n'
+  printf '\nA6000 model and metrics services are ready. Configure the Jetson with the token in:\n'
   printf '%s\n' "$environment_file"
 }
 

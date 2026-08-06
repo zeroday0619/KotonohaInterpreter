@@ -39,6 +39,27 @@ x-a6000-python-build: &a6000-python-build
     BASE_IMAGE: ${REMOTE_BASE:-${ACCELERATOR_REMOTE_BASE:-pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime}}
 
 services:
+  metrics:
+    image: kotonohainterpreter-metrics
+    build:
+      <<: *a6000-python-build
+      target: metrics
+    restart: unless-stopped
+    environment:
+      - KOTONOHA_CONFIG=/app/config/remote-server.yaml
+      - KOTONOHA_LOCAL_CONFIG=/app/config/remote-server.local.yaml
+      - KOTONOHA_SERVICE_TOKEN=${KOTONOHA_SERVICE_TOKEN:?set a token before starting}
+      - KOTONOHA__REMOTE__TOKEN=${KOTONOHA_SERVICE_TOKEN:?set a token before starting}
+      - KOTONOHA__LOGGING__PROMETHEUS_PORT=${PROMETHEUS_PORT:-9091}
+      - HF_HOME=/models/hf
+      - TRANSFORMERS_OFFLINE=1
+      - HF_HUB_OFFLINE=1
+    volumes:
+      - ../:/app
+    working_dir: /app
+    ports: ["${PROMETHEUS_PORT:-9091}:${PROMETHEUS_PORT:-9091}"]
+    depends_on: [asr, asr-verify, llm, tts]
+
   asr:
     <<: *a6000
     image: kotonohainterpreter-asr

@@ -193,7 +193,7 @@ logging:
   log_path: ./data/logs/kotonoha.jsonl # application log
   turn_log_path: ./data/logs/turns.jsonl # §11 turn metrics, one line per turn
   console: true # rendered as structured records in the TUI; raw JSON in service consoles
-  prometheus_port: null # optional localhost receiver for unified metrics, for example 9091
+  prometheus_port: null # A6000 metrics receiver port; disabled in the Jetson baseline
 
 # §6 latency budget in ms. Stages that exceed it appear in the turn log as over_budget.
 budget_ms:

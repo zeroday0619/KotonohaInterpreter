@@ -297,10 +297,13 @@ def test_deploy_builds_and_validates_the_llm_image_before_start() -> None:
     validation_call = "verify_vllm_translation_runtime"
 
     assert "build asr asr-verify llm tts orchestrator" in jetson_body
-    assert 'build asr asr-verify llm tts' in a6000_body
-    for deploy_body in (jetson_body, a6000_body):
+    assert "build metrics asr asr-verify llm tts" in a6000_body
+    for deploy_body, build_marker in (
+        (jetson_body, "build asr asr-verify llm tts orchestrator"),
+        (a6000_body, "build metrics asr asr-verify llm tts"),
+    ):
         assert validation_call in deploy_body
-        assert deploy_body.index("build asr asr-verify llm tts") < deploy_body.index(
+        assert deploy_body.index(build_marker) < deploy_body.index(
             validation_call
         )
         start_marker = (

@@ -31,6 +31,9 @@ COPY src ./src
 RUN uv pip install --python "$UV_PYTHON" --no-cache --no-deps -e . \
  && python3 -c "import kotonoha, pydantic_settings; print('application dependencies ok')"
 
+FROM common AS metrics
+CMD ["python3", "-m", "kotonoha.services._metrics_server"]
+
 FROM ${ASR_BASE_IMAGE} AS asr
 ENTRYPOINT []
 COPY --from=ghcr.io/astral-sh/uv:0.12 /uv /uvx /bin/

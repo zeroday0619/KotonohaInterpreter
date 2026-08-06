@@ -51,6 +51,7 @@ REMOTE_EDITABLE_PATHS = frozenset(
         "llm.profile",
         "llm.profiles",
         "llm.served_model_name",
+        "logging.prometheus_port",
     }
 )
 
