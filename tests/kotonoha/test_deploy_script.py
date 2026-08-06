@@ -225,6 +225,20 @@ def test_remote_services_default_to_mounted_offline_models() -> None:
     assert accelerator_profile["llm"]["enforce_eager"] is False
 
 
+def test_jetson_profile_reserves_memory_for_resident_services() -> None:
+    profile = read_yaml(
+        PROJECT_ROOT
+        / "config"
+        / "profiles"
+        / "accelerators"
+        / "nvidia"
+        / "jetson"
+        / "agx-orin.yaml"
+    )
+
+    assert profile["asr"]["vllm_gpu_memory_utilization"] == 0.15
+
+
 def test_a6000_deploy_rejects_a_stale_asr_memory_override_before_start() -> None:
     deploy_script = DEPLOY_SCRIPT.read_text(encoding="utf-8")
     deploy_body = deploy_script.split("deploy_a6000() {", 1)[1].split(

@@ -155,6 +155,10 @@ def _vllm_engine_arguments(
         "max_model_len": max_model_len,
         "gpu_memory_utilization": gpu_memory_utilization,
         "enforce_eager": enforce_eager,
+        # Consecutive interpreting processes one audio turn at a time, so sharing
+        # prefix KV blocks cannot offset the cache reservation on a shared Jetson GPU.
+        "enable_prefix_caching": False,
+        "max_num_seqs": 1,
         "trust_remote_code": True,
         "limit_mm_per_prompt": {"audio": 1},
         "hf_overrides": (
@@ -447,6 +451,8 @@ class VllmBackend:
             served_model_name=self.served_model_name,
             realtime_architecture=self.architecture,
             load_s=self.load_seconds,
+            gpu_memory_utilization=self._engine_arguments["gpu_memory_utilization"],
+            max_model_len=self._engine_arguments["max_model_len"],
             vllm_version=version("vllm"),
         )
 

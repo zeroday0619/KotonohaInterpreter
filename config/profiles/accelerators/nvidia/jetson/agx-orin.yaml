@@ -9,6 +9,11 @@ accelerator:
   runtime: cuda
   architecture: sm_87
 
+asr:
+  # LLM and TTS share unified memory with ASR. This budget leaves room for their
+  # resident weights and the CUDA runtime while retaining cache for one turn.
+  vllm_gpu_memory_utilization: 0.15
+
 llm:
   gpu_memory_utilization: 0.35
   kv_cache_dtype: fp8

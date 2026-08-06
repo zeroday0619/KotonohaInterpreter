@@ -147,6 +147,8 @@ def test_vllm_engine_arguments_select_target_realtime_architectures() -> None:
         "architectures": ["Qwen3ASRRealtimeGeneration"]
     }
     assert qwen["tokenizer_mode"] == "auto"
+    assert qwen["enable_prefix_caching"] is False
+    assert qwen["max_num_seqs"] == 1
     assert voxtral["hf_overrides"] == {}
     assert voxtral["tokenizer_mode"] == "mistral"
 
