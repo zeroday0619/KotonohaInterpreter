@@ -360,6 +360,7 @@ class LoggingConfig(BaseModel):
     log_path: Path = Path("./data/logs/kotonoha.jsonl")
     turn_log_path: Path = Path("./data/logs/turns.jsonl")
     console: bool = True
+    prometheus_port: int | None = Field(None, ge=1024, le=65535)
 
 
 class LatencyBudgetConfig(BaseModel):

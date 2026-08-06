@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 from kotonoha._call_compatibility import keyword_compatible
 from kotonoha._config import LanguageModelConfig, load_settings
 from kotonoha._logging_setup import setup_logging
+from kotonoha._prometheus import install_metrics, observe_service_health
 from kotonoha.services._auth import install_auth, websocket_authorized
 from kotonoha.services._resources import resource_report
 
@@ -280,6 +281,7 @@ class VllmTranslationBackend:
                 )
         except ImportError:
             pass
+        observe_service_health("llm", ready, result["resources"])
         return result
 
     def render_prompt(
@@ -402,6 +404,7 @@ async def lifespan(
 
 app = FastAPI(title="kotonoha-translation", lifespan=lifespan)
 install_auth(app, "llm")
+install_metrics(app, "llm")
 
 
 def _backend() -> VllmTranslationBackend:
@@ -417,12 +420,15 @@ async def health() -> dict[str, Any]:
     backend = STATE["backend"]
     if isinstance(backend, VllmTranslationBackend):
         return await backend.health()
-    return {
+    result = {
         "ok": False,
         "service": "llm",
         "backend": None,
         "error": STATE["error"],
+        "resources": resource_report("llm"),
     }
+    observe_service_health("llm", False, result["resources"])
+    return result
 
 
 @app.websocket("/v1/realtime")

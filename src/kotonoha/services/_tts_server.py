@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from kotonoha._call_compatibility import keyword_compatible
 from kotonoha._config import QWEN_LANGUAGE_VOICES, QWEN_VOICE_NAMES, QwenVoice
 from kotonoha._logging_setup import setup_logging
+from kotonoha._prometheus import install_metrics, observe_service_health
 from kotonoha.services._auth import install_auth
 from kotonoha.services._resources import resource_report
 
@@ -398,7 +399,7 @@ class VllmOmniRuntime:
                 ready = False
                 self._ready = False
                 self.error = repr(error)
-        return {
+        result = {
             "ok": ready,
             "service": "tts",
             "backend": "vllm_omni_in_process" if ready else None,
@@ -424,6 +425,8 @@ class VllmOmniRuntime:
                 prefix_caching=False,
             ),
         }
+        observe_service_health("tts", ready, result["resources"])
+        return result
 
     def _error_response(
         self,
@@ -491,6 +494,7 @@ async def lifespan(
 
 app = FastAPI(title="kotonoha-tts", lifespan=lifespan)
 install_auth(app, "tts")
+install_metrics(app, "tts")
 
 
 @app.get("/health")

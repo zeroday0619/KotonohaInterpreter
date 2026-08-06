@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Kotonoha Interpreter 0.1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-06 02:55+0900\n"
+"POT-Creation-Date: 2026-08-06 17:22+0900\n"
 "PO-Revision-Date: 2026-08-05 15:30+0900\n"
 "Last-Translator: Kotonoha Interpreter\n"
 "Language: ja\n"
@@ -137,125 +137,125 @@ msgstr "環境、ロール配置、サービス状態を確認"
 msgid "! In this mode utterance audio leaves the device"
 msgstr "! このモードでは発話音声が装置外に送信される"
 
-#: kotonoha/_cli.py:521
+#: kotonoha/_cli.py:522
 #, python-brace-format
 msgid "Translation catalogs not compiled: {locales}"
 msgstr "翻訳カタログが未コンパイル: {locales}"
 
-#: kotonoha/_cli.py:522
+#: kotonoha/_cli.py:523
 msgid "Run: uv run python scripts/py/i18n.py compile"
 msgstr "実行: uv run python scripts/py/i18n.py compile"
 
-#: kotonoha/_cli.py:524
+#: kotonoha/_cli.py:525
 #, python-brace-format
 msgid "Translation catalogs compiled: {locales}"
 msgstr "翻訳カタログをコンパイル済み: {locales}"
 
-#: kotonoha/_cli.py:532
+#: kotonoha/_cli.py:533
 msgid "Services:"
 msgstr "サービス:"
 
-#: kotonoha/_cli.py:547
+#: kotonoha/_cli.py:548
 msgid "Measure latency and throughput to the external server"
 msgstr "外部サーバーまでの遅延とスループットを測定"
 
-#: kotonoha/_cli.py:553 kotonoha/tui/_tools_app.py:145 kotonoha/tui/_tools_app.py:201
+#: kotonoha/_cli.py:554 kotonoha/tui/_tools_app.py:145 kotonoha/tui/_tools_app.py:201
 msgid "Measurements per role"
 msgstr "ロールあたりの測定回数"
 
-#: kotonoha/_cli.py:554
+#: kotonoha/_cli.py:555
 msgid "Probe utterance length in seconds"
 msgstr "プローブ発話の長さ（秒）"
 
-#: kotonoha/_cli.py:568
+#: kotonoha/_cli.py:569
 msgid "remote.enabled is false. Use config/performance.yaml, or enable it and retry."
 msgstr "remote.enabled が false。config/performance.yaml を使うか有効化して再実行すること。"
 
-#: kotonoha/_cli.py:574
+#: kotonoha/_cli.py:575
 #, python-brace-format
 msgid "No role is routed remotely under perf_mode={mode}."
 msgstr "perf_mode={mode} ではリモートに送るロールがない。"
 
-#: kotonoha/_cli.py:588
+#: kotonoha/_cli.py:589
 #, python-brace-format
 msgid "probe       {seconds}s utterance, {encoding}, {size} bytes"
 msgstr "probe       {seconds} 秒の発話、{encoding}、{size} バイト"
 
-#: kotonoha/_cli.py:670
+#: kotonoha/_cli.py:671
 #, python-brace-format
 msgid "Connection failed: {roles}. These roles will use onboard fallback services."
 msgstr "接続失敗：{roles}。これらのロールはオンボードの代替サービスを使用します。"
 
-#: kotonoha/_cli.py:685
+#: kotonoha/_cli.py:686
 #, python-brace-format
 msgid "Estimated link overhead per turn  {ms} ms"
 msgstr "ターンあたりのリンク遅延推定  {ms} ms"
 
-#: kotonoha/_cli.py:686
+#: kotonoha/_cli.py:687
 #, python-brace-format
 msgid "Budget, end-of-utterance to first audio  {ms} ms"
 msgstr "発話終了から最初の音声までの予算  {ms} ms"
 
-#: kotonoha/_cli.py:688
+#: kotonoha/_cli.py:689
 #, python-format
 msgid "  ! The link consumes more than 25% of the budget. Consider hybrid mode."
 msgstr "  ! リンクが予算の 25% を超えて消費している。hybrid モードを検討すること。"
 
-#: kotonoha/_cli.py:690
+#: kotonoha/_cli.py:691
 msgid "  The link fits within the budget. The remainder is model inference time."
 msgstr "  リンクは予算内に収まる。残りはモデル推論時間である。"
 
-#: kotonoha/_cli.py:700
+#: kotonoha/_cli.py:701
 msgid "Edit the configuration in a terminal interface"
 msgstr "ターミナルインターフェースで設定を編集"
 
-#: kotonoha/_cli.py:714
+#: kotonoha/_cli.py:715
 msgid "Match text in the source or the translation"
 msgstr "原文または訳文から文字列を検索"
 
-#: kotonoha/_cli.py:717
+#: kotonoha/_cli.py:718
 msgid "Filter by detected source language"
 msgstr "判定された原言語で絞り込む"
 
-#: kotonoha/_cli.py:721
+#: kotonoha/_cli.py:722
 msgid "Filter by turn outcome, for example ok or llm_timeout"
 msgstr "ターンの結果で絞り込む。例: ok、llm_timeout"
 
-#: kotonoha/_cli.py:737
+#: kotonoha/_cli.py:738
 msgid "Open the history browser"
 msgstr "履歴ブラウザーを開く"
 
-#: kotonoha/_cli.py:752
+#: kotonoha/_cli.py:753
 msgid "Print past turns to standard output"
 msgstr "過去の履歴を標準出力に表示"
 
-#: kotonoha/_cli.py:761 kotonoha/_cli.py:811
+#: kotonoha/_cli.py:762 kotonoha/_cli.py:812
 msgid "Maximum turns to return"
 msgstr "返すターンの上限"
 
-#: kotonoha/_cli.py:763
+#: kotonoha/_cli.py:764
 msgid "Print complete text instead of an excerpt"
 msgstr "抜粋ではなく全文を表示"
 
-#: kotonoha/_cli.py:781 kotonoha/_cli.py:825 kotonoha/tui/_history_app.py:244
+#: kotonoha/_cli.py:782 kotonoha/_cli.py:826 kotonoha/tui/_history_app.py:244
 #: kotonoha/tui/_history_app.py:361
 msgid "No turns match"
 msgstr "条件に一致するターンがない"
 
-#: kotonoha/_cli.py:795
+#: kotonoha/_cli.py:796
 #, python-brace-format
 msgid "{shown} of {total} turns"
 msgstr "全 {total} 件中 {shown} 件"
 
-#: kotonoha/_cli.py:801
+#: kotonoha/_cli.py:802
 msgid "Export past turns as JSONL"
 msgstr "過去の履歴を JSONL で書き出す"
 
-#: kotonoha/_cli.py:807
+#: kotonoha/_cli.py:808
 msgid "Destination JSONL file"
 msgstr "出力先の JSONL ファイル"
 
-#: kotonoha/_cli.py:828 kotonoha/tui/_history_app.py:370
+#: kotonoha/_cli.py:829 kotonoha/tui/_history_app.py:370
 #, python-brace-format
 msgid "Exported {count} turns to {path}"
 msgstr "{count} 件を {path} に書き出した"
@@ -396,7 +396,7 @@ msgstr "テキスト入力"
 msgid "Leave text input"
 msgstr "テキスト入力を終了"
 
-#: kotonoha/tui/_app.py:603 kotonoha/tui/_config_app.py:542
+#: kotonoha/tui/_app.py:603 kotonoha/tui/_config_app.py:546
 #: kotonoha/tui/_history_app.py:131
 msgid "Quit"
 msgstr "終了"
@@ -454,272 +454,276 @@ msgstr "(LLM タイムアウト、原文のみ表示、TTS を省略)"
 msgid "{role} to {side} ({reason})"
 msgstr "{role} → {side} ({reason})"
 
-#: kotonoha/tui/_config_app.py:170
+#: kotonoha/tui/_config_app.py:171
 msgid "Primary ASR"
 msgstr "一次 ASR"
 
-#: kotonoha/tui/_config_app.py:171 kotonoha/tui/_tools_app.py:295
+#: kotonoha/tui/_config_app.py:172 kotonoha/tui/_tools_app.py:295
 msgid "Verification ASR"
 msgstr "検証 ASR"
 
-#: kotonoha/tui/_config_app.py:172
+#: kotonoha/tui/_config_app.py:173
 msgid "Audio devices"
 msgstr "オーディオデバイス"
 
-#: kotonoha/tui/_config_app.py:173
+#: kotonoha/tui/_config_app.py:174
 msgid "Context and storage"
 msgstr "コンテキストとストレージ"
 
-#: kotonoha/tui/_config_app.py:174
+#: kotonoha/tui/_config_app.py:175
 msgid "Audio frontend"
 msgstr "オーディオ前処理"
 
-#: kotonoha/tui/_config_app.py:175
+#: kotonoha/tui/_config_app.py:176
 msgid "Interface"
 msgstr "インターフェース"
 
-#: kotonoha/tui/_config_app.py:176
+#: kotonoha/tui/_config_app.py:177
 msgid "Language processing"
 msgstr "言語処理"
 
-#: kotonoha/tui/_config_app.py:177
+#: kotonoha/tui/_config_app.py:178
 msgid "Translation LLM"
 msgstr "翻訳 LLM"
 
-#: kotonoha/tui/_config_app.py:178
+#: kotonoha/tui/_config_app.py:179
 msgid "Logging and latency budgets"
 msgstr "ログと遅延予算"
 
-#: kotonoha/tui/_config_app.py:179
+#: kotonoha/tui/_config_app.py:180
 msgid "External server"
 msgstr "外部サーバー"
 
-#: kotonoha/tui/_config_app.py:180
+#: kotonoha/tui/_config_app.py:181
 msgid "Runtime services"
 msgstr "ランタイムサービス"
 
-#: kotonoha/tui/_config_app.py:181
+#: kotonoha/tui/_config_app.py:182
 msgid "Session"
 msgstr "セッション"
 
-#: kotonoha/tui/_config_app.py:182
+#: kotonoha/tui/_config_app.py:183
 msgid "Speech synthesis"
 msgstr "音声合成"
 
-#: kotonoha/tui/_config_app.py:187
+#: kotonoha/tui/_config_app.py:188
 #, python-brace-format
 msgid "YAML list or mapping for {path}."
 msgstr "{path} の YAML リストまたはマッピング。"
 
-#: kotonoha/tui/_config_app.py:188
+#: kotonoha/tui/_config_app.py:189
 #, python-brace-format
 msgid "Numeric value for {path}."
 msgstr "{path} の数値。"
 
-#: kotonoha/tui/_config_app.py:189
+#: kotonoha/tui/_config_app.py:190
 #, python-brace-format
 msgid "Filesystem path for {path}."
 msgstr "{path} のファイルシステムパス。"
 
-#: kotonoha/tui/_config_app.py:190
+#: kotonoha/tui/_config_app.py:191
 #, python-brace-format
 msgid "Text value for {path}."
 msgstr "{path} のテキスト値。"
 
-#: kotonoha/tui/_config_app.py:196
+#: kotonoha/tui/_config_app.py:197
 msgid "vLLM is the default; Transformers is the fallback."
 msgstr "vLLM がデフォルトで、Transformers は代替バックエンドです。"
 
-#: kotonoha/tui/_config_app.py:197
+#: kotonoha/tui/_config_app.py:198
 msgid "Hypotheses returned per utterance. The correction pass consumes all."
 msgstr "発話ごとに返す仮説数。訂正パスがすべて使用する。"
 
-#: kotonoha/tui/_config_app.py:199
+#: kotonoha/tui/_config_app.py:200
 msgid "conditional verifies only low-confidence turns; always verifies every turn."
 msgstr "conditional は信頼度の低いターンのみ検証し、always はすべてのターンを検証します。"
 
-#: kotonoha/tui/_config_app.py:201
+#: kotonoha/tui/_config_app.py:202
 msgid "Microphone index or name. Empty selects the system default."
 msgstr "マイクの番号または名前。空欄でシステム既定。"
 
-#: kotonoha/tui/_config_app.py:202
+#: kotonoha/tui/_config_app.py:203
 msgid "Speaker index or name. Empty selects the system default."
 msgstr "スピーカーの番号または名前。空欄でシステム既定。"
 
-#: kotonoha/tui/_config_app.py:203
+#: kotonoha/tui/_config_app.py:204
 msgid "DeepFilterNet3 noise suppression."
 msgstr "DeepFilterNet3 によるノイズ抑制。"
 
-#: kotonoha/tui/_config_app.py:204
+#: kotonoha/tui/_config_app.py:205
 msgid "silero_onnx on the device; energy is a workstation fallback."
 msgstr "装置では silero_onnx を使用し、energy は開発機向けの代替バックエンドです。"
 
-#: kotonoha/tui/_config_app.py:206
+#: kotonoha/tui/_config_app.py:207
 msgid "Audio retained before speech onset. Below 200 ms the first syllable is clipped."
 msgstr "発話開始より前に保持する音声。200ms を下回ると最初の音節が欠ける。"
 
-#: kotonoha/tui/_config_app.py:208
+#: kotonoha/tui/_config_app.py:209
 msgid "Silence required before end-of-utterance."
 msgstr "発話終了と判定するまでに必要な無音長。"
 
-#: kotonoha/tui/_config_app.py:209
+#: kotonoha/tui/_config_app.py:210
 msgid "Speech onset probability, 0 to 1."
 msgstr "発話開始と判定する確率、0 から 1。"
 
-#: kotonoha/tui/_config_app.py:211
+#: kotonoha/tui/_config_app.py:212
 msgid "Selects the target-specific TranslateGemma translation model."
 msgstr "対象別の TranslateGemma 翻訳モデルを選択します。"
 
-#: kotonoha/tui/_config_app.py:214
+#: kotonoha/tui/_config_app.py:215
 msgid ""
 "Show structured application logs in the TUI. Model services emit JSON to their "
 "console."
 msgstr "TUI に構造化アプリケーションログを表示する。モデルサービスはコンソールに JSON を出力する。"
 
-#: kotonoha/tui/_config_app.py:218
+#: kotonoha/tui/_config_app.py:219
+msgid "Optional localhost port for Prometheus turn metrics. Empty disables the exporter."
+msgstr "Prometheus のターンメトリクス用のローカルホストポートです。空欄にするとエクスポーターを無効にします。"
+
+#: kotonoha/tui/_config_app.py:222
 msgid ""
 "onboard runs everything locally. hybrid moves only the LLM and keeps audio on the "
 "device. remote moves every model."
 msgstr "onboard はすべてローカル。hybrid は LLM のみ移し音声は装置内に留める。remote はすべてのモデルを移す。"
 
-#: kotonoha/tui/_config_app.py:221
+#: kotonoha/tui/_config_app.py:225
 msgid "s16le halves the bytes on the wire against f32le."
 msgstr "s16le は f32le に比べ転送バイト数を半分にする。"
 
-#: kotonoha/tui/_config_app.py:223
+#: kotonoha/tui/_config_app.py:227
 msgid "When false, every role runs locally regardless of perf_mode."
 msgstr "false の場合、perf_mode にかかわらずすべてのロールがローカルで実行されます。"
 
-#: kotonoha/tui/_config_app.py:225
+#: kotonoha/tui/_config_app.py:229
 msgid "Consecutive transport failures before a role falls back."
 msgstr "ロールが代替サービスへ切り替わるまでの連続転送失敗回数。"
 
-#: kotonoha/tui/_config_app.py:226
+#: kotonoha/tui/_config_app.py:230
 msgid "ASR service URL on the external server."
 msgstr "外部サーバーの ASR サービス URL。"
 
-#: kotonoha/tui/_config_app.py:227
+#: kotonoha/tui/_config_app.py:231
 msgid "Verification service URL on the external server."
 msgstr "外部サーバーの検証サービス URL。"
 
-#: kotonoha/tui/_config_app.py:228
+#: kotonoha/tui/_config_app.py:232
 msgid "Translation service URL on the external server."
 msgstr "外部サーバーの翻訳サービス URL。"
 
-#: kotonoha/tui/_config_app.py:229
+#: kotonoha/tui/_config_app.py:233
 msgid "Speech synthesis service URL on the external server."
 msgstr "外部サーバーの音声合成サービス URL。"
 
-#: kotonoha/tui/_config_app.py:231
+#: kotonoha/tui/_config_app.py:235
 msgid ""
 "push_to_talk requires a key press, auto segments on the VAD, and text closes the "
 "microphone and takes utterances from the keyboard."
 msgstr "push_to_talk はキー操作が必要、auto は VAD が発話を区切る。text はマイクを閉じ、キーボードから発話を受け取る。"
 
-#: kotonoha/tui/_config_app.py:235
+#: kotonoha/tui/_config_app.py:239
 msgid "pair alternates between two languages; fixed always uses one target language."
 msgstr "pair は 2 言語を交互に使用し、fixed は常に一つの対象言語を使用します。"
 
-#: kotonoha/tui/_config_app.py:238
+#: kotonoha/tui/_config_app.py:242
 msgid "Source language for typed input. auto reads it from the script."
 msgstr "テキスト入力の原言語。auto は文字種から判定する。"
 
-#: kotonoha/tui/_config_app.py:241
+#: kotonoha/tui/_config_app.py:245
 msgid "vllm_omni requires successful vLLM-Omni Spike 2 validation."
 msgstr "vllm_omni には vLLM-Omni Spike 2 の検証合格が必要です。"
 
-#: kotonoha/tui/_config_app.py:243
+#: kotonoha/tui/_config_app.py:247
 msgid "Interface language. auto follows the system locale."
 msgstr "表示言語。auto はシステムロケールに従う。"
 
-#: kotonoha/tui/_config_app.py:245
+#: kotonoha/tui/_config_app.py:249
 msgid "Maximum TUI frame scheduler rate. Idle frames do not repaint the terminal."
 msgstr "TUI フレームスケジューラーの最大更新頻度。アイドルフレームは再描画しない。"
 
-#: kotonoha/tui/_config_app.py:347
+#: kotonoha/tui/_config_app.py:351
 msgid "modified"
 msgstr "変更あり"
 
-#: kotonoha/tui/_config_app.py:404
+#: kotonoha/tui/_config_app.py:408
 #, python-brace-format
 msgid "{path}: value required"
 msgstr "{path}：値を入力してください"
 
-#: kotonoha/tui/_config_app.py:539
+#: kotonoha/tui/_config_app.py:543
 msgid "Save"
 msgstr "保存"
 
-#: kotonoha/tui/_config_app.py:540 kotonoha/tui/_history_app.py:126
+#: kotonoha/tui/_config_app.py:544 kotonoha/tui/_history_app.py:126
 msgid "Reload"
 msgstr "再読み込み"
 
-#: kotonoha/tui/_config_app.py:541 kotonoha/tui/_config_app.py:568
+#: kotonoha/tui/_config_app.py:545 kotonoha/tui/_config_app.py:572
 msgid "Categories"
 msgstr "カテゴリー"
 
-#: kotonoha/tui/_config_app.py:563
+#: kotonoha/tui/_config_app.py:567
 msgid "Local device"
 msgstr "ローカルデバイス"
 
-#: kotonoha/tui/_config_app.py:563
+#: kotonoha/tui/_config_app.py:567
 msgid "Remote A6000"
 msgstr "リモート A6000"
 
-#: kotonoha/tui/_config_app.py:594
+#: kotonoha/tui/_config_app.py:598
 msgid "Kotonoha configuration"
 msgstr "Kotonoha 設定"
 
-#: kotonoha/tui/_config_app.py:645
+#: kotonoha/tui/_config_app.py:649
 msgid "Loading configuration from the remote server"
 msgstr "リモートサーバーから設定を読み込んでいます"
 
-#: kotonoha/tui/_config_app.py:652 kotonoha/tui/_config_app.py:835
+#: kotonoha/tui/_config_app.py:656 kotonoha/tui/_config_app.py:839
 #, python-brace-format
 msgid "Remote configuration failed: {error}"
 msgstr "リモート設定処理に失敗しました：{error}"
 
-#: kotonoha/tui/_config_app.py:656
+#: kotonoha/tui/_config_app.py:660
 #, python-brace-format
 msgid "Loaded remote configuration from {path}"
 msgstr "リモート設定を {path} から読み込みました"
 
-#: kotonoha/tui/_config_app.py:668
+#: kotonoha/tui/_config_app.py:672
 msgid "Reloaded from disk"
 msgstr "ディスクから再読み込みした"
 
-#: kotonoha/tui/_config_app.py:698
+#: kotonoha/tui/_config_app.py:702
 #, python-brace-format
 msgid "Changes are written to {path}"
 msgstr "変更は {path} に書き込まれる"
 
-#: kotonoha/tui/_config_app.py:785 kotonoha/tui/_config_app.py:808
+#: kotonoha/tui/_config_app.py:789 kotonoha/tui/_config_app.py:812
 #, python-brace-format
 msgid "Rejected because the configuration would be invalid: {error}"
 msgstr "設定が無効になるため却下しました：{error}"
 
-#: kotonoha/tui/_config_app.py:792
+#: kotonoha/tui/_config_app.py:796
 msgid "No changes to save"
 msgstr "保存する変更がない"
 
-#: kotonoha/tui/_config_app.py:818
+#: kotonoha/tui/_config_app.py:822
 #, python-brace-format
 msgid "Saved {count} settings to {path}"
 msgstr "{count} 件の設定を {path} に保存"
 
-#: kotonoha/tui/_config_app.py:820
+#: kotonoha/tui/_config_app.py:824
 msgid "Restart the interpreter for these values to take effect"
 msgstr "反映するには通訳システムを再起動すること"
 
-#: kotonoha/tui/_config_app.py:830
+#: kotonoha/tui/_config_app.py:834
 msgid "The remote configuration service is not connected"
 msgstr "リモート設定サービスに接続されていません"
 
-#: kotonoha/tui/_config_app.py:840
+#: kotonoha/tui/_config_app.py:844
 #, python-brace-format
 msgid "Saved {count} settings to the remote file {path}"
 msgstr "{count} 件の設定をリモートファイル {path} に保存しました"
 
-#: kotonoha/tui/_config_app.py:845
+#: kotonoha/tui/_config_app.py:849
 msgid "Restart the remote services to apply these values"
 msgstr "反映するにはリモートサービスを再起動してください"
 

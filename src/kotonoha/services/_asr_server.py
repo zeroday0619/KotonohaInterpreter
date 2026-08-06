@@ -43,6 +43,7 @@ from pydantic import BaseModel
 from kotonoha._call_compatibility import keyword_compatible
 from kotonoha._config import load_settings
 from kotonoha._logging_setup import setup_logging
+from kotonoha._prometheus import install_metrics, observe_service_health
 from kotonoha._shmring import AudioRef, StaleSlotError, attach_cached
 from kotonoha._transport import decode_pcm
 from kotonoha._typing import override
@@ -487,7 +488,7 @@ class VllmBackend:
             except Exception as error:  # noqa: BLE001
                 ready = False
                 self.error = repr(error)
-        return {
+        result = {
             "ok": ready,
             "service": "asr",
             "backend": self.name if ready else None,
@@ -503,6 +504,8 @@ class VllmBackend:
                 prefix_caching=self._engine_arguments["enable_prefix_caching"],
             ),
         }
+        observe_service_health("asr", ready, result["resources"])
+        return result
 
     async def transcribe(
         self,
@@ -848,6 +851,7 @@ async def lifespan(
 
 app = FastAPI(title="kotonoha-asr", lifespan=lifespan)
 install_auth(app, "asr")
+install_metrics(app, "asr")
 app.include_router(config_admin_router)
 
 
@@ -857,12 +861,15 @@ async def health() -> dict:
     backend = STATE["backend"]
     if isinstance(backend, VllmBackend):
         return await backend.health()
-    return {
+    result = {
         "ok": backend is not None,
         "service": "asr",
         "backend": getattr(backend, "name", None),
         "error": STATE["error"],
+        "resources": resource_report("asr"),
     }
+    observe_service_health("asr", bool(result["ok"]), result["resources"])
+    return result
 
 
 def _backend() -> Any:

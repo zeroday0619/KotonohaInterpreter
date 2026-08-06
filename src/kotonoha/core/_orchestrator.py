@@ -25,6 +25,13 @@ from kotonoha._async_tools import cancel_and_wait, create_timer
 from kotonoha._config import Settings
 from kotonoha._logging_setup import get_logger
 from kotonoha._metrics import TurnLog, TurnMetrics
+from kotonoha._prometheus import (
+    MetricsAggregator,
+    create_unified_registry,
+    observe_turn,
+    start_metrics_server,
+    stop_metrics_server,
+)
 from kotonoha._shmring import AudioRing
 from kotonoha._transport import AudioPayload
 from kotonoha._typing import override
@@ -51,6 +58,8 @@ class Orchestrator:
         "__dict__",
         "_busy",
         "_frame_task",
+        "_metrics_aggregator",
+        "_metrics_server",
         "_resource_task",
         "_running",
         "asr_verifier",
@@ -91,6 +100,8 @@ class Orchestrator:
     traditionalizer: TraditionalChineseConverter
     last_language: str | None
     _frame_task: asyncio.Task[None] | None
+    _metrics_aggregator: MetricsAggregator | None
+    _metrics_server: tuple[Any, Any] | None
     _resource_task: asyncio.Task[None] | None
     _running: bool
     _busy: asyncio.Lock
@@ -142,6 +153,8 @@ class Orchestrator:
         )
 
         self._frame_task = None
+        self._metrics_aggregator = None
+        self._metrics_server = None
         self._resource_task = None
         self._running = False
         self._busy = asyncio.Lock()
@@ -169,6 +182,30 @@ class Orchestrator:
         await asyncio.to_thread(self.playback.start, loop)
         self._running = True
         self._frame_task = asyncio.create_task(self._frame_loop(), name="frame-loop")
+        if self.settings.logging.prometheus_port is not None:
+            metrics_registry = None
+            if "remote" in self.services.placement.values():
+                self._metrics_aggregator = MetricsAggregator(
+                    self.settings,
+                    self.services.placement,
+                )
+                metrics_registry = create_unified_registry(self._metrics_aggregator)
+            try:
+                self._metrics_server = start_metrics_server(
+                    self.settings.logging.prometheus_port,
+                    registry=metrics_registry,
+                )
+                log.info(
+                    "prometheus.started",
+                    address="127.0.0.1",
+                    port=self.settings.logging.prometheus_port,
+                )
+            except OSError as error:
+                log.error(
+                    "prometheus.start_failed",
+                    port=self.settings.logging.prometheus_port,
+                    error=repr(error),
+                )
         self.services.start_probes()
         self._resource_task = create_timer(
             self._probe_resources,
@@ -202,6 +239,10 @@ class Orchestrator:
         if self._resource_task:
             await cancel_and_wait(self._resource_task)
             self._resource_task = None
+        if self._metrics_server is not None:
+            await asyncio.to_thread(stop_metrics_server, self._metrics_server)
+            self._metrics_server = None
+        self._metrics_aggregator = None
         await asyncio.to_thread(self.capture.stop)
         await asyncio.to_thread(self.playback.stop)
         await self.services.aclose()
@@ -235,6 +276,8 @@ class Orchestrator:
     ) -> None:
         del interval
         await self._probe_services()
+        if self._metrics_aggregator is not None:
+            await self._metrics_aggregator.refresh(self.services.placement)
 
     def _on_placement_change(
         self,
@@ -897,6 +940,7 @@ class Orchestrator:
         metrics.failovers = max(0, self._failover_total() - failover_baseline)
         metrics.placement = dict(self.services.placement)
         record = await self.turn_log.write(metrics)
+        observe_turn(metrics, self.settings.budget_ms)
         stored_at = await asyncio.to_thread(
             self.store.add_turn,
             turn_id=metrics.turn_id,

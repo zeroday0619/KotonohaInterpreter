@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from kotonoha._call_compatibility import keyword_compatible
 from kotonoha._config import load_settings
 from kotonoha._logging_setup import setup_logging
+from kotonoha._prometheus import install_metrics, observe_service_health
 from kotonoha._shmring import AudioRef, StaleSlotError, attach_cached
 from kotonoha._transport import decode_pcm
 from kotonoha._typing import override
@@ -196,13 +197,14 @@ async def lifespan(
 
 app = FastAPI(title="kotonoha-asr-verify", lifespan=lifespan)
 install_auth(app, "asr-verify")
+install_metrics(app, "asr-verify")
 
 
 @app.get("/health")
 @keyword_compatible
 def health() -> dict:
     backend = STATE["backend"]
-    return {
+    result = {
         "ok": backend is not None,
         "service": "asr-verify",
         "backend": getattr(backend, "name", None),
@@ -211,6 +213,8 @@ def health() -> dict:
         "error": STATE["error"],
         "resources": resource_report("asr_verify"),
     }
+    observe_service_health("asr-verify", bool(result["ok"]), result["resources"])
+    return result
 
 
 def _backend() -> Any:

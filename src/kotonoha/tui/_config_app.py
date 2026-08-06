@@ -215,6 +215,9 @@ FIELD_DESCRIPTIONS: dict[str, str] = {
             "Show structured application logs in the TUI. Model services emit JSON to their "
             "console."
     ),
+    "logging.prometheus_port": N_(
+            "Optional localhost port for Prometheus turn metrics. Empty disables the exporter."
+    ),
     "perf_mode": N_(
             "onboard runs everything locally. hybrid moves only the LLM and keeps audio on the "
             "device. remote moves every model."

@@ -488,6 +488,7 @@ def doctor(
 
     modules = [
         ("numpy", True), ("httpx", True), ("structlog", True), ("textual", True),
+        ("prometheus_client", True),
         ("uvloop", True),
         ("soxr", True), ("sounddevice", False), ("opencc", False),
         ("onnxruntime", False), ("torch", False),
