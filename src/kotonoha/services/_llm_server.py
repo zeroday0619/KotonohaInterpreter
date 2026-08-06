@@ -403,6 +403,7 @@ async def health() -> dict[str, Any]:
 
 
 @app.websocket("/v1/realtime")
+@keyword_compatible
 async def realtime_translation(
     websocket: WebSocket,
     /,

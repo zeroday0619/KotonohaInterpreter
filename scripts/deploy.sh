@@ -448,6 +448,20 @@ show_failed_health() {
   exit 1
 }
 
+# The vLLM probes end with os._exit(0).
+#
+# Loading vLLM registers torch.library custom operators. At interpreter shutdown
+# their weakref finalizers run against already-released C++ state, and
+# torch._C._jit_get_operation reads a corrupted operator name:
+#
+#   File "weakref.py", in _exitfunc -> torch/library.py, in _del_library
+#   UnicodeDecodeError: 'utf-8' codec can't decode byte 0xf7
+#
+# CPython reports that as an ignored exception and still exits 0, so the check
+# passes while printing a traceback that is indistinguishable from a failure in a
+# deployment log. These are one-shot probes whose only output is the banner above,
+# so terminating before finalization removes the noise without hiding anything.
+# The assertions run first; a real failure still raises and exits non-zero.
 verify_vllm_cuda_runtime() {
   local compose_file=$1
   local compose_environment_file=$2
@@ -460,7 +474,7 @@ verify_vllm_cuda_runtime() {
 
   run_docker "${compose_arguments[@]}" run --rm --no-deps \
     --entrypoint python3 "$service_name" -c \
-    'import torch, vllm; assert torch.cuda.is_available(), "CUDA is unavailable in the vLLM container"; print("CUDA", torch.version.cuda, "| GPU", torch.cuda.get_device_name(0), "| vLLM", vllm.__version__)' \
+    'import torch, vllm; assert torch.cuda.is_available(), "CUDA is unavailable in the vLLM container"; print("CUDA", torch.version.cuda, "| GPU", torch.cuda.get_device_name(0), "| vLLM", vllm.__version__); import os as _os, sys as _sys; _sys.stdout.flush(); _sys.stderr.flush(); _os._exit(0)' \
     || fail "$service_name container cannot initialize the CUDA runtime and vLLM"
 }
 
@@ -475,7 +489,7 @@ verify_vllm_translation_runtime() {
 
   run_docker "${compose_arguments[@]}" run --rm --no-deps \
     --entrypoint /opt/kotonoha-venv/bin/python llm -c \
-    'import sys; from pathlib import Path; import numpy, torch, transformers, vllm; from transformers import GenerationMixin; from vllm.engine.arg_utils import AsyncEngineArgs; from vllm.entrypoints.openai.api_server import build_async_engine_client_from_engine_args; from kotonoha._config import load_settings; from kotonoha.services._llm_server import _engine_arguments; assert torch.cuda.is_available(), "CUDA is unavailable in the translation container"; assert Path(sys.executable).is_relative_to("/opt/kotonoha-venv"), sys.executable; engine_config = AsyncEngineArgs(**_engine_arguments(load_settings().llm)).create_engine_config(); model_config = engine_config.model_config; text_config = model_config.hf_text_config; rope_parameters = getattr(text_config, "rope_parameters", None); nested_keys = {"full_attention", "sliding_attention"}; assert not isinstance(rope_parameters, dict) or not nested_keys.intersection(rope_parameters) or nested_keys <= rope_parameters.keys() and all(isinstance(value, dict) and "rope_type" in value for value in rope_parameters.values()), rope_parameters; print("CUDA", torch.version.cuda, "| GPU", torch.cuda.get_device_name(0), "| vLLM", vllm.__version__, "| Transformers", transformers.__version__, "| NumPy", numpy.__version__, "| model", model_config.model)' \
+    'import sys; from pathlib import Path; import numpy, torch, transformers, vllm; from transformers import GenerationMixin; from vllm.engine.arg_utils import AsyncEngineArgs; from vllm.entrypoints.openai.api_server import build_async_engine_client_from_engine_args; from kotonoha._config import load_settings; from kotonoha.services._llm_server import _engine_arguments; assert torch.cuda.is_available(), "CUDA is unavailable in the translation container"; assert Path(sys.executable).is_relative_to("/opt/kotonoha-venv"), sys.executable; engine_config = AsyncEngineArgs(**_engine_arguments(load_settings().llm)).create_engine_config(); model_config = engine_config.model_config; text_config = model_config.hf_text_config; rope_parameters = getattr(text_config, "rope_parameters", None); nested_keys = {"full_attention", "sliding_attention"}; assert not isinstance(rope_parameters, dict) or not nested_keys.intersection(rope_parameters) or nested_keys <= rope_parameters.keys() and all(isinstance(value, dict) and "rope_type" in value for value in rope_parameters.values()), rope_parameters; print("CUDA", torch.version.cuda, "| GPU", torch.cuda.get_device_name(0), "| vLLM", vllm.__version__, "| Transformers", transformers.__version__, "| NumPy", numpy.__version__, "| model", model_config.model); import os as _os, sys as _sys; _sys.stdout.flush(); _sys.stderr.flush(); _os._exit(0)' \
     || fail "llm container cannot validate the in-process vLLM model configuration"
 }
 
@@ -525,7 +539,7 @@ verify_vllm_omni_cuda_runtime() {
 
   run_docker "${compose_arguments[@]}" run --rm --no-deps \
     --entrypoint python3 tts -c \
-    'from importlib.metadata import version; import torch, vllm, vllm_omni; assert torch.cuda.is_available(), "CUDA is unavailable in the vLLM-Omni container"; print("CUDA", torch.version.cuda, "| GPU", torch.cuda.get_device_name(0), "| vLLM", vllm.__version__, "| vLLM-Omni", version("vllm-omni"))' \
+    'from importlib.metadata import version; import torch, vllm, vllm_omni; assert torch.cuda.is_available(), "CUDA is unavailable in the vLLM-Omni container"; print("CUDA", torch.version.cuda, "| GPU", torch.cuda.get_device_name(0), "| vLLM", vllm.__version__, "| vLLM-Omni", version("vllm-omni")); import os as _os, sys as _sys; _sys.stdout.flush(); _sys.stderr.flush(); _os._exit(0)' \
     || fail "tts container cannot initialize the CUDA runtime and vLLM-Omni"
 }
 

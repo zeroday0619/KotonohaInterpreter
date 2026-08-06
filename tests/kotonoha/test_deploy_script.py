@@ -54,6 +54,28 @@ def test_deploy_inline_python_checks_have_valid_syntax() -> None:
         compile(command, "scripts/deploy.sh", "exec")
 
 
+def test_vllm_probes_terminate_before_torch_finalizers_run() -> None:
+    """The three torch/vLLM probes must end with os._exit(0).
+
+    Loading vLLM registers torch.library custom operators whose weakref finalizers
+    fail at interpreter shutdown with a UnicodeDecodeError from
+    torch._C._jit_get_operation. CPython treats that as an ignored exception and
+    still exits 0, so the probe passes while printing a traceback that reads as a
+    deployment failure. Terminating first removes the noise; the assertions have
+    already run, so a real failure still exits non-zero.
+    """
+    source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+    commands = re.findall(r"-c \\\n\s+'([^']+)' \\", source)
+    guarded = [command for command in commands if "_os._exit(0)" in command]
+    vllm_probes = [command for command in commands if "vllm.__version__" in command]
+
+    assert len(vllm_probes) == 3
+    assert sorted(guarded) == sorted(vllm_probes)
+    for command in guarded:
+        assert command.rstrip().endswith("_os._exit(0)")
+        assert "_sys.stdout.flush()" in command
+
+
 def test_deploy_script_preserves_compose_variables_through_sudo() -> None:
     source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
     match = re.search(

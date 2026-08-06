@@ -926,6 +926,7 @@ async def transcribe_upload(
 
 
 @app.websocket("/v1/realtime")
+@keyword_compatible
 async def realtime_transcription(
     websocket: WebSocket,
     /,
