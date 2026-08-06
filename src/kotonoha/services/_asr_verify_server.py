@@ -98,6 +98,13 @@ class FasterWhisperBackend:
             "infer_ms": round((time.perf_counter() - start_time) * 1000, 1),
         }
 
+    def shutdown(
+        self,
+        /,
+    ) -> None:
+        """Release the CTranslate2 model before the process exits."""
+        self.model = None
+
 
 class WhisperCppBackend:
     """Proxy fallback to a whisper.cpp CUDA server.
@@ -162,6 +169,13 @@ class WhisperCppBackend:
             "infer_ms": round((time.perf_counter() - start_time) * 1000, 1),
         }
 
+    def shutdown(
+        self,
+        /,
+    ) -> None:
+        """Close the HTTP client used by the whisper.cpp fallback."""
+        self.client.close()
+
 
 STATE: dict[str, Any] = {"backend": None, "error": None}
 
@@ -192,7 +206,14 @@ async def lifespan(
     except Exception as error:  # noqa: BLE001
         STATE["error"] = repr(error)
         log.error("verify.load_failed", error=repr(error))
-    yield
+    try:
+        yield
+    finally:
+        backend = STATE["backend"]
+        STATE["backend"] = None
+        shutdown = getattr(backend, "shutdown", None)
+        if callable(shutdown):
+            await asyncio.to_thread(shutdown)
 
 
 app = FastAPI(title="kotonoha-asr-verify", lifespan=lifespan)

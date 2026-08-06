@@ -703,6 +703,7 @@ def test_python_service_containers_force_uvloop() -> None:
         compose = yaml.safe_load(compose_path.read_text(encoding="utf-8"))
         for role in ("asr", "asr-verify", "tts"):
             assert "--loop uvloop" in compose["services"][role]["command"]
+            assert "--timeout-graceful-shutdown 30" in compose["services"][role]["command"]
 
     dockerfile_paths = (
         PROJECT_ROOT / "docker" / "Dockerfile.asr",
@@ -713,6 +714,7 @@ def test_python_service_containers_force_uvloop() -> None:
     for dockerfile_path in dockerfile_paths:
         dockerfile = dockerfile_path.read_text(encoding="utf-8")
         assert '"--loop", "uvloop"' in dockerfile
+        assert '"--timeout-graceful-shutdown", "30"' in dockerfile
 
 
 def _write_executable(

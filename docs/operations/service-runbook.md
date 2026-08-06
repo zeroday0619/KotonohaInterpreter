@@ -41,6 +41,10 @@ docker compose -f docker/compose.yaml stop
 docker compose -f docker/compose.remote.yaml stop
 ```
 
+Model services allow up to 30 seconds for active requests and model cleanup. Compose
+keeps the containers alive for 45 seconds before sending `SIGKILL`. A shutdown log entry
+must appear for the orchestrator and the model services before the grace period expires.
+
 ## Uninstall Service Containers
 
 Use `scripts/manage.sh uninstall` when the deployment must be removed from a host. The

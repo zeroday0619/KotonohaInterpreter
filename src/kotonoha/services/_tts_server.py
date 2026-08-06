@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 from collections.abc import AsyncIterator
@@ -489,7 +490,7 @@ async def lifespan(
     try:
         yield
     finally:
-        RUNTIME.shutdown()
+        await asyncio.to_thread(RUNTIME.shutdown)
 
 
 app = FastAPI(title="kotonoha-tts", lifespan=lifespan)

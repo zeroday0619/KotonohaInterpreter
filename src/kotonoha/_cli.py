@@ -379,6 +379,7 @@ def serve(
         port=port or default_port,
         log_level="info",
         loop="uvloop",
+        timeout_graceful_shutdown=30,
         workers=1,
     )
 

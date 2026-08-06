@@ -101,6 +101,7 @@ def main() -> None:
         host="0.0.0.0",
         port=port,
         loop="uvloop",
+        timeout_graceful_shutdown=30,
     )
 
 

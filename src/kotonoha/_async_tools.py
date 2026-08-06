@@ -37,6 +37,24 @@ async def cancel_and_wait(
         raise
 
 
+async def wait_gracefully(
+    task: asyncio.Task[Any],
+    timeout: float,
+    /,
+) -> bool:
+    """Allow a task to finish before cancelling it after the shutdown deadline."""
+    try:
+        await asyncio.wait_for(asyncio.shield(task), timeout)
+    except asyncio.TimeoutError:
+        await cancel_and_wait(task)
+        return False
+    except asyncio.CancelledError:
+        if not task.done():
+            await cancel_and_wait(task)
+        raise
+    return True
+
+
 def create_timer(
     callback: Callable[[float], Coroutine[Any, Any, None]],
     interval: float,

@@ -74,3 +74,17 @@ async def test_cancel_and_wait_accepts_a_collection(
 
     assert first.cancelled()
     assert second.cancelled()
+
+
+async def test_wait_gracefully_allows_a_task_to_finish() -> None:
+    task = asyncio.create_task(asyncio.sleep(0.001))
+
+    assert await _async_tools.wait_gracefully(task, 1.0) is True
+    assert task.done()
+
+
+async def test_wait_gracefully_cancels_a_task_after_the_deadline() -> None:
+    task = asyncio.create_task(asyncio.sleep(60))
+
+    assert await _async_tools.wait_gracefully(task, 0.001) is False
+    assert task.cancelled()

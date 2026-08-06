@@ -21,7 +21,7 @@ from typing import Any, ClassVar
 
 import numpy as np
 
-from kotonoha._async_tools import cancel_and_wait, create_timer
+from kotonoha._async_tools import cancel_and_wait, create_timer, wait_gracefully
 from kotonoha._config import Settings
 from kotonoha._logging_setup import get_logger
 from kotonoha._metrics import TurnLog, TurnMetrics
@@ -44,6 +44,7 @@ from kotonoha.store._db import Store
 
 log = get_logger(__name__)
 RESOURCE_POLL_SECONDS = 10.0
+GRACEFUL_SHUTDOWN_SECONDS = 10.0
 
 
 class Orchestrator:
@@ -53,6 +54,8 @@ class Orchestrator:
         "_frame_task",
         "_resource_task",
         "_running",
+        "_turn_children",
+        "_turn_task",
         "asr_verifier",
         "capture",
         "denoiser",
@@ -93,6 +96,8 @@ class Orchestrator:
     _frame_task: asyncio.Task[None] | None
     _resource_task: asyncio.Task[None] | None
     _running: bool
+    _turn_children: set[asyncio.Task[Any]]
+    _turn_task: asyncio.Task[None] | None
     _busy: asyncio.Lock
 
     @override
@@ -144,6 +149,8 @@ class Orchestrator:
         self._frame_task = None
         self._resource_task = None
         self._running = False
+        self._turn_children = set()
+        self._turn_task = None
         self._busy = asyncio.Lock()
         self.last_language = self.store.last_language(self.session_id)
 
@@ -195,14 +202,32 @@ class Orchestrator:
         self,
         /,
     ) -> None:
+        if not self._running and self._frame_task is None and self._resource_task is None:
+            return
         self._running = False
-        if self._frame_task:
-            await cancel_and_wait(self._frame_task)
-            self._frame_task = None
+        self.capture.close_gate()
+
+        current_task = asyncio.current_task()
+        frame_task = self._frame_task
+        turn_task = self._turn_task
+        if frame_task is not None and frame_task is not turn_task:
+            await cancel_and_wait(frame_task)
+        self._frame_task = None
+
+        if turn_task is not None and turn_task is not current_task and not turn_task.done():
+            completed = await wait_gracefully(turn_task, GRACEFUL_SHUTDOWN_SECONDS)
+            if not completed:
+                log.warning(
+                    "orchestrator.turn_shutdown_timeout",
+                    timeout_s=GRACEFUL_SHUTDOWN_SECONDS,
+                )
+        self._turn_task = None
+
         if self._resource_task:
             await cancel_and_wait(self._resource_task)
             self._resource_task = None
         await asyncio.to_thread(self.capture.stop)
+        await asyncio.to_thread(self.playback.flush)
         await asyncio.to_thread(self.playback.stop)
         await self.services.aclose()
         await asyncio.to_thread(self.ring.close)
@@ -265,9 +290,37 @@ class Orchestrator:
             return
         event = self.segmenter.force_end()
         if event.utterance is not None:
-            asyncio.create_task(self._on_utterance(event.utterance))
+            task = asyncio.create_task(self._on_utterance(event.utterance), name="turn")
+            self._turn_task = task
+            task.add_done_callback(self._clear_turn_task)
         else:
             self.machine.to(State.IDLE, "ptt_empty")
+
+    def _clear_turn_task(
+        self,
+        task: asyncio.Task[None],
+        /,
+    ) -> None:
+        if self._turn_task is task:
+            self._turn_task = None
+
+    def _track_turn_task(
+        self,
+        task: asyncio.Task[Any],
+        /,
+    ) -> asyncio.Task[Any]:
+        self._turn_children.add(task)
+        task.add_done_callback(self._turn_children.discard)
+        return task
+
+    async def _cancel_turn_children(
+        self,
+        /,
+    ) -> None:
+        tasks = tuple(self._turn_children)
+        if tasks:
+            await cancel_and_wait(tasks)
+        self._turn_children.clear()
 
     # -- frame loop ------------------------------------------------------
     async def _frame_loop(
@@ -315,9 +368,14 @@ class Orchestrator:
         /,
         utterance: Any,
     ) -> None:
+        current_task = asyncio.current_task()
         if self._busy.locked():
             log.warning("turn.dropped_busy")
+            if self._turn_task is current_task:
+                self._turn_task = None
             return
+        if current_task is not None:
+            self._turn_task = current_task
         async with self._busy:
             try:
                 await self._process(utterance)
@@ -327,7 +385,10 @@ class Orchestrator:
                 log.exception("turn.crashed", error=repr(error))
                 self.event_bus.emit("error", where="turn", message=str(error))
             finally:
+                await self._cancel_turn_children()
                 self._to_idle("turn_end")
+                if self._turn_task is current_task:
+                    self._turn_task = None
 
     # -- one turn --------------------------------------------------------
     async def _process(
@@ -572,10 +633,16 @@ class Orchestrator:
             self.event_bus.emit("error", where="text", message="busy")
             return False
         async with self._busy:
+            current_task = asyncio.current_task()
+            if current_task is not None:
+                self._turn_task = current_task
             try:
                 await self._process_text(text, source_language)
             finally:
+                await self._cancel_turn_children()
                 self._to_idle("text_turn_end")
+                if self._turn_task is current_task:
+                    self._turn_task = None
         return True
 
     async def _process_text(
@@ -669,24 +736,34 @@ class Orchestrator:
         generation_statistics = GenerationStatistics()
 
         self.playback.begin_turn()
-        first_audio_task = asyncio.create_task(self._watch_first_audio(metrics))
-        speaker_task = asyncio.create_task(
-            self._tts_worker(clause_queue, target_language, metrics)
+        first_audio_task = self._track_turn_task(
+            asyncio.create_task(self._watch_first_audio(metrics), name="first-audio")
         )
-        language_model_task = asyncio.create_task(
-            self._stream_language_model(
-                messages,
-                streamer,
-                clause_queue,
-                first_clause,
-                metrics,
-                generation_statistics,
-                target_language,
+        speaker_task = self._track_turn_task(
+            asyncio.create_task(
+                self._tts_worker(clause_queue, target_language, metrics),
+                name="tts-worker",
+            )
+        )
+        language_model_task = self._track_turn_task(
+            asyncio.create_task(
+                self._stream_language_model(
+                    messages,
+                    streamer,
+                    clause_queue,
+                    first_clause,
+                    metrics,
+                    generation_statistics,
+                    target_language,
+                ),
+                name="llm-stream",
             )
         )
 
         # §10 LLM timeout of 3 s, measured as time-to-first-clause.
-        first_clause_task = asyncio.create_task(first_clause.wait())
+        first_clause_task = self._track_turn_task(
+            asyncio.create_task(first_clause.wait(), name="first-clause")
+        )
         completed, _pending = await asyncio.wait(
             {first_clause_task, language_model_task},
             timeout=self.settings.llm.timeout_s,
