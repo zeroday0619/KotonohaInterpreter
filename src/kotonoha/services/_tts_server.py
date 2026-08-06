@@ -21,6 +21,7 @@ from kotonoha._call_compatibility import keyword_compatible
 from kotonoha._config import QWEN_LANGUAGE_VOICES, QWEN_VOICE_NAMES, QwenVoice
 from kotonoha._logging_setup import setup_logging
 from kotonoha.services._auth import install_auth
+from kotonoha.services._resources import resource_report
 
 log = setup_logging(service="tts", console=True)
 
@@ -412,6 +413,16 @@ class VllmOmniRuntime:
                 self.configuration.omni_version if self.configuration is not None else None
             ),
             "error": self.error,
+            "resources": resource_report(
+                "tts",
+                gpu_memory_utilization=(
+                    self.configuration.gpu_memory_utilization
+                    if self.configuration is not None
+                    else None
+                ),
+                max_num_seqs=1,
+                prefix_caching=False,
+            ),
         }
 
     def _error_response(

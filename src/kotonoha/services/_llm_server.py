@@ -22,6 +22,7 @@ from kotonoha._call_compatibility import keyword_compatible
 from kotonoha._config import LanguageModelConfig, load_settings
 from kotonoha._logging_setup import setup_logging
 from kotonoha.services._auth import install_auth, websocket_authorized
+from kotonoha.services._resources import resource_report
 
 log = setup_logging(service="llm", console=True)
 
@@ -254,6 +255,12 @@ class VllmTranslationBackend:
             "served_model_name": self.config.served_model_name,
             "vllm": version("vllm"),
             "error": self.error,
+            "resources": resource_report(
+                "llm",
+                gpu_memory_utilization=self.config.gpu_memory_utilization,
+                max_num_seqs=self.config.max_num_seqs,
+                prefix_caching=self.config.enable_prefix_caching,
+            ),
         }
         try:
             import torch

@@ -17,6 +17,21 @@ docker compose -f docker/compose.remote.yaml logs --tail=200
 nvidia-smi
 ```
 
+Each ASR, LLM, and TTS health response contains a `resources` object. It includes the
+configured engine budget, live process memory counters, operating-system information,
+kernel release and version, accelerator backend and devices, and the memory architecture.
+The backend value is `cuda`, `rocm`, `mps`, `xpu`, or `cpu`. Jetson reports
+`memory.architecture=unified` and `memory.scope=system`, so system memory and accelerator
+memory must be evaluated together.
+
+```bash
+curl -fsS http://127.0.0.1:8001/health | jq '.resources.system, .resources'
+```
+
+The orchestrator polls these reports every 10 seconds and emits a `resources.snapshot`
+structured log event. Resource reporting does not resize a running vLLM engine. Changes
+to engine memory budgets require service recreation.
+
 ## Stop Services
 
 Stop containers without deleting local configuration, model files, or logs:
@@ -139,6 +154,7 @@ requests. Treat this as a deployment failure on the A6000.
 | A6000 ASR cannot find the model offline | Inspect `asr.vllm_model_id` | Set `/models/Voxtral-Mini-4B-Realtime-2602` in the remote override |
 | A6000 ASR reports insufficient KV cache | Inspect the effective utilization printed by deployment and any ASR environment override | Remove the stale environment override or set `asr.vllm_gpu_memory_utilization` to at least 0.28 in the remote override, then redeploy |
 | Jetson ASR reports `No available memory for the cache blocks` | Inspect the ASR startup log and the selected accelerator profile | Use `nvidia.jetson.agx-orin`, which sets ASR utilization to 0.15 and disables ASR prefix caching, then recreate the resident services |
+| Jetson deployment rejects the resident memory budget | Inspect the printed ASR, LLM, and TTS utilization values | Remove stale local overrides or lower only the Jetson profile values until the combined budget is at most 0.85 |
 | Jetson LLM reports insufficient memory during startup | Inspect the effective `accelerator.profile`, `kv_cache_dtype`, `gpu_memory_utilization`, multimodal limits, and the first allocation failure | Recreate the LLM service with `nvidia.jetson.agx-orin`, `LLM_GPU_MEMORY_UTILIZATION=0.35`, `LLM_KV_CACHE_DTYPE=fp8`, `LLM_MAX_NUM_BATCHED_TOKENS=2048`, and `LLM_ENABLE_PREFIX_CACHING=0` |
 | A6000 LLM compilation or prefix cache fails | Inspect `compilation_mode`, capture sizes, cache directory, `enforce_eager`, prefix-cache startup messages, and the first request log | Set `LLM_COMPILATION_MODE=2`, `LLM_ENABLE_PREFIX_CACHING=1`, and `enforce_eager: false`; remove `/models/vllm-compile-cache` only after a runtime or driver change |
 | Realtime ASR WebSocket fails | Inspect `/v1/realtime`, service logs, and the configured realtime architecture | Restore the target model and architecture pair; rerun Spike 1 |

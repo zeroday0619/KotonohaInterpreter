@@ -59,3 +59,4 @@ def test_verification_health_reports_the_effective_runtime(
     assert response["ok"] is True
     assert response["device"] == "cpu"
     assert response["compute_type"] == "int8"
+    assert response["resources"]["system"]["kernel"]["release"]

@@ -49,6 +49,7 @@ from kotonoha._typing import override
 from kotonoha.core._lid import detect_script
 from kotonoha.services._auth import install_auth, websocket_authorized
 from kotonoha.services._config_admin import router as config_admin_router
+from kotonoha.services._resources import resource_report
 
 log = setup_logging(service="asr", console=True)
 
@@ -495,6 +496,12 @@ class VllmBackend:
             "realtime_architecture": self.architecture,
             "vllm": version("vllm"),
             "error": self.error,
+            "resources": resource_report(
+                "asr",
+                gpu_memory_utilization=self._engine_arguments["gpu_memory_utilization"],
+                max_num_seqs=self._engine_arguments["max_num_seqs"],
+                prefix_caching=self._engine_arguments["enable_prefix_caching"],
+            ),
         }
 
     async def transcribe(

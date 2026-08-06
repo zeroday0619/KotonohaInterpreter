@@ -24,6 +24,7 @@ from kotonoha._shmring import AudioRef, StaleSlotError, attach_cached
 from kotonoha._transport import decode_pcm
 from kotonoha._typing import override
 from kotonoha.services._auth import install_auth
+from kotonoha.services._resources import resource_report
 
 log = setup_logging(service="asr-verify", console=True)
 
@@ -208,6 +209,7 @@ def health() -> dict:
         "device": getattr(backend, "device", None),
         "compute_type": getattr(backend, "compute_type", None),
         "error": STATE["error"],
+        "resources": resource_report("asr_verify"),
     }
 
 

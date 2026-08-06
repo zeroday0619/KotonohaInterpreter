@@ -51,7 +51,7 @@ def test_deploy_inline_python_checks_have_valid_syntax() -> None:
     source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
     commands = re.findall(r"-c \\\n\s+'([^']+)' \\", source)
 
-    assert len(commands) == 6
+    assert len(commands) == 7
     for command in commands:
         compile(command, "scripts/deploy.sh", "exec")
 
@@ -281,7 +281,9 @@ def test_jetson_deploy_rejects_stale_asr_overrides_before_start() -> None:
         assert probe.count("sys.exit(") == 0, f"{probe_marker} probe exits early"
     for validation_call in (primary_call, verification_call):
         assert validation_call in deploy_body
-        assert deploy_body.index(validation_call) < deploy_body.index("up -d")
+        assert deploy_body.index(validation_call) < deploy_body.index(
+            "start_jetson_service"
+        )
 
 
 def test_deploy_builds_and_validates_the_llm_image_before_start() -> None:
@@ -301,7 +303,27 @@ def test_deploy_builds_and_validates_the_llm_image_before_start() -> None:
         assert deploy_body.index("build asr asr-verify llm tts") < deploy_body.index(
             validation_call
         )
-        assert deploy_body.index(validation_call) < deploy_body.index("up -d")
+        start_marker = (
+            "start_jetson_service" if "start_jetson_service" in deploy_body else "up -d"
+        )
+        assert deploy_body.index(validation_call) < deploy_body.index(start_marker)
+
+
+def test_jetson_deployment_validates_budget_and_starts_roles_sequentially() -> None:
+    deploy_script = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+    jetson_body = deploy_script.split("deploy_jetson() {", 1)[1].split(
+        "deploy_a6000() {", 1
+    )[0]
+
+    assert "verify_jetson_memory_budget" in jetson_body
+    assert jetson_body.index("verify_jetson_memory_budget") < jetson_body.index(
+        "start_jetson_service"
+    )
+    starts = [
+        jetson_body.index(f"start_jetson_service \"$compose_file\" {service}")
+        for service in ("asr", "asr-verify", "llm", "tts")
+    ]
+    assert starts == sorted(starts)
 
 
 def test_remote_compose_uses_distinct_role_images_and_in_process_translation() -> None:

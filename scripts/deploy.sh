@@ -502,6 +502,19 @@ show_failed_health() {
   exit 1
 }
 
+start_jetson_service() {
+  local compose_file=$1
+  local service_name=$2
+  local service_url=$3
+  local health_kind=$4
+  if [ "$build_images" = false ]; then
+    run_docker compose -f "$compose_file" up -d --no-build "$service_name" || return 1
+  else
+    run_docker compose -f "$compose_file" up -d "$service_name" || return 1
+  fi
+  wait_for_service "$service_name" "$service_url" "$health_kind"
+}
+
 # The vLLM probes end with os._exit(0).
 #
 # Loading vLLM registers torch.library custom operators. At interpreter shutdown
@@ -568,6 +581,17 @@ verify_jetson_asr_verification_runtime() {
     || fail "Jetson verification ASR cannot use the configured CTranslate2 runtime"
 }
 
+verify_jetson_memory_budget() {
+  local compose_file=$1
+  local maximum_utilization=0.85
+
+  run_docker compose -f "$compose_file" run --rm --no-deps \
+    --entrypoint /opt/kotonoha-venv/bin/python asr -c \
+    'import sys; from pathlib import Path; import yaml; from kotonoha._config import load_settings; settings = load_settings(); tts_profile = yaml.safe_load(Path("/app/docker/tts/qwen3_tts_jetson.yaml").read_text()); tts_utilization = max(float(stage["gpu_memory_utilization"]) for stage in tts_profile["stages"]); values = {"asr": settings.asr.vllm_gpu_memory_utilization, "llm": settings.llm.gpu_memory_utilization, "tts": tts_utilization}; total = sum(values.values()); print("Jetson resident memory budget:", " + ".join(f"{role}={value:.2f}" for role, value in values.items()), f"= {total:.2f}"); total <= float(sys.argv[1]) or sys.exit(f"resident vLLM memory budget {total:.2f} exceeds limit {float(sys.argv[1]):.2f}; lower a Jetson profile budget before starting services")' \
+    "$maximum_utilization" \
+    || fail "Jetson resident services exceed the configured unified-memory budget"
+}
+
 verify_a6000_asr_configuration() {
   local compose_file=$1
   local compose_environment_file=$2
@@ -619,20 +643,14 @@ deploy_jetson() {
   fi
   verify_jetson_asr_configuration "$compose_file"
   verify_jetson_asr_verification_runtime "$compose_file"
+  verify_jetson_memory_budget "$compose_file"
   verify_vllm_cuda_runtime "$compose_file" "" asr
   verify_vllm_translation_runtime "$compose_file" ""
   verify_vllm_omni_cuda_runtime "$compose_file" ""
-  if [ "$build_images" = false ]; then
-    run_docker compose -f "$compose_file" \
-      up -d --no-build asr asr-verify llm tts
-  else
-    run_docker compose -f "$compose_file" up -d asr asr-verify llm tts
-  fi
-
-  if ! wait_for_service asr http://127.0.0.1:8001 python \
-    || ! wait_for_service asr-verify http://127.0.0.1:8002 python \
-    || ! wait_for_service llm http://127.0.0.1:8003 http \
-    || ! wait_for_service tts http://127.0.0.1:8004 python; then
+  if ! start_jetson_service "$compose_file" asr http://127.0.0.1:8001 python \
+    || ! start_jetson_service "$compose_file" asr-verify http://127.0.0.1:8002 python \
+    || ! start_jetson_service "$compose_file" llm http://127.0.0.1:8003 http \
+    || ! start_jetson_service "$compose_file" tts http://127.0.0.1:8004 python; then
     show_failed_health "$compose_file" "" asr asr-verify llm tts
   fi
 

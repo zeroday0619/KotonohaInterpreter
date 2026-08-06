@@ -522,11 +522,16 @@ is limited to batch sizes `[1, 2, 4]`, and compiled artifacts are persisted unde
 ### Start model services
 
 Prefer `bash scripts/manage.sh deploy jetson`. It validates the effective 0.6B ASR paths,
-the CPU INT8 verification backend, raw CUDA device access, CUDA imports, and
+the combined Jetson ASR, LLM, and TTS memory budget, and starts the resident services in
+dependency order. Each service must report healthy before the next service starts. This
+prevents a late ASR cache allocation from competing with already initialized model engines.
+It does not change the A6000 deployment path. It also validates the CPU INT8 verification
+backend, raw CUDA device access, CUDA imports, and
 TranslateGemma model configuration before Compose starts the resident containers. A
 segmentation fault in the device-count probe stops deployment before resident services
 enter a restart loop. The commands below are the manual path after those checks have
-passed.
+passed. The manual Compose path does not perform the memory-budget check or sequential
+startup; use the management script for Jetson memory coordination.
 
 ```bash
 docker compose -f docker/compose.yaml up -d asr asr-verify llm tts

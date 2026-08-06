@@ -42,6 +42,7 @@ from kotonoha.prompts._translate import build_translate_messages
 from kotonoha.store._db import Store
 
 log = get_logger(__name__)
+RESOURCE_POLL_SECONDS = 10.0
 
 
 class Orchestrator:
@@ -49,6 +50,7 @@ class Orchestrator:
         "__dict__",
         "_busy",
         "_frame_task",
+        "_resource_task",
         "_running",
         "asr_verifier",
         "capture",
@@ -88,6 +90,7 @@ class Orchestrator:
     traditionalizer: TraditionalChineseConverter
     last_language: str | None
     _frame_task: asyncio.Task[None] | None
+    _resource_task: asyncio.Task[None] | None
     _running: bool
     _busy: asyncio.Lock
 
@@ -138,6 +141,7 @@ class Orchestrator:
         )
 
         self._frame_task = None
+        self._resource_task = None
         self._running = False
         self._busy = asyncio.Lock()
         self.last_language = self.store.last_language(self.session_id)
@@ -165,7 +169,10 @@ class Orchestrator:
         self._running = True
         self._frame_task = asyncio.create_task(self._frame_loop(), name="frame-loop")
         self.services.start_probes()
-        asyncio.create_task(self._probe_services(), name="probe")
+        self._resource_task = asyncio.create_task(
+            self._resource_loop(),
+            name="resource-loop",
+        )
         log.info(
             "orchestrator.started",
             session=self.session_id,
@@ -194,6 +201,12 @@ class Orchestrator:
                 await self._frame_task
             except asyncio.CancelledError:
                 pass
+        if self._resource_task:
+            self._resource_task.cancel()
+            try:
+                await self._resource_task
+            except asyncio.CancelledError:
+                pass
         await asyncio.to_thread(self.capture.stop)
         await asyncio.to_thread(self.playback.stop)
         await self.services.aclose()
@@ -205,8 +218,10 @@ class Orchestrator:
         self,
         /,
     ) -> None:
+        resource_status: dict[str, Any] = {}
         for role in self.services.all():
             health = await role.active.health()
+            resource_status[role.name] = health.get("resources", {})
             self.event_bus.emit(
                 "service",
                 name=role.name,
@@ -215,6 +230,16 @@ class Orchestrator:
                 degraded=role.degraded,
                 detail=health,
             )
+        log.info("resources.snapshot", services=resource_status)
+        self.event_bus.emit("resources", services=resource_status)
+
+    async def _resource_loop(
+        self,
+        /,
+    ) -> None:
+        while self._running:
+            await self._probe_services()
+            await asyncio.sleep(RESOURCE_POLL_SECONDS)
 
     def _on_placement_change(
         self,
