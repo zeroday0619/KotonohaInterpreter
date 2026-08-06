@@ -27,7 +27,7 @@ log = setup_logging(service="tts", console=True)
 EXPECTED_RELEASE: Final = (0, 26)
 DEFAULT_MODEL: Final = "/models/Qwen3-TTS-0.6B"
 DEFAULT_SERVED_MODEL_NAME: Final = "kotonoha-tts"
-DEFAULT_GPU_MEMORY_UTILIZATION: Final = 0.25
+DEFAULT_GPU_MEMORY_UTILIZATION: Final = 0.30
 DEFAULT_STARTUP_TIMEOUT_SECONDS: Final = 600.0
 
 

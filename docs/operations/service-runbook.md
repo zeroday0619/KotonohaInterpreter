@@ -141,7 +141,7 @@ requests. Treat this as a deployment failure on the A6000.
 | Realtime ASR WebSocket fails | Inspect `/v1/realtime`, service logs, and the configured realtime architecture | Restore the target model and architecture pair; rerun Spike 1 |
 | Verification downloads `large-v3` | Inspect `asr_verify.model_id` | Set `/models/faster-whisper-large-v3` |
 | LLM reports an incomplete model snapshot | Inspect `/models/llm` and the remote YAML | Correct `llm.models_dir`, profile, or model directory; restart `llm` |
-| vLLM-Omni TTS does not start | Inspect the selected image, CUDA initialization, model path, and Spike 2 log | Restore the pinned Omni image or correct the offline snapshot; do not infer compatibility from the manifest |
+| vLLM-Omni TTS does not start | Inspect the selected image, `No available memory for the cache blocks`, model path, and Spike 2 log | On Jetson, rebuild with `qwen3_tts_jetson.yaml` and `TTS_GPU_MEMORY_UTILIZATION=0.30`; restore the pinned Omni image or correct the offline snapshot; do not infer compatibility from the manifest |
 | Speech API returns an application error | Inspect the full response and TTS service log | Correct the model, voice, or language request; HTTP 4xx responses do not activate failover |
 | Remote TTS transport fails before audio | Inspect TTS health and orchestrator `failovers` | Correct the remote endpoint; the turn retries the resident Jetson vLLM-Omni service before the first PCM chunk |
 | CUDA is absent in a container | Inspect image output and `torch.version.cuda` | Restore the pinned CUDA base image; do not install a CPU PyTorch wheel |

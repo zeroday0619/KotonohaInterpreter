@@ -452,7 +452,7 @@ def main() -> int:
     argument_parser.add_argument("--port", type=int, default=18004)
     argument_parser.add_argument("--startup-timeout", type=float, default=600.0)
     argument_parser.add_argument("--request-timeout", type=float, default=120.0)
-    argument_parser.add_argument("--gpu-memory-utilization", type=float, default=0.25)
+    argument_parser.add_argument("--gpu-memory-utilization", type=float, default=0.30)
     argument_parser.add_argument(
         "--enforce-eager",
         action=argparse.BooleanOptionalAction,

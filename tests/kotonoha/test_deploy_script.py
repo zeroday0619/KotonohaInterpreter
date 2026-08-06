@@ -621,6 +621,26 @@ def test_tts_uses_the_fastapi_service_on_the_official_vllm_omni_base() -> None:
     assert "install_auth(app, \"tts\")" in server
 
 
+def test_jetson_tts_uses_a_single_sequence_memory_profile() -> None:
+    jetson_compose = yaml.safe_load(
+        (PROJECT_ROOT / "docker" / "compose.yaml").read_text(encoding="utf-8")
+    )
+    dockerfile = (PROJECT_ROOT / "docker" / "Dockerfile.tts").read_text(encoding="utf-8")
+    profile = yaml.safe_load(
+        (PROJECT_ROOT / "docker" / "tts" / "qwen3_tts_jetson.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    environment = jetson_compose["services"]["tts"]["environment"]
+    assert "TTS_DEPLOY_CONFIG=/opt/kotonoha/qwen3_tts_jetson.yaml" in environment
+    assert "TTS_GPU_MEMORY_UTILIZATION=${TTS_GPU_MEMORY_UTILIZATION:-0.30}" in environment
+    assert "COPY docker/tts/qwen3_tts_jetson.yaml" in dockerfile
+    assert [stage["max_num_seqs"] for stage in profile["stages"]] == [1, 1]
+    assert [stage["gpu_memory_utilization"] for stage in profile["stages"]] == [0.3, 0.3]
+    assert profile["stages"][0]["max_num_batched_tokens"] == 512
+
+
 def test_python_service_containers_force_uvloop() -> None:
     compose_paths = (
         PROJECT_ROOT / "docker" / "compose.yaml",

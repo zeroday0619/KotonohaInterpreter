@@ -395,7 +395,7 @@ if [ "$selected_spike" = "2" ] || [ "$selected_spike" = "all" ]; then
     --target "$deployment_target" \
     --model /models/Qwen3-TTS-0.6B \
     --runs "${BENCHMARK_RUNS:-3}" \
-    --gpu-memory-utilization "${TTS_GPU_MEMORY_UTILIZATION:-0.25}" \
+    --gpu-memory-utilization "${TTS_GPU_MEMORY_UTILIZATION:-0.30}" \
     --log "/workspace/$OUT/spike2-vllm-omni.log" \
     --out "/workspace/$OUT/spike2.json" || failure_count=$((failure_count + 1))
 fi

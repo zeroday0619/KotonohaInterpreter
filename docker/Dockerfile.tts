@@ -20,6 +20,7 @@ COPY pyproject.toml uv.lock README.md LICENSE hatch_build.py ./
 RUN uv sync --active --frozen --no-dev --no-install-project --no-cache
 
 COPY src ./src
+COPY docker/tts/qwen3_tts_jetson.yaml /opt/kotonoha/qwen3_tts_jetson.yaml
 RUN uv sync --active --frozen --no-dev --no-cache \
  && uv pip check --python "$UV_PYTHON" \
  && "$UV_PYTHON" -c \

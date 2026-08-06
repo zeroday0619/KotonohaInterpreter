@@ -498,6 +498,12 @@ or successful build also does not prove vLLM-Omni TTS loading.
 The Jetson images patch vLLM CUDA platform detection to skip NVML and use the non-NVML
 platform. Jetson's `nvgpu` runtime can segfault inside `nvmlInit()` instead of returning a
 Python exception. Deployment probes use the raw CUDA device-count API for the same reason.
+
+Jetson TTS uses `docker/tts/qwen3_tts_jetson.yaml` through `TTS_DEPLOY_CONFIG`. The profile
+limits both Qwen3-TTS stages to one sequence, sets each stage memory budget to `0.30`, and
+reduces Stage 0 prefill batching to 512 tokens. The upstream vLLM-Omni 0.26.0 profile is
+tuned for a single H100 with 64 sequences per stage, which is not appropriate for the
+sequential Jetson interpreter. A6000 keeps the upstream profile.
 The patch does not establish model or kernel compatibility; those remain target
 measurements.
 

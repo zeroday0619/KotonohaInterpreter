@@ -111,7 +111,7 @@ The A6000 runner accepts tuning conditions through environment variables:
 | `LLM_GPU_MEMORY_UTILIZATION` | `0.80` | Spike 3 |
 | `LLM_MODELS_DIR` | `./models/llm` | Spike 3 |
 | `BENCHMARK_RUNS` | `3` | Spikes 2 and 3 |
-| `TTS_GPU_MEMORY_UTILIZATION` | `0.25` | Spike 2 |
+| `TTS_GPU_MEMORY_UTILIZATION` | `0.30` | Spike 2 |
 | `ASR_ONLY` | `vllm` on A6000 | Spike 1 |
 | `OUT` | Target output directory | All probes |
 
