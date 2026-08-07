@@ -879,6 +879,73 @@ def _backend() -> Any:
     return backend
 
 
+def _audio_statistics(
+    audio: np.ndarray,
+    /,
+) -> dict[str, float]:
+    samples = np.asarray(audio, dtype=np.float32).reshape(-1)
+    peak = float(np.max(np.abs(samples), initial=0.0))
+    root_mean_square = (
+        float(np.sqrt(np.mean(np.square(samples), dtype=np.float64)))
+        if samples.size
+        else 0.0
+    )
+    clipped_fraction = float(np.mean(np.abs(samples) >= 0.999)) if samples.size else 0.0
+    return {
+        "duration_s": round(samples.size / 16000.0, 3),
+        "peak_dbfs": round(20.0 * np.log10(max(peak, 1e-12)), 1),
+        "rms_dbfs": round(20.0 * np.log10(max(root_mean_square, 1e-12)), 1),
+        "clipped_fraction": round(clipped_fraction, 6),
+    }
+
+
+async def _transcribe_audio(
+    backend: Any,
+    audio: np.ndarray,
+    request: TranscribeRequest,
+    transport: str,
+    /,
+) -> dict[str, Any]:
+    request_id = f"asr-{uuid4().hex[:12]}"
+    statistics = _audio_statistics(audio)
+    log.info(
+        "asr.transcription_started",
+        request_id=request_id,
+        transport=transport,
+        n_best=request.n_best,
+        num_beams=request.num_beams,
+        **statistics,
+    )
+    started_at = time.perf_counter()
+    try:
+        if isinstance(backend, VllmBackend):
+            result = await backend.transcribe(audio, request)
+        else:
+            result = await asyncio.to_thread(backend.transcribe, audio, request)
+    except Exception as error:
+        log.exception(
+            "asr.transcription_failed",
+            request_id=request_id,
+            transport=transport,
+            elapsed_ms=round((time.perf_counter() - started_at) * 1000, 1),
+            error=repr(error),
+        )
+        raise
+    log.info(
+        "asr.transcription_finished",
+        request_id=request_id,
+        transport=transport,
+        elapsed_ms=round((time.perf_counter() - started_at) * 1000, 1),
+        infer_ms=result.get("infer_ms"),
+        hypotheses=len(result.get("hypotheses", [])),
+        empty=not any(
+            str(hypothesis.get("text", "")).strip()
+            for hypothesis in result.get("hypotheses", [])
+        ),
+    )
+    return result
+
+
 @app.post("/transcribe")
 @keyword_compatible
 async def transcribe(
@@ -896,9 +963,7 @@ async def transcribe(
         raise HTTPException(409, str(error)) from error
     except FileNotFoundError as error:
         raise HTTPException(503, f"shm not available: {error}") from error
-    if isinstance(backend, VllmBackend):
-        return await backend.transcribe(audio, request)
-    return await asyncio.to_thread(backend.transcribe, audio, request)
+    return await _transcribe_audio(backend, audio, request, "shared_memory")
 
 
 @app.post("/transcribe/upload")
@@ -937,10 +1002,7 @@ async def transcribe_upload(
             if key in known_fields and key != "audio"
         }
     )
-    if isinstance(backend, VllmBackend):
-        result = await backend.transcribe(pcm, request)
-    else:
-        result = await asyncio.to_thread(backend.transcribe, pcm, request)
+    result = await _transcribe_audio(backend, pcm, request, "multipart")
     result["received_bytes"] = len(raw)
     return result
 

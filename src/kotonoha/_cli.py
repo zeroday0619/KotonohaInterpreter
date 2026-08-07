@@ -79,17 +79,7 @@ def _build(
         playback = NullPlayback(settings.audio, settings.tts)
     else:
         capture = MicCapture(settings.audio, vad_config)
-        try:
-            import sounddevice
-
-            sounddevice.check_output_settings(
-                device=settings.audio.output_device,
-                samplerate=settings.audio.playback_sample_rate,
-                channels=1,
-            )
-            playback = Playback(settings.audio, settings.tts)
-        except Exception:  # noqa: BLE001
-            playback = NullPlayback(settings.audio, settings.tts)
+        playback = Playback(settings.audio, settings.tts)
 
     denoise_config = settings.frontend.denoise
     denoise_enabled = denoise_config.enabled and wave_path is None and not text_only
@@ -109,12 +99,13 @@ def _output_or_null(
     from kotonoha.audio._playback import NullPlayback, Playback
 
     try:
-        import sounddevice
+        from kotonoha.audio._devices import resolve_audio_stream
 
-        sounddevice.check_output_settings(
-            device=settings.audio.output_device,
-            samplerate=settings.audio.playback_sample_rate,
-            channels=1,
+        resolve_audio_stream(
+            settings.audio.output_device,
+            "output",
+            requested_sample_rate=settings.audio.playback_sample_rate,
+            requested_channels=1,
         )
         return Playback(settings.audio, settings.tts)
     except Exception:  # noqa: BLE001

@@ -19,7 +19,9 @@ session:
   languages: [ko, en, zh-TW, ja]
 
 audio:
-  input_device: null # null = system default. Check with `kotonoha devices`.
+  # Store "device name, host API" rather than a PortAudio index. Linux device
+  # indices change across reboots and USB reconnects. null selects the current default.
+  input_device: null # Check and test the selection through `kotonoha config`.
   output_device: null
   capture_sample_rate: 48000
   capture_block_ms: 20
@@ -110,7 +112,9 @@ asr:
   n_best: 5
   num_beams: 5
   max_new_tokens: 256
-  timeout_s: 4.0
+  # N-best beam search can exceed four seconds during a cold or contended turn.
+  # The latency budget remains an alert threshold; this value is a failure timeout.
+  timeout_s: 15.0
   # Below this average log-probability, cross-verification fires (§5.5).
   avg_logprob_threshold: -0.55
   lid:
@@ -162,6 +166,10 @@ tts:
   task_type: CustomVoice
   sample_rate: 24000
   timeout_s: 5.0
+  # vLLM-Omni's documented generation default is explicit so runtime upgrades
+  # cannot change it silently. The duration guard stops runaway codec generation.
+  max_new_tokens: 2048
+  max_audio_seconds: 30.0
   # Qwen3-TTS CustomVoice presets, constrained to each voice's native language.
   voices:
     ko: Sohee # Warm Korean female voice.

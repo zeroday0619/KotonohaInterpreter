@@ -414,6 +414,7 @@ class Orchestrator:
 
         pcm = await asyncio.to_thread(self._denoise, utterance, metrics)
         metrics.audio_seconds = round(pcm.size / self.settings.shm.sample_rate, 3)
+        self._record_audio_statistics(pcm, metrics)
 
         if pcm.size == 0:
             metrics.outcome = "empty_asr"
@@ -449,7 +450,7 @@ class Orchestrator:
         except (ServiceTimeout, ServiceError) as error:
             log.error("asr.failed", error=repr(error))
             self.event_bus.emit("error", where="asr", message=str(error))
-            metrics.outcome = "empty_asr"
+            metrics.outcome = "asr_failed"
             await self._finish(metrics, None, None, None, failover_baseline)
             return
         metrics.mark("asr_done")
@@ -902,6 +903,39 @@ class Orchestrator:
         self.event_bus.emit("first_audio", ms=metrics.rel_ms("first_audio"))
 
     # -- noise suppression -------------------------------------------------
+    def _record_audio_statistics(
+        self,
+        pcm: np.ndarray,
+        metrics: TurnMetrics,
+        /,
+    ) -> None:
+        del self
+        peak = float(np.max(np.abs(pcm), initial=0.0))
+        root_mean_square = (
+            float(np.sqrt(np.mean(np.square(pcm), dtype=np.float64)))
+            if pcm.size
+            else 0.0
+        )
+        peak_dbfs = round(20.0 * np.log10(max(peak, 1e-12)), 1)
+        rms_dbfs = round(20.0 * np.log10(max(root_mean_square, 1e-12)), 1)
+        clipped_fraction = (
+            round(float(np.mean(np.abs(pcm) >= 0.999)), 6) if pcm.size else 0.0
+        )
+        metrics.notes.update(
+            {
+                "input_peak_dbfs": peak_dbfs,
+                "input_rms_dbfs": rms_dbfs,
+                "input_clipped_fraction": clipped_fraction,
+            }
+        )
+        log.info(
+            "asr.input_audio",
+            duration_s=metrics.audio_seconds,
+            peak_dbfs=peak_dbfs,
+            rms_dbfs=rms_dbfs,
+            clipped_fraction=clipped_fraction,
+        )
+
     def _denoise(
         self,
         /,

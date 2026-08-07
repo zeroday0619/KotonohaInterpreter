@@ -232,8 +232,12 @@ FIELD_DESCRIPTIONS: dict[str, str] = {
     "asr_verify.mode": N_(
             "conditional verifies only low-confidence turns; always verifies every turn."
     ),
-    "audio.input_device": N_("Microphone index or name. Empty selects the system default."),
-    "audio.output_device": N_("Speaker index or name. Empty selects the system default."),
+    "audio.input_device": N_(
+        "Stable microphone name and host API. Empty selects the system default."
+    ),
+    "audio.output_device": N_(
+        "Stable speaker name and host API. Empty selects the system default."
+    ),
     "frontend.denoise.enabled": N_("DeepFilterNet3 noise suppression."),
     "frontend.vad.backend": N_("silero_onnx on the device; energy is a workstation fallback."),
     "frontend.vad.preroll_ms": N_(
@@ -791,7 +795,7 @@ class ConfigApp(App):
 
         button = self.query_one("#audio-test", Button)
         button.disabled = True
-        self._say(_("Testing input and output devices..."), "yellow")
+        self._say(_("Speak while the microphone and speaker test runs..."), "yellow")
         try:
             result = await asyncio.to_thread(
                 probe_audio_devices,
@@ -930,13 +934,26 @@ class ConfigApp(App):
     ) -> None:
         if result.ok:
             self._say(_("Audio device test passed"), "green")
+            level = (
+                f"{result.input_peak_dbfs:.1f} dBFS"
+                if result.input_peak_dbfs is not None
+                else _("unknown level")
+            )
             self.query_one("#audio-test-status", Static).update(
-                Text(_("Input and output streams opened successfully"), style="green")
+                Text(
+                    _(
+                        "Microphone signal detected at {level}; speaker test tone sent",
+                        level=level,
+                    ),
+                    style="green",
+                )
             )
             return
         messages: list[str] = []
         if result.input_error:
             messages.append(_("Input device test failed: {error}", error=result.input_error))
+        elif result.input_signal_detected is False:
+            messages.append(_("Input stream opened but no microphone signal was detected"))
         if result.output_error:
             messages.append(_("Output device test failed: {error}", error=result.output_error))
         message = " ".join(messages)
@@ -990,7 +1007,7 @@ class ConfigApp(App):
         direction = "input" if specification.path == "audio.input_device" else "output"
         options: list[tuple[str, int | str]] = [(_("System default"), "")]
         options.extend(
-            (device.label, device.index)
+            (device.label, device.selector)
             for device in self.audio_devices
             if (direction == "input" and device.input_channels > 0)
             or (direction == "output" and device.output_channels > 0)

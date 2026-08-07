@@ -50,7 +50,8 @@ class TurnMetrics:
     perf_mode: str | None = None
     placement: dict[str, str] | None = None
     failovers: int = 0
-    outcome: str = "ok"  # ok | empty_asr | llm_timeout | tts_failed | oom | aborted
+    # Service failures remain distinct from a valid empty transcription.
+    outcome: str = "ok"  # ok | empty_asr | asr_failed | llm_timeout | tts_failed | aborted
     notes: dict[str, Any] = field(default_factory=dict)
 
     # -- marking ---------------------------------------------------------

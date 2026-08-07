@@ -29,7 +29,15 @@ from kotonoha._typing import override
 from kotonoha.store._db import HistoryEntry, Store
 
 PAGE_SIZE = 200
-OUTCOMES = ("ok", "empty_asr", "llm_timeout", "tts_failed", "oom", "aborted")
+OUTCOMES = (
+    "ok",
+    "empty_asr",
+    "asr_failed",
+    "llm_timeout",
+    "tts_failed",
+    "oom",
+    "aborted",
+)
 ANY = "__any__"
 
 

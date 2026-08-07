@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 from kotonoha._config import LatencyBudgetConfig
 from kotonoha._metrics import TurnMetrics
+from kotonoha.core._orchestrator import Orchestrator
 from kotonoha.core._state import IllegalTransition, Machine, State
 
 
@@ -98,3 +100,17 @@ def test_turn_dict_carries_required_fields() -> None:
         "cross_verify_fired", "audio_seconds", "output_tokens",
     ):
         assert k in d
+
+
+def test_input_signal_statistics_are_preserved_in_turn_notes() -> None:
+    orchestrator = object.__new__(Orchestrator)
+    metrics = TurnMetrics(audio_seconds=0.25)
+
+    orchestrator._record_audio_statistics(
+        np.array([0.0, 0.25, -0.5, 1.0], dtype=np.float32),
+        metrics,
+    )
+
+    assert metrics.notes["input_peak_dbfs"] == 0.0
+    assert metrics.notes["input_rms_dbfs"] == pytest.approx(-4.8, abs=0.1)
+    assert metrics.notes["input_clipped_fraction"] == 0.25

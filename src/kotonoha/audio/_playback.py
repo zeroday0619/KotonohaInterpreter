@@ -18,6 +18,7 @@ import numpy as np
 from kotonoha._config import AudioConfig, TextToSpeechConfig
 from kotonoha._logging_setup import get_logger
 from kotonoha._typing import override
+from kotonoha.audio._devices import resolve_audio_stream
 from kotonoha.audio._resample import Resampler
 
 log = get_logger(__name__)
@@ -29,6 +30,9 @@ class Playback:
         "_current",
         "_lock",
         "_loop",
+        "_output_channels",
+        "_output_device",
+        "_output_sample_rate",
         "_position",
         "_queue",
         "_resampler",
@@ -50,6 +54,9 @@ class Playback:
     _resampler: Resampler
     _loop: asyncio.AbstractEventLoop | None
     _closing: bool
+    _output_channels: int
+    _output_device: int | None
+    _output_sample_rate: int
 
     @override
     def __init__(
@@ -65,9 +72,12 @@ class Playback:
         self._current = None
         self._position = 0
         self._stream = None
+        self._output_channels = 1
+        self._output_device = None
+        self._output_sample_rate = audio.playback_sample_rate
         self._resampler = Resampler(
             text_to_speech.sample_rate,
-            audio.playback_sample_rate,
+            self._output_sample_rate,
         )
 
         self._loop = None
@@ -85,6 +95,19 @@ class Playback:
         import sounddevice
 
         self._loop = loop or asyncio.get_event_loop()
+        stream_settings = resolve_audio_stream(
+            self.audio.output_device,
+            "output",
+            requested_sample_rate=self.audio.playback_sample_rate,
+            requested_channels=1,
+        )
+        self._output_sample_rate = stream_settings.sample_rate
+        self._output_channels = stream_settings.channels
+        self._output_device = stream_settings.device_index
+        self._resampler = Resampler(
+            self.text_to_speech.sample_rate,
+            self._output_sample_rate,
+        )
 
         def playback_callback(
             output_data: Any,
@@ -102,7 +125,7 @@ class Playback:
                         self._current = self._queue.popleft() if self._queue else None
                     self._position = 0
                     if self._current is None:
-                        output_data[written:, 0] = 0.0
+                        output_data[written:, :] = 0.0
                         if written > 0 or not self.drained.is_set():
                             self._signal_drained()
                         return
@@ -110,23 +133,28 @@ class Playback:
                     frame_count - written,
                     self._current.size - self._position,
                 )
-                output_data[written : written + write_count, 0] = self._current[
-                    self._position : self._position + write_count
-                ]
+                samples = self._current[self._position : self._position + write_count]
+                output_data[written : written + write_count, :] = samples[:, np.newaxis]
                 self._position += write_count
                 written += write_count
                 if not self.first_packet.is_set():
                     self._signal_first()
 
         self._stream = sounddevice.OutputStream(
-            samplerate=self.audio.playback_sample_rate,
-            channels=1,
+            samplerate=self._output_sample_rate,
+            channels=self._output_channels,
             dtype="float32",
-            device=self.audio.output_device,
+            device=self._output_device,
             callback=playback_callback,
         )
         self._stream.start()
-        log.info("playback.started", rate=self.audio.playback_sample_rate)
+        log.info(
+            "playback.started",
+            rate=self._output_sample_rate,
+            requested_rate=self.audio.playback_sample_rate,
+            channels=self._output_channels,
+            device=stream_settings.selector,
+        )
 
     def stop(
         self,
@@ -158,11 +186,11 @@ class Playback:
         if samples.size == 0:
             return
         source_rate = rate or self.text_to_speech.sample_rate
-        if source_rate != self.audio.playback_sample_rate:
+        if source_rate != self._output_sample_rate:
             resampler = (
                 self._resampler
                 if source_rate == self.text_to_speech.sample_rate
-                else Resampler(source_rate, self.audio.playback_sample_rate)
+                else Resampler(source_rate, self._output_sample_rate)
             )
             samples = resampler(samples)
         with self._lock:
@@ -205,7 +233,7 @@ class Playback:
             sample_count = sum(chunk.size for chunk in self._queue)
         if self._current is not None:
             sample_count += max(0, self._current.size - self._position)
-        return sample_count / float(self.audio.playback_sample_rate)
+        return sample_count / float(self._output_sample_rate)
 
     async def wait_drained(
         self,

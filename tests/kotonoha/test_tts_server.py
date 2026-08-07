@@ -152,8 +152,11 @@ async def test_fastapi_speech_endpoint_returns_the_direct_runtime_stream(
 
     assert b"".join(chunks) == b"\x00\x00\x01\x00"
     assert response.media_type == "audio/pcm"
+    assert response.headers["x-kotonoha-audio-format"] == "s16le"
+    assert response.headers["x-kotonoha-sample-rate"] == "24000"
     assert speech.request is not None
     assert speech.request["model"] == "kotonoha-tts"
     assert speech.request["voice"] == "Sohee"
     assert speech.request["stream_format"] == "audio"
+    assert speech.request["max_new_tokens"] == 2048
     assert speech.raw_request is raw_request

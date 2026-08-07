@@ -203,8 +203,8 @@ async def test_config_editor_uses_device_selectors(
 ) -> None:
     def fake_query_audio_devices() -> tuple[AudioDevice, ...]:
         return (
-            AudioDevice(1, "Microphone", 2, 0, 48000.0),
-            AudioDevice(2, "Speaker", 0, 2, 48000.0),
+            AudioDevice(1, "Microphone", "ALSA", 2, 0, 48000.0),
+            AudioDevice(2, "Speaker", "ALSA", 0, 2, 48000.0),
         )
 
     monkeypatch.setattr(config_app, "query_audio_devices", fake_query_audio_devices)
@@ -217,8 +217,14 @@ async def test_config_editor_uses_device_selectors(
         assert output_row.specification.kind == "device"
         assert isinstance(input_row.editor, Select)
         assert isinstance(output_row.editor, Select)
-        assert {value for _, value in input_row.editor._options} == {"", 1}
-        assert {value for _, value in output_row.editor._options} == {"", 2}
+        assert {value for _, value in input_row.editor._options} == {
+            "",
+            "Microphone, ALSA",
+        }
+        assert {value for _, value in output_row.editor._options} == {
+            "",
+            "Speaker, ALSA",
+        }
 
 
 async def test_custom_mode_exposes_per_role_placement_selectors(
@@ -244,7 +250,7 @@ async def test_custom_mode_exposes_per_role_placement_selectors(
         assert row.value() == {"asr": "remote"}
 
 
-async def test_audio_device_selection_is_saved_as_an_index(
+async def test_audio_device_selection_is_saved_as_a_stable_selector(
     _positional_only: object | None = None,
     /,
     *,
@@ -254,17 +260,19 @@ async def test_audio_device_selection_is_saved_as_an_index(
     monkeypatch.setattr(
         config_app,
         "query_audio_devices",
-        lambda: (AudioDevice(3, "Microphone", 1, 0, 48000.0),),
+        lambda: (AudioDevice(3, "Microphone", "ALSA", 1, 0, 48000.0),),
     )
     target = tmp_path / "local.yaml"
     app = ConfigApp(local_path=target)
     async with app.run_test() as pilot:
         await pilot.pause()
         row = next(r for r in app._rows if r.specification.path == "audio.input_device")
-        row.editor.value = 3
+        row.editor.value = "Microphone, ALSA"
         app._say = lambda message, style: None  # noqa: ARG005
         await app.action_save()
-    assert yaml.safe_load(target.read_text(encoding="utf-8"))["audio"]["input_device"] == 3
+    assert yaml.safe_load(target.read_text(encoding="utf-8"))["audio"]["input_device"] == (
+        "Microphone, ALSA"
+    )
 
 
 async def test_audio_device_button_runs_the_stream_probe(
@@ -278,8 +286,8 @@ async def test_audio_device_button_runs_the_stream_probe(
         config_app,
         "query_audio_devices",
         lambda: (
-            AudioDevice(3, "Microphone", 1, 0, 48000.0),
-            AudioDevice(4, "Speaker", 0, 2, 48000.0),
+            AudioDevice(3, "Microphone", "ALSA", 1, 0, 48000.0),
+            AudioDevice(4, "Speaker", "ALSA", 0, 2, 48000.0),
         ),
     )
     captured: dict[str, Any] = {}

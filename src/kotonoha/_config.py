@@ -224,7 +224,7 @@ class AsrConfig(BaseModel):
     n_best: int = 5
     num_beams: int = 5
     max_new_tokens: int = 256
-    timeout_s: float = 4.0
+    timeout_s: float = Field(15.0, gt=0.0)
     avg_logprob_threshold: float = -0.55
     lid: LanguageIdentificationConfig = LanguageIdentificationConfig()
 
@@ -324,7 +324,9 @@ class TextToSpeechConfig(BaseModel):
     served_model_name: str = "kotonoha-tts"
     task_type: Literal["CustomVoice"] = "CustomVoice"
     sample_rate: int = Field(24000, ge=24000, le=24000)
-    timeout_s: float = 5.0
+    timeout_s: float = Field(5.0, gt=0.0)
+    max_new_tokens: int = Field(2048, ge=1, le=4096)
+    max_audio_seconds: float = Field(30.0, gt=0.0, le=120.0)
     voices: TextToSpeechVoices = Field(default_factory=TextToSpeechVoices)
 
 

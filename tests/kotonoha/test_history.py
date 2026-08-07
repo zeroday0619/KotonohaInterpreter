@@ -10,7 +10,7 @@ import pytest
 from kotonoha._i18n import set_locale, translate_to
 from kotonoha.store._db import HistoryEntry, Store
 from kotonoha.tui._app import HistoryPane
-from kotonoha.tui._history_app import HistoryApp, excerpt, export_jsonl
+from kotonoha.tui._history_app import OUTCOMES, HistoryApp, excerpt, export_jsonl
 
 
 @pytest.fixture(autouse=True)
@@ -106,6 +106,10 @@ def test_filters_compose(
     assert store.count_turns(src_lang="ko", outcome="ok") == 2
     assert store.count_turns(src_lang="ko", outcome="empty_asr") == 1
     assert [e.turn_id for e in store.search_turns(src_lang="ja")] == ["t3"]
+
+
+def test_history_outcomes_include_asr_service_failures() -> None:
+    assert "asr_failed" in OUTCOMES
 
 
 def test_target_filter_matches_broadcast_lists(

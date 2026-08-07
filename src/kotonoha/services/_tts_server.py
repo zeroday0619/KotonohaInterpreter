@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -67,6 +68,7 @@ class SpeechRequest(BaseModel):
     speed: float = Field(1.0, ge=0.25, le=4.0)
     stream: Literal[True] = True
     stream_format: Literal["audio"] = "audio"
+    max_new_tokens: int = Field(2048, ge=1, le=4096)
 
     @field_validator("voice", mode="before")
     @classmethod
@@ -468,13 +470,58 @@ class VllmOmniRuntime:
             return self._error_response(response)
         if not isinstance(response, Response):
             raise HTTPException(500, "vLLM-Omni returned an unsupported speech response")
+        media_type = (response.media_type or response.headers.get("content-type", ""))
+        media_type = media_type.split(";", 1)[0].lower()
+        if media_type != "audio/pcm":
+            raise HTTPException(
+                500,
+                f"vLLM-Omni returned {media_type or 'no media type'} instead of audio/pcm",
+            )
+        body_iterator = getattr(response, "body_iterator", None)
+        if body_iterator is not None:
+            response.body_iterator = self._observe_audio_stream(body_iterator, request)
+        response.headers["x-kotonoha-audio-format"] = "s16le"
+        response.headers["x-kotonoha-sample-rate"] = "24000"
         log.info(
             "tts.synthesis_started",
             language=request.language,
             voice=request.voice,
             characters=len(request.input),
+            max_new_tokens=request.max_new_tokens,
         )
         return response
+
+    async def _observe_audio_stream(
+        self,
+        body_iterator: AsyncIterator[Any],
+        request: SpeechRequest,
+        /,
+    ) -> AsyncIterator[Any]:
+        del self
+        byte_count = 0
+        started_at = time.perf_counter()
+        try:
+            async for chunk in body_iterator:
+                encoded_chunk = chunk.encode() if isinstance(chunk, str) else bytes(chunk)
+                byte_count += len(encoded_chunk)
+                yield chunk
+        except Exception as error:
+            log.exception(
+                "tts.synthesis_stream_failed",
+                language=request.language,
+                voice=request.voice,
+                bytes=byte_count,
+                error=repr(error),
+            )
+            raise
+        log.info(
+            "tts.synthesis_finished",
+            language=request.language,
+            voice=request.voice,
+            bytes=byte_count,
+            audio_seconds=round(byte_count / (24000 * 2), 3),
+            elapsed_ms=round((time.perf_counter() - started_at) * 1000, 1),
+        )
 
 
 RUNTIME = VllmOmniRuntime()

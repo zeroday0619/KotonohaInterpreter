@@ -276,7 +276,65 @@ async def test_vllm_omni_tts_request_streams_openai_compatible_pcm() -> None:
         "response_format": "pcm",
         "stream": True,
         "stream_format": "audio",
+        "max_new_tokens": 2048,
     }
+
+
+async def test_tts_rejects_a_wav_container_before_playback() -> None:
+    settings = load_settings()
+
+    def handle_request(
+        request: httpx2.Request,
+        /,
+    ) -> httpx2.Response:
+        del request
+        return httpx2.Response(
+            200,
+            headers={"content-type": "audio/pcm"},
+            content=b"RIFF\x24\x00\x00\x00WAVEfmt ",
+        )
+
+    client = TextToSpeechClient("http://test", settings.tts)
+    await client._client.aclose()
+    client._client = httpx2.AsyncClient(
+        base_url="http://test",
+        transport=httpx2.MockTransport(handle_request),
+    )
+    try:
+        with pytest.raises(ServiceError, match="WAV container"):
+            _ = [chunk async for chunk in client.synthesize("Hello", "en")]
+    finally:
+        await client.aclose()
+
+
+async def test_tts_rejects_a_declared_sample_rate_mismatch() -> None:
+    settings = load_settings()
+
+    def handle_request(
+        request: httpx2.Request,
+        /,
+    ) -> httpx2.Response:
+        del request
+        return httpx2.Response(
+            200,
+            headers={
+                "content-type": "audio/pcm",
+                "x-kotonoha-sample-rate": "16000",
+            },
+            content=b"\x00\x00",
+        )
+
+    client = TextToSpeechClient("http://test", settings.tts)
+    await client._client.aclose()
+    client._client = httpx2.AsyncClient(
+        base_url="http://test",
+        transport=httpx2.MockTransport(handle_request),
+    )
+    try:
+        with pytest.raises(ServiceError, match="16000 Hz PCM"):
+            _ = [chunk async for chunk in client.synthesize("Hello", "en")]
+    finally:
+        await client.aclose()
 
 
 async def test_vllm_omni_health_accepts_an_empty_success_response() -> None:

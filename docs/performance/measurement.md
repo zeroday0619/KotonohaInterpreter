@@ -187,15 +187,38 @@ bash scripts/manage.sh benchmark a6000 --only 2
 The probe executes the vLLM-bundled FlashAttention-2 kernel, starts
 `kotonoha.services._tts_server`, waits for its in-process vLLM-Omni engine to pass
 `/health`, and records 24 kHz signed 16-bit PCM streaming measurements for Korean,
-English, Japanese, and Chinese. The full service and engine traceback is retained beside
-the JSON result.
+English, Japanese, and Chinese. It rejects a WAV container or mismatched content type,
+records peak, RMS, and clipping statistics, and writes one playable WAV file per language
+under `spikes/out/<target>/tts-samples/`. The full service and engine traceback is
+retained beside the JSON result.
 
 | Criterion | Requirement |
 |---|---|
 | TTS backend | vLLM-Omni Qwen3-TTS on both targets |
 | First PCM packet | 300 ms or less after a warm request |
-| Language output | Non-empty PCM for all four languages |
+| Language output | Non-empty, non-silent, non-clipped PCM for all four languages |
 | Kernel result | FlashAttention returns finite output with the expected shape |
+
+Listen to all four WAV files before accepting the TTS path. Signal statistics detect
+format, silence, and clipping failures but cannot prove that the spoken content matches
+the input text. Record the listening result in the Phase 0 report. A model change requires
+the same four-language comparison against the existing snapshot.
+
+After deploying the resident ASR and TTS services, run the intelligibility gate from the
+orchestrator container:
+
+```bash
+docker compose -f docker/compose.yaml run --rm orchestrator \
+  python3 scripts/py/speech_quality.py \
+  --output-directory spikes/out/speech-quality
+```
+
+The diagnostic synthesizes one native-language phrase per supported language, writes
+playable WAV files, sends each waveform to the deployed ASR upload endpoint, and reports
+normalized character error rate. The default acceptance threshold is `0.35`. A failure
+with valid signal statistics identifies TTS content quality or ASR round-trip accuracy,
+not an audio container or playback-device failure. Inspect the WAV file before assigning
+the failure to one model.
 
 ## Translation Measurement
 

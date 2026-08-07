@@ -577,8 +577,12 @@ docker compose -f docker/compose.yaml run --rm orchestrator \
   python3 -m kotonoha._cli config
 ```
 
-Set `audio.input_device` and `audio.output_device` to a stable device name when possible.
-Numeric PortAudio indexes can change when USB devices are reconnected. The configuration
+Set `audio.input_device` and `audio.output_device` through the configuration TUI. It stores
+the exact `device name, host API` selector because numeric PortAudio indexes can change
+after a reboot or USB reconnect. The audio test reads 750 ms from the selected microphone,
+reports the measured level, and sends a low-volume tone to the selected speaker. The
+runtime first tries the configured sample rate and mono channel layout, then uses the
+device default rate or stereo when ALSA rejects the requested format. The configuration
 TUI writes `config/local.yaml` only after validating the complete configuration.
 
 Import the baseline glossary:

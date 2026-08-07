@@ -1,15 +1,15 @@
 """Microphone capture and half-duplex gating.
 
-Capture runs at 48 kHz for two reasons:
+Capture prefers 48 kHz for two reasons:
   1. DeepFilterNet3 is 48 kHz only. Downsample to 16k first and it is unusable.
   2. Most USB microphones default to 48k, so resampling happens exactly once
      outside the kernel.
 
-The VAD runs on 16k frames while the original 48k audio is kept in a separate
-ring. When EOU fires, the utterance length in 16k samples is multiplied by three
-and that many samples are pulled from the 48k ring for noise suppression. (The
-streaming resampler retains bounded frame carry. The preroll remains attached to
-the segmented utterance.)
+The selected device can reject 48 kHz. In that case PortAudio opens the device at
+its native rate and the capture path resamples to 16 kHz for VAD. The original-rate
+audio remains in a separate ring and is converted to 48 kHz only when DeepFilterNet
+needs it. This avoids losing the microphone entirely because an ALSA endpoint does
+not expose the configured rate.
 
 Half-duplex gating (§4): closing the gate in SPEAKING drops incoming blocks on
 the spot and resets the resampler and VAD state. If TTS output leaks back into
@@ -30,6 +30,7 @@ import numpy as np
 from kotonoha._config import AudioConfig, VadConfig
 from kotonoha._logging_setup import get_logger
 from kotonoha._typing import override
+from kotonoha.audio._devices import resolve_audio_stream, select_mono_input
 from kotonoha.audio._resample import Resampler
 
 log = get_logger(__name__)
@@ -110,9 +111,13 @@ class RawRing:
 class MicCapture:
     __slots__: ClassVar[tuple[str, ...]] = (
         "_gate_open",
+        "_capture_channels",
+        "_capture_device",
+        "_capture_sample_rate",
         "_pending_samples",
         "_raw_capture",
         "_raw_queue",
+        "_ring_seconds",
         "_resampler",
         "_sample_index",
         "_stop_event",
@@ -135,10 +140,14 @@ class MicCapture:
     _worker_thread: threading.Thread | None
     _stop_event: threading.Event
     _gate_open: threading.Event
+    _capture_channels: int
+    _capture_device: int | None
+    _capture_sample_rate: int
     _resampler: Resampler
     _pending_samples: np.ndarray
     _sample_index: int
     _raw_capture: RawRing
+    _ring_seconds: float
     _window_size: int
 
     @override
@@ -162,12 +171,15 @@ class MicCapture:
         self._gate_open = threading.Event()
         self._gate_open.set()
 
-        self._resampler = Resampler(audio.capture_sample_rate, audio.work_sample_rate)
+        self._capture_sample_rate = audio.capture_sample_rate
+        self._capture_channels = audio.channels
+        self._capture_device = None
+        self._resampler = Resampler(self._capture_sample_rate, audio.work_sample_rate)
         self._pending_samples = np.zeros(0, dtype=np.float32)
         self._sample_index = 0
 
-        ring_seconds = (vad.max_utterance_ms + vad.preroll_ms) / 1000.0 + 2.0
-        self._raw_capture = RawRing(int(ring_seconds * audio.capture_sample_rate))
+        self._ring_seconds = (vad.max_utterance_ms + vad.preroll_ms) / 1000.0 + 2.0
+        self._raw_capture = RawRing(int(self._ring_seconds * self._capture_sample_rate))
         self.dropped_blocks = 0
         self.overflows = 0
 
@@ -210,6 +222,23 @@ class MicCapture:
         import sounddevice as sd
 
         self.loop = self.loop or asyncio.get_event_loop()
+        stream_settings = resolve_audio_stream(
+            self.audio.input_device,
+            "input",
+            requested_sample_rate=self.audio.capture_sample_rate,
+            requested_channels=self.audio.channels,
+        )
+        self._capture_sample_rate = stream_settings.sample_rate
+        self._capture_channels = stream_settings.channels
+        self._capture_device = stream_settings.device_index
+        self._resampler = Resampler(
+            self._capture_sample_rate,
+            self.audio.work_sample_rate,
+        )
+        self._raw_capture = RawRing(int(self._ring_seconds * self._capture_sample_rate))
+        block_frames = int(
+            self._capture_sample_rate * self.audio.capture_block_ms / 1000
+        )
 
         def capture_callback(
             input_data: Any,
@@ -224,18 +253,16 @@ class MicCapture:
                 self.dropped_blocks += 1
                 return
             try:
-                self._raw_queue.put_nowait(
-                    np.array(input_data[:, 0], dtype=np.float32, copy=True)
-                )
+                self._raw_queue.put_nowait(select_mono_input(input_data).copy())
             except queue.Full:
                 self.overflows += 1
 
         self._stream = sd.InputStream(
-            samplerate=self.audio.capture_sample_rate,
-            blocksize=self.audio.capture_block_frames,
-            channels=self.audio.channels,
+            samplerate=self._capture_sample_rate,
+            blocksize=block_frames,
+            channels=self._capture_channels,
             dtype="float32",
-            device=self.audio.input_device,
+            device=self._capture_device,
             callback=capture_callback,
         )
         self._stream.start()
@@ -247,9 +274,11 @@ class MicCapture:
         self._worker_thread.start()
         log.info(
             "mic.started",
-            rate=self.audio.capture_sample_rate,
+            rate=self._capture_sample_rate,
+            requested_rate=self.audio.capture_sample_rate,
+            channels=self._capture_channels,
             block_ms=self.audio.capture_block_ms,
-            device=str(self.audio.input_device),
+            device=stream_settings.selector,
         )
 
     def stop(
@@ -273,8 +302,13 @@ class MicCapture:
         /,
         work_sample_count: int,
     ) -> np.ndarray:
-        ratio = self.audio.capture_sample_rate / self.audio.work_sample_rate
-        return self._raw_capture.tail(int(work_sample_count * ratio))
+        ratio = self._capture_sample_rate / self.audio.work_sample_rate
+        raw_audio = self._raw_capture.tail(int(work_sample_count * ratio))
+        if self._capture_sample_rate == 48000:
+            return raw_audio
+        from kotonoha.audio._resample import resample_once
+
+        return resample_once(raw_audio, self._capture_sample_rate, 48000)
 
     # -- internals -------------------------------------------------------
     def _drain_raw_queue(

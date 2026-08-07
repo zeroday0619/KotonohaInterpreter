@@ -19,8 +19,11 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import wave
 from pathlib import Path
 from typing import BinaryIO
+
+import numpy as np
 
 PROBE_TEXT = {
     "Korean": "안녕하세요, 지금 통역기 성능을 확인하고 있습니다.",
@@ -223,6 +226,7 @@ def request_speech(
     voice: str,
     port: int,
     timeout_seconds: float,
+    output_path: Path | None = None,
 ) -> dict:
     payload = json.dumps(
         {
@@ -234,6 +238,7 @@ def request_speech(
             "response_format": "pcm",
             "stream": True,
             "stream_format": "audio",
+            "max_new_tokens": 2048,
         }
     ).encode()
     connection = http.client.HTTPConnection("127.0.0.1", port, timeout=timeout_seconds)
@@ -251,6 +256,9 @@ def request_speech(
         if response.status != 200:
             detail = response.read().decode(errors="replace")
             raise RuntimeError(f"Speech API returned {response.status}: {detail[:2000]}")
+        content_type = response.getheader("content-type", "").split(";", 1)[0].lower()
+        if content_type != "audio/pcm":
+            raise RuntimeError(f"Speech API returned {content_type or 'no content type'}")
         while True:
             chunk = response.read1(65536)
             if not chunk:
@@ -263,6 +271,21 @@ def request_speech(
     finished_at = time.perf_counter()
     if not audio or len(audio) % SAMPLE_WIDTH:
         raise RuntimeError(f"invalid raw PCM byte count: {len(audio)}")
+    if audio[:4] == b"RIFF":
+        raise RuntimeError("Speech API returned a WAV container instead of raw PCM")
+    samples = np.frombuffer(audio, dtype="<i2").astype(np.float32) / 32768.0
+    peak = float(np.max(np.abs(samples), initial=0.0))
+    root_mean_square = float(np.sqrt(np.mean(np.square(samples), dtype=np.float64)))
+    clipped_fraction = float(np.mean(np.abs(samples) >= 0.999))
+    peak_dbfs = round(20.0 * np.log10(max(peak, 1e-12)), 1)
+    rms_dbfs = round(20.0 * np.log10(max(root_mean_square, 1e-12)), 1)
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with wave.open(str(output_path), "wb") as wave_writer:
+            wave_writer.setnchannels(1)
+            wave_writer.setsampwidth(SAMPLE_WIDTH)
+            wave_writer.setframerate(SAMPLE_RATE)
+            wave_writer.writeframes(audio)
     audio_seconds = len(audio) / (SAMPLE_RATE * SAMPLE_WIDTH)
     return {
         "bytes": len(audio),
@@ -275,6 +298,11 @@ def request_speech(
         ),
         "e2e_ms": round((finished_at - started_at) * 1000, 1),
         "rtf": round((finished_at - started_at) / audio_seconds, 3),
+        "peak_dbfs": peak_dbfs,
+        "rms_dbfs": rms_dbfs,
+        "clipped_fraction": round(clipped_fraction, 6),
+        "signal_valid": peak_dbfs > -60.0 and clipped_fraction < 0.05,
+        "sample_path": str(output_path) if output_path is not None else None,
     }
 
 
@@ -365,12 +393,18 @@ def run_vllm_omni(
             for language, text in PROBE_TEXT.items():
                 measurements = []
                 try:
+                    sample_path = (
+                        log_path.parent
+                        / "tts-samples"
+                        / f"{language.lower()}-custom-voice.wav"
+                    )
                     warmup = request_speech(
                         text,
                         language=language,
                         voice=PROBE_VOICE[language],
                         port=port,
                         timeout_seconds=request_timeout_seconds,
+                        output_path=sample_path,
                     )
                     for _ in range(runs):
                         measurements.append(
@@ -386,7 +420,10 @@ def run_vllm_omni(
                         if current_memory is not None:
                             result["gpu_memory_samples_mib"].append(current_memory)
                     result["languages"][language] = {
-                        "ok": True,
+                        "ok": bool(
+                            warmup["signal_valid"]
+                            and all(run["signal_valid"] for run in measurements)
+                        ),
                         "warmup": warmup,
                         "runs": measurements,
                         "median_ttfa_ms": round(

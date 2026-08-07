@@ -23,6 +23,7 @@ PERFORMANCE_DOCUMENT = PROJECT_ROOT / "docs" / "performance" / "measurement.md"
 FETCH_MODELS_SCRIPT = PROJECT_ROOT / "scripts" / "fetch_models.sh"
 REPORT_SCRIPT = PROJECT_ROOT / "spikes" / "report.py"
 RUNNER_SCRIPT = PROJECT_ROOT / "spikes" / "run_all.sh"
+SPEECH_QUALITY_SCRIPT = PROJECT_ROOT / "scripts" / "py" / "speech_quality.py"
 SPIKE_README = PROJECT_ROOT / "spikes" / "README.md"
 SPIKE1_SCRIPT = PROJECT_ROOT / "spikes" / "spike1_asr_load.py"
 SPIKE2_SCRIPT = PROJECT_ROOT / "spikes" / "spike2_flash_attn.py"
@@ -373,7 +374,13 @@ def test_hardware_spikes_use_target_specific_docker_images() -> None:
     assert "google/translategemma-12b-it" in fetch_models_source
     assert '"/v1/audio/speech"' in spike2_source
     assert '"stream_format": "audio"' in spike2_source
+    assert "tts-samples" in spike2_source
+    assert "signal_valid" in spike2_source
     assert "probe_flash_attention" in spike2_source
+    speech_quality_source = SPEECH_QUALITY_SCRIPT.read_text(encoding="utf-8")
+    assert "character_error_rate" in speech_quality_source
+    assert "TextToSpeechClient" in speech_quality_source
+    assert "AsrClient" in speech_quality_source
     assert "bash scripts/manage.sh benchmark a6000 --only 1" in performance_document
 
 
