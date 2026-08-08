@@ -227,6 +227,29 @@ async def test_config_editor_uses_device_selectors(
         }
 
 
+async def test_config_editor_accepts_device_index_zero(
+    _positional_only: object | None = None,
+    /,
+    *,
+    monkeypatch: Any,
+    tmp_path: Any,
+) -> None:
+    monkeypatch.setattr(
+        config_app,
+        "query_audio_devices",
+        lambda: (AudioDevice(0, "Microphone", "ALSA", 1, 0, 48000.0),),
+    )
+    settings = load_settings()
+    settings.audio.input_device = 0
+    app = ConfigApp(local_path=tmp_path / "local.yaml", settings=settings)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        row = next(r for r in app._rows if r.specification.path == "audio.input_device")
+        assert row.editor.value == 0
+        assert 0 in {value for _, value in row.editor._options}
+
+
 async def test_config_editor_masks_the_remote_service_token(
     _positional_only: object | None = None,
     /,

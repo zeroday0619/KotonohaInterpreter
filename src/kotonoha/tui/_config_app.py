@@ -508,7 +508,7 @@ class FieldRow(Static):
     ) -> tuple[tuple[str, int | str], ...]:
         options = list(self.device_options)
         current_value = self._device_value(current)
-        if current_value and current_value not in {value for _, value in options}:
+        if current_value != "" and current_value not in {value for _, value in options}:
             options.insert(
                 1,
                 (
