@@ -12,7 +12,8 @@ deployment_target=""
 operation="deploy"
 uninstall_requested=false
 environment_file="$repository_root/.env"
-gpu_environment_file="$repository_root/config/remote-gpu.env"
+gpu_environment_file="$repository_root/config/a6000-gpu.env"
+legacy_gpu_environment_file="$repository_root/config/remote-gpu.env"
 health_timeout_seconds=600
 build_images=true
 prepare_jetson_power=true
@@ -31,33 +32,21 @@ docker_environment_names=(
   ACCELERATOR_OMNI_IMAGE
   ACCELERATOR_DEVICE_ENV
   ACCELERATOR_PROFILE
-  ACCELERATOR_REMOTE_BASE
+  ACCELERATOR_SERVICE_BASE
   ACCELERATOR_VLLM_IMAGE
   CONTAINER_RUNTIME
   GPU_DRIVER
   KOTONOHA_DISABLE_NVML
-  KOTONOHA_WEB_CONFIG
   KOTONOHA_WEB_HOST
-  KOTONOHA_WEB_LOCAL_CONFIG
   KOTONOHA_WEB_PORT
   KOTONOHA_WEB_SESSIONS
   VLLM_NVML_PATCH
   LLM_GPU_DEVICE
-  LLM_GPU_MEMORY_UTILIZATION
-  LLM_KV_CACHE_DTYPE
-  LLM_ENABLE_PREFIX_CACHING
-  LLM_MAX_NUM_BATCHED_TOKENS
-  LLM_COMPILATION_MODE
   LLM_IMAGE
-  LLM_MAX_MODEL_LEN
   MODELS_DIR
-  PROMETHEUS_PORT
-  REMOTE_ASR_BASE
-  REMOTE_BASE
+  SERVICE_BASE
   TRANSFORMERS_OFFLINE
-  TTS_ENFORCE_EAGER
   TTS_GPU_DEVICE
-  TTS_GPU_MEMORY_UTILIZATION
   TTS_IMAGE
   VERIFY_BASE
 )
@@ -252,19 +241,7 @@ if [ "$operation" = "deploy" ]; then
   require_command python3
 fi
 
-ensure_override() {
-  local example_path=$1
-  local target_path=$2
-  if [ -e "$target_path" ]; then
-    printf 'Using existing configuration: %s\n' "$target_path"
-    return
-  fi
-  cp "$example_path" "$target_path"
-  chmod 600 "$target_path"
-  printf 'Created configuration: %s\n' "$target_path"
-}
-
-ensure_remote_environment() {
+ensure_a6000_environment() {
   if [ -e "$environment_file" ]; then
     chmod 600 "$environment_file"
     local environment_token
@@ -280,12 +257,12 @@ ensure_remote_environment() {
     case "$environment_token" in
       *'<'*|*'>'*) fail "replace the token placeholder in $environment_file" ;;
     esac
-    configured_asr_image=$(sed -n 's/^REMOTE_ASR_BASE=//p' "$environment_file" | tail -n 1)
+    configured_asr_image=$(sed -n 's/^ASR_BASE=//p' "$environment_file" | tail -n 1)
     configured_asr_memory_mib=$(sed -n 's/^ASR_GPU_MEMORY_MIB=//p' "$environment_file" | tail -n 1)
     configured_llm_image=$(sed -n 's/^LLM_IMAGE=//p' "$environment_file" | tail -n 1)
     configured_tts_image=$(sed -n 's/^TTS_IMAGE=//p' "$environment_file" | tail -n 1)
     [ -z "$configured_asr_image" ] || [ "$configured_asr_image" = "$a6000_vllm_image" ] \
-      || fail "environment file must set REMOTE_ASR_BASE=$a6000_vllm_image"
+      || fail "environment file must set ASR_BASE=$a6000_vllm_image"
     if [ -n "$configured_asr_memory_mib" ]; then
       case "$configured_asr_memory_mib" in
         *[!0-9]*) fail "environment file ASR_GPU_MEMORY_MIB must be an integer" ;;
@@ -317,15 +294,10 @@ ensure_remote_environment() {
   {
     printf 'KOTONOHA_SERVICE_TOKEN=%s\n' "$service_token"
     printf 'MODELS_DIR=../models\n'
-    printf 'REMOTE_BASE=%s\n' "${ACCELERATOR_REMOTE_BASE:-pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime}"
-    printf 'REMOTE_ASR_BASE=%s\n' "$a6000_vllm_image"
+    printf 'SERVICE_BASE=%s\n' "${ACCELERATOR_SERVICE_BASE:-pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime}"
+    printf 'ASR_BASE=%s\n' "$a6000_vllm_image"
     printf 'TTS_IMAGE=%s\n' "$vllm_omni_image"
     printf 'LLM_IMAGE=%s\n' "$a6000_vllm_image"
-    printf 'LLM_MAX_MODEL_LEN=2048\n'
-    printf 'LLM_GPU_MEMORY_UTILIZATION=0.90\n'
-    printf 'LLM_MAX_NUM_BATCHED_TOKENS=4096\n'
-    printf 'LLM_ENABLE_PREFIX_CACHING=1\n'
-    printf 'LLM_COMPILATION_MODE=2\n'
     printf 'GPU_ALLOCATION_MODE=auto\n'
     printf 'GPU_NAME_FILTER=A6000\n'
     printf 'GPU_MEMORY_RESERVE_MIB=1024\n'
@@ -333,12 +305,10 @@ ensure_remote_environment() {
     printf 'ASR_GPU_MEMORY_MIB=14336\n'
     printf 'ASR_VERIFY_GPU_MEMORY_MIB=6144\n'
     printf 'TTS_GPU_MEMORY_MIB=3072\n'
-    printf 'TTS_GPU_MEMORY_UTILIZATION=0.25\n'
-    printf 'TTS_ENFORCE_EAGER=1\n'
     printf 'TRANSFORMERS_OFFLINE=1\n'
   } >"$environment_file"
   printf 'Created protected environment file: %s\n' "$environment_file"
-  printf 'Copy its KOTONOHA_SERVICE_TOKEN value to the Jetson through a secure channel.\n'
+  printf 'Store its KOTONOHA_SERVICE_TOKEN value in the deployment secret manager.\n'
 }
 
 check_common_speech_models() {
@@ -365,7 +335,7 @@ check_a6000_speech_models() {
   require_file "$models_path/Voxtral-Mini-4B-Realtime-2602/config.json"
 }
 
-remote_models_path() {
+a6000_models_path() {
   local configured_path=${MODELS_DIR:-}
   if [ -z "$configured_path" ]; then
     configured_path=$(sed -n 's/^MODELS_DIR=//p' "$environment_file" | tail -n 1)
@@ -443,7 +413,17 @@ load_gpu_environment() {
   [ -n "${TTS_GPU_DEVICE:-}" ] || fail "GPU allocation did not assign TTS"
 }
 
+migrate_legacy_gpu_environment() {
+  if [ -e "$gpu_environment_file" ] || [ ! -e "$legacy_gpu_environment_file" ]; then
+    return
+  fi
+  cp "$legacy_gpu_environment_file" "$gpu_environment_file"
+  chmod 600 "$gpu_environment_file"
+  printf 'Migrated GPU assignments to %s\n' "$gpu_environment_file"
+}
+
 allocate_a6000_gpus() {
+  migrate_legacy_gpu_environment
   local arguments=(
     python3 "$repository_root/scripts/py/allocate_gpus.py"
     --environment-file "$environment_file"
@@ -570,14 +550,14 @@ verify_vllm_translation_runtime() {
 }
 
 # The configuration probes report every mismatch at once. Each run costs a
-# container start on top of an image build, so exiting on the first stale key made
-# an operator repeat the cycle once per key in config/local.yaml.
+# container start on top of an image build, so all stale SQLite overrides are
+# reported together.
 verify_jetson_asr_configuration() {
   local compose_file=$1
 
   run_docker compose -f "$compose_file" run --rm --no-deps \
     --entrypoint /opt/kotonoha-venv/bin/python asr -c \
-    'import sys; from pathlib import Path; from kotonoha._config import load_settings; config = load_settings().asr; checks = [("asr.vllm_model_id", "/models/Qwen3-ASR-0.6B", str(Path(config.vllm_model_id))), ("asr.model_id", "/models/Qwen3-ASR-0.6B-hf", str(Path(config.model_id))), ("asr.vllm_realtime_architecture", "qwen3_asr", config.vllm_realtime_architecture)]; stale = [f"  {key}: effective {actual}, expected {expected}" for key, expected, actual in checks if actual != expected]; missing = [str(Path(path) / "config.json") for path in (config.vllm_model_id, config.model_id) if not (Path(path) / "config.json").is_file()]; stale and print("Stale asr overrides in config/local.yaml:", *stale, sep="\n"); missing and print("Offline ASR model files are missing:", *[f"  {item}" for item in missing], sep="\n"); (stale or missing) and sys.exit(1); print("Effective Jetson ASR models:", config.vllm_model_id, "| fallback", config.model_id)' \
+        'import sys; from pathlib import Path; from kotonoha._config import load_settings; config = load_settings().asr; checks = [("asr.vllm_model_id", "/models/Qwen3-ASR-0.6B", str(Path(config.vllm_model_id))), ("asr.model_id", "/models/Qwen3-ASR-0.6B-hf", str(Path(config.model_id))), ("asr.vllm_realtime_architecture", "qwen3_asr", config.vllm_realtime_architecture)]; stale = [f"  {key}: effective {actual}, expected {expected}" for key, expected, actual in checks if actual != expected]; missing = [str(Path(path) / "config.json") for path in (config.vllm_model_id, config.model_id) if not (Path(path) / "config.json").is_file()]; stale and print("Stale ASR overrides in SQLite settings:", *stale, sep="\n"); missing and print("Offline ASR model files are missing:", *[f"  {item}" for item in missing], sep="\n"); (stale or missing) and sys.exit(1); print("Effective Jetson ASR models:", config.vllm_model_id, "| fallback", config.model_id)' \
     || fail "Jetson ASR configuration does not select the mounted Qwen3-ASR 0.6B models"
 }
 
@@ -586,7 +566,7 @@ verify_jetson_asr_verification_runtime() {
 
   run_docker compose -f "$compose_file" run --rm --no-deps \
     --entrypoint /opt/kotonoha-venv/bin/python asr-verify -c \
-    'import sys; from pathlib import Path; import ctranslate2; from kotonoha._config import load_settings; config = load_settings().asr_verify; checks = [("asr_verify.device", "cpu", config.device), ("asr_verify.compute_type", "int8", config.compute_type)]; stale = [f"  {key}: effective {actual}, expected {expected}" for key, expected, actual in checks if actual != expected]; model_config = Path(config.model_id) / "config.json"; missing = [] if model_config.is_file() else [str(model_config)]; supported = sorted(ctranslate2.get_supported_compute_types("cpu")); unsupported = [] if config.compute_type in supported else [f"  asr_verify.compute_type {config.compute_type} is not in {supported}"]; stale and print("Stale asr_verify overrides in config/local.yaml:", *stale, sep="\n"); missing and print("Offline verification ASR model is missing:", *[f"  {item}" for item in missing], sep="\n"); unsupported and print("CTranslate2 cannot use the configured compute type:", *unsupported, sep="\n"); (stale or missing or unsupported) and sys.exit(1); print("Effective Jetson verification ASR:", config.device, config.compute_type, "| CTranslate2", ctranslate2.__version__)' \
+        'import sys; from pathlib import Path; import ctranslate2; from kotonoha._config import load_settings; config = load_settings().asr_verify; checks = [("asr_verify.device", "cpu", config.device), ("asr_verify.compute_type", "int8", config.compute_type)]; stale = [f"  {key}: effective {actual}, expected {expected}" for key, expected, actual in checks if actual != expected]; model_config = Path(config.model_id) / "config.json"; missing = [] if model_config.is_file() else [str(model_config)]; supported = sorted(ctranslate2.get_supported_compute_types("cpu")); unsupported = [] if config.compute_type in supported else [f"  asr_verify.compute_type {config.compute_type} is not in {supported}"]; stale and print("Stale verification ASR overrides in SQLite settings:", *stale, sep="\n"); missing and print("Offline verification ASR model is missing:", *[f"  {item}" for item in missing], sep="\n"); unsupported and print("CTranslate2 cannot use the configured compute type:", *unsupported, sep="\n"); (stale or missing or unsupported) and sys.exit(1); print("Effective Jetson verification ASR:", config.device, config.compute_type, "| CTranslate2", ctranslate2.__version__)' \
     || fail "Jetson verification ASR cannot use the configured CTranslate2 runtime"
 }
 
@@ -596,7 +576,7 @@ verify_jetson_memory_budget() {
 
   run_docker compose -f "$compose_file" run --rm --no-deps \
     --entrypoint /opt/kotonoha-venv/bin/python asr -c \
-    'import sys; from pathlib import Path; import yaml; from kotonoha._config import load_settings; settings = load_settings(); tts_profile = yaml.safe_load(Path("/app/docker/tts/qwen3_tts_jetson.yaml").read_text()); tts_utilization = max(float(stage["gpu_memory_utilization"]) for stage in tts_profile["stages"]); values = {"asr": settings.asr.vllm_gpu_memory_utilization, "llm": settings.llm.gpu_memory_utilization, "tts": tts_utilization}; total = sum(values.values()); print("Jetson resident memory budget:", " + ".join(f"{role}={value:.2f}" for role, value in values.items()), f"= {total:.2f}"); total <= float(sys.argv[1]) or sys.exit(f"resident vLLM memory budget {total:.2f} exceeds limit {float(sys.argv[1]):.2f}; lower a Jetson profile budget before starting services")' \
+    'import sys; from kotonoha._config import load_settings; settings = load_settings(); values = {"asr": settings.asr.vllm_gpu_memory_utilization, "llm": settings.llm.gpu_memory_utilization, "tts": settings.tts.gpu_memory_utilization}; total = sum(values.values()); print("Jetson resident memory budget:", " + ".join(f"{role}={value:.2f}" for role, value in values.items()), f"= {total:.2f}"); total <= float(sys.argv[1]) or sys.exit(f"resident vLLM memory budget {total:.2f} exceeds limit {float(sys.argv[1]):.2f}; lower a Jetson profile budget before starting services")' \
     "$maximum_utilization" \
     || fail "Jetson resident services exceed the configured unified-memory budget"
 }
@@ -613,7 +593,7 @@ verify_a6000_asr_configuration() {
 
   run_docker "${compose_arguments[@]}" run --rm --no-deps \
     --entrypoint python3 asr -c \
-    'import sys; from kotonoha._config import load_settings; value = load_settings().asr.vllm_gpu_memory_utilization; minimum = float(sys.argv[1]); value >= minimum or sys.exit(f"effective asr.vllm_gpu_memory_utilization is {value}; expected at least {minimum}. Remove KOTONOHA__ASR__VLLM_GPU_MEMORY_UTILIZATION or update config/remote-server.local.yaml."); print(f"Effective A6000 ASR GPU memory utilization: {value:.2f}")' \
+    'import sys; from kotonoha._config import load_settings; value = load_settings().asr.vllm_gpu_memory_utilization; minimum = float(sys.argv[1]); value >= minimum or sys.exit(f"effective asr.vllm_gpu_memory_utilization is {value}; expected at least {minimum}. Remove the environment override or reset asr.vllm_gpu_memory_utilization in the Web settings."); print(f"Effective A6000 ASR GPU memory utilization: {value:.2f}")' \
     "$minimum_gpu_memory_utilization" \
     || fail "A6000 ASR configuration cannot provide the measured Voxtral KV-cache budget"
 }
@@ -633,15 +613,30 @@ verify_vllm_omni_cuda_runtime() {
     || fail "tts container cannot initialize the CUDA runtime and vLLM-Omni"
 }
 
+select_hardware_profile() {
+  local compose_file=$1
+  local compose_environment_file=$2
+  local service_name=$3
+  local python_executable=$4
+  local hardware_profile=$5
+  local compose_arguments=(compose)
+  if [ -n "$compose_environment_file" ]; then
+    compose_arguments+=(--env-file "$compose_environment_file")
+  fi
+  compose_arguments+=(-f "$compose_file")
+
+  run_docker "${compose_arguments[@]}" run --rm --no-deps \
+    --entrypoint "$python_executable" "$service_name" -c \
+    'import sys; from kotonoha._config_store import apply_changes; result = apply_changes({"accelerator.profile": sys.argv[1]}); result.written or sys.exit(result.error or "hardware profile selection failed"); print("Selected hardware profile:", sys.argv[1])' \
+    "$hardware_profile" \
+    || fail "cannot select hardware profile $hardware_profile"
+}
+
 deploy_jetson() {
   local compose_file="$repository_root/docker/compose.yaml"
   printf 'Deploying Jetson model services from %s\n' "$repository_root"
   check_jetson_speech_models "$repository_root/models"
   check_jetson_host
-  ensure_override \
-    "$repository_root/config/jetson.local.example.yaml" \
-    "$repository_root/config/local.yaml"
-
   run_docker compose -f "$compose_file" config --quiet
   if [ "$prepare_only" = true ]; then
     printf 'Jetson host configuration is prepared. No images or services were changed.\n'
@@ -650,6 +645,8 @@ deploy_jetson() {
   if [ "$build_images" = true ]; then
     run_docker compose -f "$compose_file" build asr asr-verify llm tts web
   fi
+  select_hardware_profile \
+    "$compose_file" "" asr /opt/kotonoha-venv/bin/python nvidia.jetson.agx-orin
   verify_jetson_asr_configuration "$compose_file"
   verify_jetson_asr_verification_runtime "$compose_file"
   verify_jetson_memory_budget "$compose_file"
@@ -670,15 +667,17 @@ deploy_jetson() {
 }
 
 deploy_a6000() {
-  local compose_file="$repository_root/docker/compose.remote.yaml"
-  local prometheus_port="${PROMETHEUS_PORT:-9091}"
+  local compose_file="$repository_root/docker/compose.a6000.yaml"
+  local base_compose_file="$repository_root/docker/compose.yaml"
+  local web_compose_file="$repository_root/docker/compose.web.a6000.yaml"
+  local prometheus_port
   local compose_command=(
     run_docker compose --env-file "$environment_file" -f "$compose_file"
   )
   local models_path
   printf 'Deploying A6000 model services from %s\n' "$repository_root"
-  ensure_remote_environment
-  models_path=$(remote_models_path)
+  ensure_a6000_environment
+  models_path=$(a6000_models_path)
   check_a6000_speech_models "$models_path"
   check_a6000_host "$models_path"
   if [ "$reallocate_gpus" = true ]; then
@@ -686,10 +685,6 @@ deploy_a6000() {
     "${compose_command[@]}" stop asr asr-verify llm tts || true
   fi
   allocate_a6000_gpus
-  ensure_override \
-    "$repository_root/config/remote-server.local.example.yaml" \
-    "$repository_root/config/remote-server.local.yaml"
-
   "${compose_command[@]}" config --quiet
   if [ "$prepare_only" = true ]; then
     printf 'A6000 host configuration is prepared. No images or services were changed.\n'
@@ -698,6 +693,11 @@ deploy_a6000() {
   if [ "$build_images" = true ]; then
     "${compose_command[@]}" build metrics asr asr-verify llm tts
   fi
+  select_hardware_profile \
+    "$compose_file" "$environment_file" asr python3 nvidia.rtx.a6000
+  prometheus_port=$("${compose_command[@]}" run --rm --no-deps \
+    --entrypoint python3 metrics -c \
+    'from kotonoha._config import load_settings; value = load_settings().logging.prometheus_port; value is not None or __import__("sys").exit("logging.prometheus_port is not configured"); print(value)')
   verify_a6000_asr_configuration "$compose_file" "$environment_file"
   verify_vllm_cuda_runtime "$compose_file" "$environment_file" asr
   verify_vllm_translation_runtime "$compose_file" "$environment_file"
@@ -716,8 +716,11 @@ deploy_a6000() {
     show_failed_health "$compose_file" "$environment_file" metrics asr asr-verify llm tts
   fi
 
-  printf '\nA6000 model and metrics services are ready. Configure the Jetson with the token in:\n'
-  printf '%s\n' "$environment_file"
+  run_docker compose --env-file "$environment_file" \
+    -f "$base_compose_file" -f "$compose_file" -f "$web_compose_file" up -d web
+  printf '\nA6000 model services, metrics, and Web interface are ready.\n'
+  printf 'Web interface: http://%s:%s\n' \
+    "${KOTONOHA_WEB_HOST:-127.0.0.1}" "${KOTONOHA_WEB_PORT:-8080}"
 }
 
 remove_project_images() {
@@ -746,11 +749,13 @@ uninstall_jetson() {
     remove_project_images
   fi
 
-  printf 'Preserved: config/local.yaml, models/, data/, and upstream base images.\n'
+  printf 'Preserved: data/kotonoha.db, models/, and upstream base images.\n'
 }
 
 uninstall_a6000() {
-  local compose_file="$repository_root/docker/compose.remote.yaml"
+  local compose_file="$repository_root/docker/compose.a6000.yaml"
+  local base_compose_file="$repository_root/docker/compose.yaml"
+  local web_compose_file="$repository_root/docker/compose.web.a6000.yaml"
   local environment_arguments=()
   local generated_environment_file=""
   if [ -e "$environment_file" ]; then
@@ -763,7 +768,8 @@ uninstall_a6000() {
     environment_arguments=(--env-file "$generated_environment_file")
   fi
   local compose_command=(
-    run_docker compose "${environment_arguments[@]}" -f "$compose_file"
+    run_docker compose "${environment_arguments[@]}" \
+      -f "$base_compose_file" -f "$compose_file" -f "$web_compose_file"
   )
 
   printf 'Removing A6000 project containers and network.\n'
@@ -778,7 +784,7 @@ uninstall_a6000() {
     remove_project_images
   fi
 
-  printf 'Preserved: config/remote-server.local.yaml, config/remote-gpu.env, .env, models/, and the NVIDIA NGC vLLM image.\n'
+  printf 'Preserved: data/kotonoha.db, config/a6000-gpu.env, .env, models/, and the NVIDIA NGC vLLM image.\n'
 }
 
 case "$operation:$deployment_target" in

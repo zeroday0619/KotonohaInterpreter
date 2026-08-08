@@ -15,7 +15,7 @@ uv sync
 | `uv run kotonoha replay <wav> --seconds 12` | Replay a WAV through the voice pipeline |
 | `uv run kotonoha devices` | List audio devices |
 | `uv run kotonoha doctor` | Report environment and service health |
-| `uv run kotonoha netcheck` | Measure remote latency and upload throughput |
+| `uv run kotonoha netcheck` | Measure configured service latency and upload throughput |
 | `uv run kotonoha serve <service>` | Start a Python ASR service |
 
 `replay --seconds` accepts 0.1-600 seconds. The WAV loader reads only that duration and
@@ -43,7 +43,7 @@ The interpreter page preserves the former keyboard workflow:
 | `q` | Connect or disconnect the browser session |
 
 The active-turn diagnostics show the four latency-budget comparisons, service readiness,
-role placement, fallback status, and whether audio leaves the application host. The
+active hardware profile, and service endpoints. The
 operations page runs replay, device, service, diagnostic, network, glossary, and shell
 completion commands. It supports bounded file uploads, live output, cancellation, and
 output clearing.
@@ -60,7 +60,7 @@ selected output when the browser implements `AudioContext.setSinkId`.
 
 The monitoring page polls the Web metrics API every five seconds. It displays resident
 service readiness, host and accelerator identity, CPU load, system and accelerator
-memory, root-filesystem use, turn counters, latency-budget violations, failovers, and
+memory, root-filesystem use, turn counters, latency-budget violations, and
 first-audio p95 latency. Charts retain up to 60 minutes of in-process samples. Restarting
 the Web process clears chart history but does not reset Prometheus counters in resident
 services.
@@ -80,52 +80,39 @@ Source-language selection follows this order:
 ## History
 
 SQLite stores source text, translation, language decision provenance, ASR confidence,
-verification status, timing data, placement, failovers, and outcome. The Web interface
+verification status, timing data, hardware profile, service endpoints, and outcome. The Web interface
 separates the current turn from completed history and provides filtering, pagination,
 diagnostic details, JSONL export, and deletion.
 
 ## Configuration
 
-Configuration layers merge in this order, with later values taking precedence:
+Configuration layers resolve in this order, with later values taking precedence:
 
-1. `config/default.yaml`
-2. The selected accelerator profile under `config/profiles/accelerators/`
-3. The file selected with `--config` or `KOTONOHA_CONFIG`
-4. `config/local.yaml`, or `KOTONOHA_LOCAL_CONFIG`
-5. `KOTONOHA__*` environment variables
+1. Base defaults synchronized from `config/default.yaml`
+2. The selected hardware-profile defaults synchronized from `config/profiles/accelerators/`
+3. Operator overrides stored in `data/kotonoha.db`
+4. `KOTONOHA__*` environment variables
 
-Set `accelerator.profile` using `<vendor>.<family>.<model>` naming. The environment
-variable `KOTONOHA__ACCELERATOR__PROFILE` selects a profile without editing YAML.
+Set `accelerator.profile` using `<vendor>.<family>.<model>` naming. The Web configuration
+page persists profile selection. `KOTONOHA_INITIAL_HARDWARE_PROFILE` seeds a new database.
+`KOTONOHA__ACCELERATOR__PROFILE` forces a process-local selection without changing SQLite.
 
 Nested environment keys use a double underscore:
 
 ```bash
-KOTONOHA__PERF_MODE=hybrid \
-KOTONOHA__REMOTE__ENABLED=true \
-KOTONOHA__REMOTE__SERVICES__LLM=http://a6000.internal:8003 \
+KOTONOHA__ACCELERATOR__PROFILE=nvidia.rtx.a6000 \
+KOTONOHA__SERVICES__LLM=http://127.0.0.1:8003 \
 uv run kotonoha doctor
 ```
 
-Use `custom` mode to select each model role independently:
+The Web configuration page exposes every editable `Settings` leaf. A field displays its
+effective value, active profile default, and modified state. Saving validates the complete
+candidate and stores only operator overrides in SQLite. Reset restores one field or every
+field to the active profile defaults. Reset all preserves the selected profile.
 
-```yaml
-perf_mode: custom
-placement:
-  asr: remote
-  asr_verify: local
-  llm: remote
-  tts: local
-```
-
-Set `remote.enabled: true` when any role uses the remote placement. Unspecified roles
-inherit the local placement.
-
-The Web configuration page exposes every local `Settings` leaf. Local changes are
-validated and written atomically to `config/local.yaml`. Remote changes use the authenticated
-`/admin/config` endpoint and only accept settings consumed by resident model services.
-The Web remote editor persists model-service settings and requests an affected service reload. The
-Web editor applies local runtime settings immediately and invokes `/admin/reload` for each
-affected resident model service.
+The Web process applies runtime changes immediately and invokes `/admin/reload` for each
+affected resident model service. Service administration endpoints accept only settings
+owned by that service.
 
 Qwen3-TTS voice selection is exposed as four local settings under `tts.voices`. The
 configuration editor presents only the presets native to each target language:
@@ -143,8 +130,8 @@ configuration editor presents only the presets native to each target language:
 | `Sohee` | Warm female voice | Korean | `tts.voices.ko` |
 
 Defaults are Sohee for Korean, Ryan for English, Ono_Anna for Japanese, and Vivian for
-Traditional Chinese. Voice selection is client policy, so it remains in the Jetson local
-configuration rather than the remote model-service allowlist.
+Traditional Chinese. Voice selection is Web policy and remains outside model-service
+administration allowlists.
 
 ## Localization
 

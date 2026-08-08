@@ -211,8 +211,11 @@ def test_engine_arguments_select_local_bfloat16_snapshot() -> None:
     assert arguments["served_model_name"] == ["kotonoha-translation"]
 
 
-def test_remote_engine_arguments_select_twelve_billion_parameter_snapshot() -> None:
-    settings = load_settings("config/remote-server.yaml")
+def test_a6000_engine_arguments_select_twelve_billion_parameter_snapshot() -> None:
+    from kotonoha._config_store import apply_changes
+
+    assert apply_changes({"accelerator.profile": "nvidia.rtx.a6000"}).written
+    settings = load_settings()
     arguments = _engine_arguments(settings.llm)
 
     assert arguments["model"] == "/models/llm/translategemma-12b-it"

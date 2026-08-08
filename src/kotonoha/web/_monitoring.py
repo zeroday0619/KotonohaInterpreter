@@ -53,11 +53,7 @@ class MonitoringService:
         /,
     ) -> None:
         self.settings = settings
-        self._aggregator = MetricsAggregator(
-            settings,
-            settings.resolved_placement(),
-            include_fallbacks=True,
-        )
+        self._aggregator = MetricsAggregator(settings)
         self.registry = create_unified_registry(self._aggregator)
         self._history = deque(maxlen=MONITORING_HISTORY_SAMPLES)
         self._last_health_probe = 0.0
@@ -93,27 +89,25 @@ class MonitoringService:
         settings: Settings,
         /,
     ) -> None:
-        """Apply endpoint, placement, token, and TLS changes without restarting Web."""
+        """Apply profile, endpoint, token, and TLS changes without restarting Web."""
         async with self._lock:
             await self._aggregator.aclose()
             self.settings = settings
             self._aggregator.settings = settings
-            self._aggregator.placement = settings.resolved_placement()
 
     async def sample_once(
         self,
         /,
     ) -> dict[str, Any]:
         async with self._lock:
-            placement = self.settings.resolved_placement()
             monotonic_now = time.monotonic()
             probe_health = monotonic_now - self._last_health_probe >= HEALTH_REFRESH_SECONDS
-            await self._aggregator.refresh(placement, probe_health=probe_health)
+            await self._aggregator.refresh(probe_health=probe_health)
             if probe_health:
                 self._last_health_probe = monotonic_now
             targets = tuple(
                 (role, source)
-                for role, source, _url in self._aggregator.targets(placement)
+                for role, source, _url in self._aggregator.targets()
             )
             point = _monitoring_point(
                 self.registry.collect(),
@@ -136,10 +130,9 @@ class MonitoringService:
         if history:
             latest = history[-1]
         else:
-            placement = self.settings.resolved_placement()
             targets = tuple(
                 (role, source)
-                for role, source, _url in self._aggregator.targets(placement)
+                for role, source, _url in self._aggregator.targets()
             )
             latest = _monitoring_point(
                 self.registry.collect(),
@@ -187,7 +180,6 @@ def _monitoring_point(
     }
     turns_total = 0.0
     over_budget_total = 0.0
-    failovers_total = 0.0
     requests_total = 0.0
     request_totals: defaultdict[str, float] = defaultdict(float)
     first_audio_buckets: defaultdict[float, float] = defaultdict(float)
@@ -208,8 +200,6 @@ def _monitoring_point(
                 turns_total += float(sample.value)
             elif sample.name == "kotonoha_over_budget_turns_total":
                 over_budget_total += float(sample.value)
-            elif sample.name == "kotonoha_failovers_total":
-                failovers_total += float(sample.value)
             elif (
                 sample.name == "kotonoha_turn_stage_duration_seconds_bucket"
                 and labels.get("stage") == "total_to_first_audio"
@@ -241,7 +231,6 @@ def _monitoring_point(
             "services_total": len(service_values),
             "turns_total": int(turns_total),
             "over_budget_turns_total": int(over_budget_total),
-            "failovers_total": int(failovers_total),
             "requests_total": int(requests_total),
             "first_audio_p95_ms": (
                 round(first_audio_p95_seconds * 1000, 1)
@@ -304,7 +293,7 @@ def _apply_service_sample(
 ) -> None:
     labels = sample.labels
     value = float(sample.value)
-    if sample.name == "kotonoha_remote_metrics_scrape_up":
+    if sample.name == "kotonoha_service_metrics_scrape_up":
         service["scrape_up"] = bool(value)
     elif sample.name == "kotonoha_service_up":
         service["ready"] = bool(value)
@@ -400,7 +389,6 @@ def _series_point(
         "services_total": summary["services_total"],
         "turns_total": summary["turns_total"],
         "over_budget_turns_total": summary["over_budget_turns_total"],
-        "failovers_total": summary["failovers_total"],
         "requests_total": summary["requests_total"],
         "first_audio_p95_ms": summary["first_audio_p95_ms"],
         "memory_percent": point["memory_percent"],

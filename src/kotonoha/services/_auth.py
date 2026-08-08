@@ -5,7 +5,7 @@ policy around the host-networked service ports. The A6000 is reachable from the 
 an open /transcribe there is an open microphone-transcription endpoint for anyone on the
 network.
 
-Set KOTONOHA_SERVICE_TOKEN on the service and KOTONOHA__REMOTE__TOKEN on the
+Set KOTONOHA_SERVICE_TOKEN on the service and KOTONOHA__TRANSPORT__TOKEN on the
 orchestrator. With the variable unset the check is disabled and that fact is
 logged at startup, so an unprotected service is never a silent surprise.
 

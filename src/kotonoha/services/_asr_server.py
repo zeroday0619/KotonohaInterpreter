@@ -22,7 +22,6 @@ import asyncio
 import inspect
 import io
 import json
-import os
 import re
 import time
 import wave
@@ -860,10 +859,7 @@ async def _reload_backend() -> bool:
             maximum_audio_frames=None,
             shm_name=None,
         )
-        settings = await asyncio.to_thread(
-            load_settings,
-            os.environ.get("KOTONOHA_CONFIG"),
-        )
+        settings = await asyncio.to_thread(load_settings)
         STATE["shm_name"] = settings.shm.name
         STATE["maximum_audio_frames"] = settings.shm.slot_seconds * settings.shm.sample_rate
         try:

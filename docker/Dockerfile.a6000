@@ -1,4 +1,4 @@
-# Services running on the external RTX A6000 box (x86_64, sm_86).
+# Services running on an RTX A6000 host (x86_64, sm_86).
 #
 # The constraints in §2 are Jetson constraints and do not apply here: this is
 # ordinary x86 CUDA, so vLLM, flash-attn and the usual wheels are eligible.

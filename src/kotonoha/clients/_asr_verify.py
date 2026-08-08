@@ -1,7 +1,7 @@
 """Cross-verification ASR client (faster-whisper large-v3).
 
-Called conditionally on the Orin, per §5.5, because it costs 0.8 s there. Remote
-deployments can select `asr_verify.mode: always` after measuring the added latency.
+Called conditionally on the Orin, per §5.5, because it costs 0.8 s there. Other
+profiles can select `asr_verify.mode: always` after measuring the added latency.
 """
 
 from __future__ import annotations

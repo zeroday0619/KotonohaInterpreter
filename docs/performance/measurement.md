@@ -2,8 +2,8 @@
 
 ## Objective
 
-This procedure validates Jetson compatibility and optimizes the optional RTX A6000
-high-performance mode. It defines the authoritative measurement conditions, acceptance
+This procedure validates Jetson compatibility and optimizes the RTX A6000 hardware
+profile. It defines the authoritative measurement conditions, acceptance
 thresholds, evidence, and configuration outputs.
 
 The [Implementation Plan](../planning/README.md) defines Phase 0 governance and the
@@ -12,11 +12,10 @@ approval gate for subsequent phases.
 | Track | Host | Purpose | Output directory |
 |---|---|---|---|
 | Phase 0 | Jetson AGX Orin | Validate hardware compatibility and on-device fallbacks | `spikes/out` |
-| High-performance mode | RTX A6000 | Tune remote services and approve role placement | `spikes/out/a6000` |
+| A6000 profile | RTX A6000 | Tune resident services and approve profile defaults | `spikes/out/a6000` |
 
 Phase 0 remains a gate for Jetson deployment. A6000 acceptance does not replace it. The
-Jetson keeps resident fallback services and owns capture, VAD, routing, and half-duplex
-gating.
+Each target runs the Web process and all four resident model services.
 
 ## Measurements
 
@@ -38,7 +37,7 @@ setting.
 
 | Feature | Jetson AGX Orin | RTX A6000 | Reason |
 |---|---|---|---|
-| Accelerator profile | `nvidia.jetson.agx-orin` | `nvidia.rtx.a6000` | Hardware identity selects the device-specific service defaults |
+| Hardware profile | `nvidia.jetson.agx-orin` | `nvidia.rtx.a6000` | Hardware identity selects the device-specific service defaults |
 | KV cache dtype | FP8 | Automatic | Jetson memory pressure requires a smaller KV cache; A6000 retains model-native dtype selection |
 | GPU memory utilization | 0.35 | 0.90 | Jetson shares unified memory with the host; A6000 reserves headroom for the dedicated translation engine |
 | Prefix caching | Disabled | Enabled | A6000 has capacity for repeated system-prompt reuse; Jetson avoids cache residency growth |
@@ -75,13 +74,13 @@ the run.
 ```bash
 nvidia-smi
 docker info --format '{{json .Runtimes}}'
-docker compose -f docker/compose.remote.yaml ps
+docker compose -f docker/compose.a6000.yaml ps
 ```
 
-All four remote services must remain resident during final acceptance. An isolated model
+All four services must remain resident during final acceptance. An isolated model
 benchmark does not prove concurrent residency.
 
-Retain `config/remote-gpu.env` and the corresponding `nvidia-smi` inventory with every
+Retain `config/a6000-gpu.env` and the corresponding `nvidia-smi` inventory with every
 measurement. Each configured role reservation must be at least its measured peak GPU
 memory consumption, and the per-GPU safety reserve must remain free during the complete
 resident workload.
@@ -147,7 +146,7 @@ result to `spike1.json` before report generation.
 
 | Variable | Values to measure | Constraint |
 |---|---|---|
-| `--gpu-memory-utilization` | `0.70`, `0.80`, `0.90` | All remote services remain resident |
+| `--gpu-memory-utilization` | `0.70`, `0.80`, `0.90` | All services remain resident |
 | `--enforce-eager` | enabled, disabled | Model load and N-best inference succeed |
 | `--max-model-len` | production value | Covers the configured request |
 
@@ -251,17 +250,16 @@ separate evaluation-set decisions.
 
 ## Link Measurement
 
-Run from the Jetson after all A6000 services are healthy:
+Run from the deployed Web host after all configured services are healthy:
 
 ```bash
-KOTONOHA__REMOTE__TOKEN=<token> \
-uv run kotonoha -c config/performance.yaml netcheck --samples 20 --seconds 6
+KOTONOHA__TRANSPORT__TOKEN=<token> \
+uv run kotonoha netcheck --samples 20 --seconds 6
 ```
 
-`netcheck` measures service RTT and binary PCM upload time. Use `remote` placement only
-when every remote role is reachable and estimated link overhead consumes no more than 25%
-of the end-of-utterance latency budget. Use `hybrid` when audio must remain on the Jetson
-or measured overhead exceeds the limit.
+`netcheck` measures service RTT and binary PCM upload time. Accept a profile only when
+every configured role is reachable and endpoint overhead consumes no more than 25% of
+the end-of-utterance latency budget.
 
 ## Concurrent Residency
 
@@ -270,11 +268,11 @@ Start the complete A6000 stack after selecting candidate settings:
 ```bash
 set -a
 source .env
-source config/remote-gpu.env
+source config/a6000-gpu.env
 set +a
-docker compose -f docker/compose.remote.yaml up -d
-docker compose -f docker/compose.remote.yaml ps
-docker compose -f docker/compose.remote.yaml config | sed -n '/device_ids:/,+2p'
+docker compose -f docker/compose.a6000.yaml up -d
+docker compose -f docker/compose.a6000.yaml ps
+docker compose -f docker/compose.a6000.yaml config | sed -n '/device_ids:/,+2p'
 nvidia-smi
 curl -fsS http://127.0.0.1:8001/health
 curl -fsS http://127.0.0.1:8002/health
@@ -298,12 +296,12 @@ target report. Remove obsolete candidate files before generating an acceptance r
 | Output | Content |
 |---|---|
 | `PHASE0.md` | Jetson compatibility verdicts and latency reconciliation |
-| `local.yaml` | Jetson configuration overlay |
+| `configuration-changes.json` | Jetson profile and accepted overrides for the Web API |
 | `PERFORMANCE.md` | A6000 server-stage measurements and selected settings |
-| `remote-server.local.yaml` | Remote service configuration overlay |
+| `configuration-changes.json` | A6000 profile and accepted overrides for the Web API |
 
-The A6000 report excludes network overhead. Attach `netcheck` output, `nvidia-smi`, and
-service health evidence before approving high-performance mode.
+Attach `netcheck` output, `nvidia-smi`, and service health evidence before approving the
+A6000 profile.
 
 ## Batch Execution
 

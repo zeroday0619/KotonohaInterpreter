@@ -4,6 +4,21 @@
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
 
+-- Configuration -----------------------------------------------------------
+-- Built-in defaults are refreshed at startup. Operator overrides remain
+-- separate so reset can restore the selected hardware profile atomically.
+CREATE TABLE IF NOT EXISTS configuration_defaults (
+    profile     TEXT PRIMARY KEY,
+    values_json TEXT NOT NULL,
+    updated_at  REAL NOT NULL DEFAULT (unixepoch('subsec'))
+);
+
+CREATE TABLE IF NOT EXISTS configuration_state (
+    key         TEXT PRIMARY KEY,
+    value_json  TEXT NOT NULL,
+    updated_at  REAL NOT NULL DEFAULT (unixepoch('subsec'))
+);
+
 -- Glossary and proper nouns ------------------------------------------------
 -- When src_term appears in the transcript, pin the translation to tgt_term.
 -- kind: term (general) | name (proper noun) | vocab (regional, e.g. 軟體/影片)

@@ -9,8 +9,8 @@ EOU detected -> ASR complete -> first clause -> first audio packet -> queue drai
 ```
 
 The turn record also contains detected language, LID confidence, ASR average
-log-probability, verification activation, audio duration, output token count, placement,
-failovers, and outcome.
+log-probability, verification activation, audio duration, output token count, hardware
+profile, service endpoints, and outcome.
 
 ## Storage
 
@@ -18,7 +18,7 @@ failovers, and outcome.
 |---|---|
 | `data/logs/kotonoha.jsonl` | Structured application events |
 | `data/logs/turns.jsonl` | One structured metrics record per turn |
-| `data/kotonoha.db` | Glossary and interpretation history |
+| `data/kotonoha.db` | Configuration, glossary, and interpretation history |
 
 Application events and turn metrics use separate files. This separation allows turn
 records to parse without filtering application events.
@@ -36,14 +36,13 @@ The end-of-utterance latency objective is 2.9 seconds to the first audio packet.
 five timestamps to identify the stage that exceeded its budget. Do not attribute an
 overrun to model inference without a stage measurement.
 
-Cross-host analysis requires synchronized clocks on the Jetson and A6000. Preserve the
-application log, turn record, service logs, placement, and failover fields for incident
-analysis.
+Preserve the application log, turn record, service logs, hardware profile, and service
+endpoint fields for incident analysis.
 
 ## Prometheus Metrics
 
 Every resident FastAPI model service exposes Prometheus text metrics at its existing
-service port on Jetson, A6000, and other supported accelerator profiles:
+service port on Jetson, A6000, and other supported hardware profiles:
 
 | Service | Endpoint |
 |---|---|
@@ -56,20 +55,20 @@ The endpoint reports HTTP request counts and durations, service readiness, opera
 system and kernel identity, accelerator backend and memory architecture, CPU load,
 system and accelerator memory, root-filesystem use, configured engine limits, turn stage
 durations, output tokens, generation rate, ASR log probability, conditional
-cross-verification, failovers, and latency-budget violations.
+cross-verification, and latency-budget violations.
 
 The `/metrics` endpoint follows the same bearer-token middleware as other service routes.
 When `KOTONOHA_SERVICE_TOKEN` is set, configure the Prometheus scrape job with the same
 token. The `/health` endpoint remains unauthenticated for deployment probes.
 
-The Web process always runs a unified metrics collector. It polls the active endpoint for
-each model role and any distinct onboard fallback endpoint, refreshes service health and
+The Web process always runs a unified metrics collector. It polls the configured endpoint for
+each model role, refreshes service health and
 resource gauges every ten seconds, caches successful metrics payloads, and merges them
 with Web and turn metrics. Aggregated samples include bounded `role` and `source` labels.
 A failed scrape removes the stale payload and sets
-`kotonoha_remote_metrics_scrape_up` to `0`.
+`kotonoha_service_metrics_scrape_up` to `0`.
 
-Use these endpoints on every placement mode:
+Use these endpoints with every hardware profile:
 
 | Endpoint | Function |
 |---|---|
@@ -105,5 +104,5 @@ curl -fsS http://127.0.0.1:8080/metrics
 ```
 
 Metrics do not contain source speech, translated text, turn identifiers, or model prompt
-content. Labels are limited to bounded service, role, source, route, outcome, mode, stage,
+content. Labels are limited to bounded service, role, source, route, outcome, stage,
 backend, and memory-state values.

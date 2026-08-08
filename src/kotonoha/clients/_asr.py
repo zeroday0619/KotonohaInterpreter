@@ -125,8 +125,8 @@ class AsrClient(BaseClient):
                 {"audio": payload.audio_reference.to_json(), **params},
             )
         else:
-            # Remote: no shared memory to attach to, so the PCM travels as a
-            # binary part. Still not base64 (§3).
+            # An upload client cannot attach to shared memory, so PCM travels
+            # as a binary part and remains outside base64 JSON.
             result = await self._post_multipart(
                 "/transcribe/upload",
                 files={

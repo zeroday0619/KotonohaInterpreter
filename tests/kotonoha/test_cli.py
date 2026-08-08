@@ -150,8 +150,6 @@ def test_netcheck_executes_localized_output_before_measurement_loops(
         [
             "--lang",
             "en",
-            "--config",
-            str(PROJECT_ROOT / "config" / "performance.yaml"),
             "netcheck",
             "--samples",
             "1",
@@ -161,7 +159,7 @@ def test_netcheck_executes_localized_output_before_measurement_loops(
     )
 
     assert result.exit_code == 0, result.exception
-    assert "perf_mode   remote" in result.stdout
+    assert "profile     nvidia.jetson.agx-orin" in result.stdout
     assert "asr         UP" in result.stdout
     assert "Estimated link overhead" in result.stdout
 

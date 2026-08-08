@@ -1,44 +1,37 @@
-# Runs ON the external RTX A6000 box, not on the Orin.
+# Runs the complete Web and model-service stack on an RTX A6000 host.
 #
 #   export KOTONOHA_SERVICE_TOKEN=$(openssl rand -hex 32)
-#   docker compose -f docker/compose.remote.yaml up -d
+#   docker compose -f docker/compose.yaml -f docker/compose.a6000.yaml up -d
 #
-# Then on the Orin, with the same token:
-#   export KOTONOHA__REMOTE__TOKEN=<same value>
-#   kotonoha -c config/performance.yaml netcheck
-#   kotonoha -c config/performance.yaml run
-#
-# No ipc: host here. Shared memory does not cross machines, so these services
-# receive audio through /transcribe/upload instead (transport.py).
-#
-# Ports are published on the host so the Orin can reach them. Keep this box on
-# a trusted network and leave KOTONOHA_SERVICE_TOKEN set — an open /transcribe
+# Host networking and IPC colocate the Web application and model services. Keep this
+# box on a trusted network and leave KOTONOHA_SERVICE_TOKEN set — an open /transcribe
 # is an open transcription endpoint for anyone who can route to it.
 
 name: kotonohainterpreter
 
 x-a6000: &a6000
   runtime: ${CONTAINER_RUNTIME:-nvidia}
+  ipc: host
+  network_mode: host
   restart: unless-stopped
   stop_grace_period: 45s
   environment:
-    - KOTONOHA_CONFIG=/app/config/remote-server.yaml
-    - KOTONOHA__ACCELERATOR__PROFILE=${ACCELERATOR_PROFILE:-nvidia.rtx.a6000}
-    - KOTONOHA_LOCAL_CONFIG=/app/config/remote-server.local.yaml
+    - KOTONOHA_SETTINGS_DATABASE=/app/data/kotonoha.db
+    - KOTONOHA_INITIAL_HARDWARE_PROFILE=${ACCELERATOR_PROFILE:-nvidia.rtx.a6000}
     - KOTONOHA_SERVICE_TOKEN=${KOTONOHA_SERVICE_TOKEN:?set a token before starting}
     - HF_HOME=/models/hf
     - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-0}
     - HF_HUB_OFFLINE=${TRANSFORMERS_OFFLINE:-0}
   volumes:
-    - ../config:/app/config
+    - ../config:/app/config:ro
     - ../data:/app/data
     - ${MODELS_DIR:-../models}:/models
   working_dir: /app
 x-a6000-python-build: &a6000-python-build
   context: ..
-  dockerfile: docker/Dockerfile.remote
+  dockerfile: docker/Dockerfile.a6000
   args:
-    BASE_IMAGE: ${REMOTE_BASE:-${ACCELERATOR_REMOTE_BASE:-pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime}}
+    BASE_IMAGE: ${SERVICE_BASE:-${ACCELERATOR_SERVICE_BASE:-pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime}}
 
 services:
   metrics:
@@ -49,11 +42,10 @@ services:
     restart: unless-stopped
     stop_grace_period: 45s
     environment:
-      - KOTONOHA_CONFIG=/app/config/remote-server.yaml
-      - KOTONOHA_LOCAL_CONFIG=/app/config/remote-server.local.yaml
+      - KOTONOHA_SETTINGS_DATABASE=/app/data/kotonoha.db
+      - KOTONOHA_INITIAL_HARDWARE_PROFILE=${ACCELERATOR_PROFILE:-nvidia.rtx.a6000}
       - KOTONOHA_SERVICE_TOKEN=${KOTONOHA_SERVICE_TOKEN:?set a token before starting}
-      - KOTONOHA__REMOTE__TOKEN=${KOTONOHA_SERVICE_TOKEN:?set a token before starting}
-      - KOTONOHA__LOGGING__PROMETHEUS_PORT=${PROMETHEUS_PORT:-9091}
+      - KOTONOHA__TRANSPORT__TOKEN=${KOTONOHA_SERVICE_TOKEN:?set a token before starting}
       - HF_HOME=/models/hf
       - TRANSFORMERS_OFFLINE=1
       - HF_HUB_OFFLINE=1
@@ -61,7 +53,7 @@ services:
       - ../config:/app/config:ro
       - ../data:/app/data
     working_dir: /app
-    ports: ["${PROMETHEUS_PORT:-9091}:${PROMETHEUS_PORT:-9091}"]
+    network_mode: host
     depends_on: [asr, asr-verify, llm, tts]
 
   asr:
@@ -71,13 +63,11 @@ services:
       <<: *a6000-python-build
       target: asr
       args:
-        ASR_BASE_IMAGE: ${REMOTE_ASR_BASE:-${ACCELERATOR_VLLM_IMAGE:-nvcr.io/nvidia/vllm:26.07-py3}}
-    ports: ["8001:8001"]
+        ASR_BASE_IMAGE: ${ASR_BASE:-${ACCELERATOR_VLLM_IMAGE:-nvcr.io/nvidia/vllm:26.07-py3}}
     environment:
-      - KOTONOHA_CONFIG=/app/config/remote-server.yaml
-      - KOTONOHA_LOCAL_CONFIG=/app/config/remote-server.local.yaml
+      - KOTONOHA_SETTINGS_DATABASE=/app/data/kotonoha.db
+      - KOTONOHA_INITIAL_HARDWARE_PROFILE=${ACCELERATOR_PROFILE:-nvidia.rtx.a6000}
       - KOTONOHA_SERVICE_TOKEN=${KOTONOHA_SERVICE_TOKEN:?set a token before starting}
-      - KOTONOHA__ACCELERATOR__PROFILE=${ACCELERATOR_PROFILE:-nvidia.rtx.a6000}
       - HF_HOME=/models/hf
       - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-0}
       - HF_HUB_OFFLINE=${TRANSFORMERS_OFFLINE:-0}
@@ -99,7 +89,6 @@ services:
       <<: *a6000-python-build
       target: asr-verify
     depends_on: [asr]
-    ports: ["8002:8002"]
     command: uvicorn kotonoha.services._asr_verify_server:app --host 0.0.0.0 --port 8002 --loop uvloop --ws-max-size 4194304 --timeout-graceful-shutdown 30
     deploy:
       resources:
@@ -119,17 +108,13 @@ services:
         BASE_IMAGE: ${TTS_IMAGE:-${ACCELERATOR_OMNI_IMAGE:-vllm/vllm-omni:v0.26.0}}
         VLLM_NVML_PATCH: ${VLLM_NVML_PATCH:-0}
     depends_on: [asr]
-    ports: ["8004:8004"]
     environment:
       - KOTONOHA_SERVICE_TOKEN=${KOTONOHA_SERVICE_TOKEN:?set a token before starting}
-      - KOTONOHA__ACCELERATOR__PROFILE=${ACCELERATOR_PROFILE:-nvidia.rtx.a6000}
+      - KOTONOHA_SETTINGS_DATABASE=/app/data/kotonoha.db
+      - KOTONOHA_INITIAL_HARDWARE_PROFILE=${ACCELERATOR_PROFILE:-nvidia.rtx.a6000}
       - HF_HOME=/models/hf
       - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-0}
       - HF_HUB_OFFLINE=${TRANSFORMERS_OFFLINE:-0}
-      - TTS_MODEL=/models/Qwen3-TTS-0.6B
-      - TTS_SERVED_MODEL_NAME=kotonoha-tts
-      - TTS_GPU_MEMORY_UTILIZATION=${TTS_GPU_MEMORY_UTILIZATION:-0.25}
-      - TTS_ENFORCE_EAGER=${TTS_ENFORCE_EAGER:-1}
     command: uvicorn kotonoha.services._tts_server:app --host 0.0.0.0 --port 8004 --loop uvloop --ws-max-size 4194304 --timeout-graceful-shutdown 30
     deploy:
       resources:
@@ -147,21 +132,13 @@ services:
       target: llm
       args:
         LLM_BASE_IMAGE: ${LLM_IMAGE:-${ACCELERATOR_VLLM_IMAGE:-nvcr.io/nvidia/vllm:26.07-py3}}
-    ports: ["8003:8003"]
     environment:
-      - KOTONOHA_CONFIG=/app/config/remote-server.yaml
-      - KOTONOHA_LOCAL_CONFIG=/app/config/remote-server.local.yaml
+      - KOTONOHA_SETTINGS_DATABASE=/app/data/kotonoha.db
+      - KOTONOHA_INITIAL_HARDWARE_PROFILE=${ACCELERATOR_PROFILE:-nvidia.rtx.a6000}
       - KOTONOHA_SERVICE_TOKEN=${KOTONOHA_SERVICE_TOKEN:?set a token before starting}
-      - KOTONOHA__ACCELERATOR__PROFILE=${ACCELERATOR_PROFILE:-nvidia.rtx.a6000}
       - HF_HOME=/models/hf
       - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-0}
       - HF_HUB_OFFLINE=${TRANSFORMERS_OFFLINE:-0}
-      - KOTONOHA__LLM__MODELS_DIR=/models/llm
-      - KOTONOHA__LLM__MAX_MODEL_LEN=${LLM_MAX_MODEL_LEN:-2048}
-      - KOTONOHA__LLM__GPU_MEMORY_UTILIZATION=${LLM_GPU_MEMORY_UTILIZATION:-0.90}
-      - KOTONOHA__LLM__MAX_NUM_BATCHED_TOKENS=${LLM_MAX_NUM_BATCHED_TOKENS:-4096}
-      - KOTONOHA__LLM__ENABLE_PREFIX_CACHING=${LLM_ENABLE_PREFIX_CACHING:-1}
-      - KOTONOHA__LLM__COMPILATION_MODE=${LLM_COMPILATION_MODE:-2}
     command: uvicorn kotonoha.services._llm_server:app --host 0.0.0.0 --port 8003 --loop uvloop --ws-max-size 4194304 --timeout-graceful-shutdown 30
     deploy:
       resources:

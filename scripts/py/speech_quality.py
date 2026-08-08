@@ -17,7 +17,7 @@ from kotonoha._config import Settings, load_settings
 from kotonoha._transport import AudioPayload, encode_pcm
 from kotonoha.audio._resample import resample_once
 from kotonoha.clients._asr import AsrClient
-from kotonoha.clients._base import remote_transport_kwargs
+from kotonoha.clients._base import service_transport_kwargs
 from kotonoha.clients._tts import TextToSpeechClient
 from kotonoha.core._quality import character_error_rate
 
@@ -65,31 +65,21 @@ class SpeechQualityRunner:
         self.settings = settings
         self.output_directory = output_directory
         self.max_character_error_rate = max_character_error_rate
-        placement = settings.resolved_placement()
-        asr_transport = (
-            remote_transport_kwargs(settings.remote)
-            if placement["asr"] == "remote"
-            else {}
-        )
-        tts_transport = (
-            remote_transport_kwargs(settings.remote)
-            if placement["tts"] == "remote"
-            else {}
-        )
+        transport = service_transport_kwargs(settings.transport)
         # The upload endpoint works on both hosts and avoids requiring shared memory
         # in this standalone diagnostic process.
         self.asr_client = AsrClient(
-            settings.url_for("asr", placement["asr"]),
+            settings.service_url("asr"),
             settings.asr,
-            side="remote",
-            encoding=settings.remote.audio_encoding,
-            **asr_transport,
+            side="upload",
+            encoding=settings.transport.audio_encoding,
+            **transport,
         )
         self.tts_client = TextToSpeechClient(
-            settings.url_for("tts", placement["tts"]),
+            settings.service_url("tts"),
             settings.tts,
-            side=placement["tts"],
-            **tts_transport,
+            side="local",
+            **transport,
         )
 
     async def run(

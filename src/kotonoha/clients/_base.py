@@ -9,7 +9,7 @@ from typing import Any, ClassVar, Final
 
 import httpx2
 
-from kotonoha._config import RemoteConfig
+from kotonoha._config import ServiceTransportConfig
 from kotonoha._logging_setup import get_logger
 from kotonoha._typing import override
 
@@ -38,7 +38,7 @@ def service_error_from_status(
     /,
     label: str,
 ) -> ServiceError:
-    """Classify HTTP failures so failover only handles retryable conditions."""
+    """Classify HTTP failures for bounded service error handling."""
     status_code = error.response.status_code
     # Validation responses can echo transcript or translation input. Keep
     # operator logs useful without copying user content from the response body.
@@ -48,11 +48,11 @@ def service_error_from_status(
     return ServiceError(detail)
 
 
-def remote_transport_kwargs(
-    config: RemoteConfig,
+def service_transport_kwargs(
+    config: ServiceTransportConfig,
     /,
 ) -> dict[str, object]:
-    """Build HTTP transport options for the external server."""
+    """Build authenticated transport options for resident model services."""
     headers = {"connection": "keep-alive"}
     if config.token:
         headers["authorization"] = f"Bearer {config.token}"

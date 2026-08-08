@@ -32,10 +32,9 @@
         <meter id="level" min="0" max="1" value="0"></meter>
         <span class="field">mode <b id="mode">push_to_talk</b></span>
         <span class="field">route <b id="routing">pair</b></span>
-        <span class="field">perf <b id="performance-mode">onboard</b></span>
+        <span class="field">hardware <b id="hardware-profile">—</b></span>
         <span class="field">lang <b id="language">—</b></span>
         <span class="field">session <b id="session-id">—</b></span>
-        <span id="privacy-warning" class="privacy-warning" hidden>Audio sent remotely</span>
         <span id="status"></span>
       </div>
     </header>
@@ -129,10 +128,6 @@
             <h2>Over budget</h2>
             <strong id="monitor-over-budget">—</strong>
           </article>
-          <article class="monitor-summary-card">
-            <h2>Failovers</h2>
-            <strong id="monitor-failovers">—</strong>
-          </article>
         </div>
 
         <section aria-labelledby="monitor-services-heading">
@@ -164,16 +159,11 @@
         <div class="page-heading">
           <div>
             <h2>Configuration</h2>
-            <label>Target
-              <select id="config-target">
-                <option value="local">Application host</option>
-                <option value="remote">Remote model server</option>
-              </select>
-            </label>
             <p id="config-path" class="muted"></p>
           </div>
           <div class="history-actions">
             <button id="config-reload" type="button">Reload</button>
+            <button id="config-reset" type="button" class="danger">Reset all</button>
             <button id="config-save" type="button">Save and apply</button>
           </div>
         </div>

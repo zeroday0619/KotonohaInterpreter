@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Merge hardware spike results into a host-specific report and settings patch.
+"""Merge hardware spike results into a host-specific report and change set.
 
     bash scripts/manage.sh benchmark jetson
 
-Jetson results produce a local device overlay. A6000 results produce a remote service
-overlay. Host-specific measurements remain separate.
+Jetson and A6000 results produce separate hardware-profile reports and configuration
+change sets. Host-specific measurements remain separate.
 
 The generated report itself is written in Korean, since that is what gets read.
 """
@@ -194,38 +194,38 @@ def md_report(
     return "\n".join(L) + "\n"
 
 
-def patch_yaml(
+def configuration_changes(
     s1: dict | None,
     /,
     s2: dict | None,
     s3: dict | None,
     target: str = "jetson",
 ) -> str:
-    destination = "config/local.yaml" if target == "jetson" else "config/remote-server.local.yaml"
-    lines = [f"# 실측 결과로 확정된 값. {destination} 로 복사하면 적용된다.", ""]
+    changes: dict[str, object] = {
+        "accelerator.profile": (
+            "nvidia.jetson.agx-orin" if target == "jetson" else "nvidia.rtx.a6000"
+        )
+    }
     if s1:
         b = (s1.get("verdict") or {}).get("recommended_backend")
         if b in ("vllm", "transformers"):
-            lines += ["asr:", f"  backend: {b}"]
+            changes["asr.backend"] = b
             if b == "vllm":
                 conditions = s1.get("conditions") or {}
-                lines += [
-                    "  vllm_gpu_memory_utilization: "
-                    f"{conditions.get('gpu_memory_utilization', 0.80)}",
-                    f"  vllm_max_model_len: {conditions.get('max_model_len', 4096)}",
-                    "  vllm_enforce_eager: "
-                    f"{str(conditions.get('enforce_eager', True)).lower()}",
-                ]
-            lines.append("")
+                changes["asr.vllm_gpu_memory_utilization"] = conditions.get(
+                    "gpu_memory_utilization", 0.80
+                )
+                changes["asr.vllm_max_model_len"] = conditions.get("max_model_len", 4096)
+                changes["asr.vllm_enforce_eager"] = conditions.get("enforce_eager", True)
     if s2:
         t = (s2.get("verdict") or {}).get("tts_backend")
         if t == "vllm_omni":
-            lines += ["tts:", f"  backend: {t}", ""]
+            changes["tts.backend"] = t
     if s3:
         p = (s3.get("verdict") or {}).get("llm_profile")
         if p == "translategemma":
-            lines += ["llm:", f"  profile: {p}", ""]
-    return "\n".join(lines)
+            changes["llm.profile"] = p
+    return json.dumps({"changes": changes}, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
 
 
 def main() -> int:
@@ -233,7 +233,11 @@ def main() -> int:
     ap.add_argument("--target", choices=["jetson", "a6000"], default="jetson")
     ap.add_argument("--dir", type=Path, default=Path("spikes/out"))
     ap.add_argument("--md", type=Path, default=Path("spikes/out/PHASE0.md"))
-    ap.add_argument("--patch", type=Path, default=Path("spikes/out/local.yaml"))
+    ap.add_argument(
+        "--patch",
+        type=Path,
+        default=Path("spikes/out/configuration-changes.json"),
+    )
     a = ap.parse_args()
 
     s1, s2, s3 = load(a.dir, 1), load(a.dir, 2), load(a.dir, 3)
@@ -244,9 +248,9 @@ def main() -> int:
             )
     a.md.parent.mkdir(parents=True, exist_ok=True)
     a.md.write_text(md_report(s1, s2, s3, a.target), encoding="utf-8")
-    a.patch.write_text(patch_yaml(s1, s2, s3, a.target), encoding="utf-8")
+    a.patch.write_text(configuration_changes(s1, s2, s3, a.target), encoding="utf-8")
     print(a.md.read_text(encoding="utf-8"))
-    print(f"\n→ 설정 패치: {a.patch}")
+    print(f"\n→ Web API 설정 변경안: {a.patch}")
     return 0
 
 

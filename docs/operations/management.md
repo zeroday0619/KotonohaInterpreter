@@ -61,7 +61,7 @@ bash scripts/manage.sh deploy jetson
 | Prepare A6000 configuration | `bash scripts/manage.sh setup a6000` |
 | Run all Jetson hardware spikes | `bash scripts/manage.sh benchmark jetson` |
 | Run one A6000 spike | `bash scripts/manage.sh benchmark a6000 --only 3` |
-| Measure the remote link | `bash scripts/manage.sh benchmark link --samples 20 --seconds 6` |
+| Measure configured service links | `bash scripts/manage.sh benchmark link --samples 20 --seconds 6` |
 | Allocate A6000 GPUs | `bash scripts/manage.sh gpu allocate` |
 | Deploy Jetson services | `bash scripts/manage.sh deploy jetson` |
 | Deploy A6000 services | `bash scripts/manage.sh deploy a6000` |
@@ -129,13 +129,13 @@ the standard sudo policy removes exported shell variables.
 
 The `web` workflow passes the repository-root `.env` to Compose explicitly. Jetson uses
 the Web service in `docker/compose.yaml`. A6000 combines `docker/compose.yaml`,
-`docker/compose.remote.yaml`, and `docker/compose.web.a6000.yaml`. The A6000 overlay routes
-the Web orchestrator to the four local resident services through binary PCM upload.
+`docker/compose.a6000.yaml`, and `docker/compose.web.a6000.yaml`. The A6000 overlay routes
+the Web orchestrator to the four co-located resident services through binary PCM upload.
 
 | Variable | Purpose |
 |---|---|
 | `MODELS_DIR` | Model download and validation root |
-| `KOTONOHA_SERVICE_TOKEN` | Remote service authentication and link benchmark |
+| `KOTONOHA_SERVICE_TOKEN` | Model-service authentication and link benchmark |
 | `SPIKE_VLLM_IMAGE` | Hardware Spike vendor vLLM image override |
 | `SPIKE_ASR_IMAGE` | Hardware Spike prepared ASR image override |
 | `SPIKE_TTS_IMAGE` | Hardware Spike TTS image override |

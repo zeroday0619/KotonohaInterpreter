@@ -2,7 +2,7 @@
 
 Two kinds of variable reach this program. `KOTONOHA__SECTION__FIELD` is consumed by
 pydantic-settings as the highest-precedence configuration layer, and a handful of
-plain variables such as `KOTONOHA_CONFIG` are read through `os.environ` directly,
+plain variables such as `KOTONOHA_SETTINGS_DATABASE` are read through `os.environ` directly,
 before any Settings object exists. A loader that only fed pydantic would therefore
 cover half of them, so the file is merged into `os.environ` instead.
 

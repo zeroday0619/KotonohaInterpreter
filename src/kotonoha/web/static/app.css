@@ -164,11 +164,6 @@ h2 {
   color: var(--error);
 }
 
-.privacy-warning {
-  color: var(--warn);
-  font-weight: 700;
-}
-
 .controls {
   display: flex;
   flex-wrap: wrap;
@@ -300,7 +295,7 @@ main {
 }
 
 .configuration-field {
-  grid-template-columns: minmax(14rem, 1fr) minmax(15rem, 2fr);
+  grid-template-columns: minmax(14rem, 1fr) minmax(15rem, 2fr) auto;
   align-items: start;
   padding-bottom: 0.75rem;
   border-bottom: 1px solid var(--line);
@@ -314,10 +309,23 @@ main {
 }
 
 .configuration-description {
-  grid-column: 1 / -1;
+  grid-column: 2 / -1;
   margin: 0;
   color: var(--muted);
   font-size: 0.8rem;
+}
+
+.configuration-default {
+  grid-column: 2;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.configuration-reset {
+  grid-column: 3;
+  grid-row: 1;
 }
 
 .history-actions,
@@ -776,6 +784,16 @@ article {
   .settings-layout,
   .configuration-field {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .configuration-description,
+  .configuration-default,
+  .configuration-reset {
+    grid-column: 1;
+  }
+
+  .configuration-reset {
+    grid-row: auto;
   }
 
   .monitor-controls {

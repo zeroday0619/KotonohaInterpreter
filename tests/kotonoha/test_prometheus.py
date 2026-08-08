@@ -93,9 +93,9 @@ class MetricsClient:
         del method
         self.requested_urls.append(url)
         yield MetricsResponse(
-            "# HELP kotonoha_remote_test A remote test metric.\n"
-            "# TYPE kotonoha_remote_test gauge\n"
-            "kotonoha_remote_test 1\n"
+            "# HELP kotonoha_profile_test A profile service test metric.\n"
+            "# TYPE kotonoha_profile_test gauge\n"
+            "kotonoha_profile_test 1\n"
         )
 
     async def aclose(
@@ -197,7 +197,7 @@ def test_service_health_exports_accelerator_and_memory_samples() -> None:
 def test_completed_turn_exports_latency_and_quality_samples() -> None:
     metrics = TurnMetrics()
     metrics.input_mode = "text"
-    metrics.perf_mode = "onboard"
+    metrics.hardware_profile = "nvidia.jetson.agx-orin"
     metrics.output_tokens = 12
     metrics.tok_per_s = 24.0
     metrics.asr_avg_logprob = -0.4
@@ -217,69 +217,54 @@ def test_completed_turn_exports_latency_and_quality_samples() -> None:
 
 
 @pytest.mark.asyncio
-async def test_remote_service_metrics_are_merged_into_one_registry(
+async def test_profile_service_metrics_are_merged_into_one_registry(
     _positional_only: object | None = None,
     /,
     *,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     settings = load_settings()
-    settings.perf_mode = "remote"
-    settings.remote.enabled = True
-    aggregator = MetricsAggregator(settings, settings.resolved_placement())
+    aggregator = MetricsAggregator(settings)
     monkeypatch.setattr(httpx2, "AsyncClient", MetricsClient)
 
-    await aggregator.refresh(settings.resolved_placement())
+    await aggregator.refresh()
 
     output = generate_latest(create_unified_registry(aggregator)).decode("utf-8")
-    assert 'kotonoha_remote_test{role="asr",source="remote"} 1.0' in output
-    assert 'kotonoha_remote_test{role="tts",source="remote"} 1.0' in output
-
-    local_placement = dict.fromkeys(settings.resolved_placement(), "local")
-    await aggregator.refresh(local_placement)
-    output = generate_latest(create_unified_registry(aggregator)).decode("utf-8")
-    assert 'kotonoha_remote_test{role="asr",source="local"} 1.0' in output
-    assert 'kotonoha_remote_test{role="asr",source="remote"}' not in output
+    profile = settings.accelerator.profile
+    assert f'kotonoha_profile_test{{role="asr",source="{profile}"}} 1.0' in output
+    assert f'kotonoha_profile_test{{role="tts",source="{profile}"}} 1.0' in output
 
 
-def test_monitoring_targets_include_onboard_fallbacks_for_remote_roles() -> None:
+def test_monitoring_targets_include_one_endpoint_per_profile_role() -> None:
     settings = load_settings()
-    settings.perf_mode = "remote"
-    settings.remote.enabled = True
-    placement = settings.resolved_placement()
-    aggregator = MetricsAggregator(settings, placement, include_fallbacks=True)
+    aggregator = MetricsAggregator(settings)
 
-    targets = aggregator.targets(placement)
-
-    assert len(targets) == 8
-    for role in placement:
-        assert (role, "remote") in {(target_role, source) for target_role, source, _ in targets}
-        assert (role, "local") in {(target_role, source) for target_role, source, _ in targets}
-
-
-def test_monitoring_targets_remain_bounded_for_onboard_mode() -> None:
-    settings = load_settings()
-    settings.perf_mode = "onboard"
-    placement = settings.resolved_placement()
-    aggregator = MetricsAggregator(settings, placement, include_fallbacks=True)
-
-    targets = aggregator.targets(placement)
+    targets = aggregator.targets()
 
     assert len(targets) == 4
-    assert {source for _role, source, _url in targets} == {"local"}
+    assert {source for _role, source, _url in targets} == {
+        settings.accelerator.profile
+    }
+    assert {role for role, _source, _url in targets} == {
+        "asr",
+        "asr_verify",
+        "llm",
+        "tts",
+    }
 
 
 def test_monitoring_point_combines_host_service_and_turn_metrics() -> None:
-    scrape = Metric("kotonoha_remote_metrics_scrape_up", "scrape", "gauge")
+    profile = "nvidia.jetson.agx-orin"
+    scrape = Metric("kotonoha_service_metrics_scrape_up", "scrape", "gauge")
     scrape.add_sample(
-        "kotonoha_remote_metrics_scrape_up",
-        {"service": "asr", "source": "local"},
+        "kotonoha_service_metrics_scrape_up",
+        {"service": "asr", "source": profile},
         1,
     )
     service = Metric("kotonoha_service_up", "service", "gauge")
     service.add_sample(
         "kotonoha_service_up",
-        {"service": "asr", "role": "asr", "source": "local"},
+        {"service": "asr", "role": "asr", "source": profile},
         1,
     )
     accelerator = Metric("kotonoha_service_accelerator_info", "accelerator", "gauge")
@@ -288,7 +273,7 @@ def test_monitoring_point_combines_host_service_and_turn_metrics() -> None:
         {
             "service": "asr",
             "role": "asr",
-            "source": "local",
+            "source": profile,
             "backend": "cuda",
             "memory_architecture": "unified",
         },
@@ -300,7 +285,7 @@ def test_monitoring_point_combines_host_service_and_turn_metrics() -> None:
         {
             "service": "asr",
             "role": "asr",
-            "source": "local",
+            "source": profile,
             "os": "Linux",
             "kernel": "6.8.12-tegra",
             "machine": "aarch64",
@@ -310,7 +295,7 @@ def test_monitoring_point_combines_host_service_and_turn_metrics() -> None:
     cpu = Metric("kotonoha_service_system_cpu_load_ratio", "cpu", "gauge")
     cpu.add_sample(
         "kotonoha_service_system_cpu_load_ratio",
-        {"service": "asr", "role": "asr", "source": "local"},
+        {"service": "asr", "role": "asr", "source": profile},
         0.5,
     )
     memory = Metric("kotonoha_service_memory_bytes", "memory", "gauge")
@@ -320,7 +305,7 @@ def test_monitoring_point_combines_host_service_and_turn_metrics() -> None:
             {
                 "service": "asr",
                 "role": "asr",
-                "source": "local",
+                "source": profile,
                 "scope": "system",
                 "state": state,
             },
@@ -332,7 +317,7 @@ def test_monitoring_point_combines_host_service_and_turn_metrics() -> None:
             {
                 "service": "asr",
                 "role": "asr",
-                "source": "local",
+                "source": profile,
                 "scope": "accelerator",
                 "state": state,
             },
@@ -341,13 +326,13 @@ def test_monitoring_point_combines_host_service_and_turn_metrics() -> None:
     turns = Metric("kotonoha_turns", "turns", "counter")
     turns.add_sample(
         "kotonoha_turns_total",
-        {"outcome": "ok", "input_mode": "voice", "perf_mode": "onboard"},
+        {"outcome": "ok", "input_mode": "voice", "hardware_profile": profile},
         7,
     )
 
     point = _monitoring_point(
         (scrape, service, accelerator, system, cpu, memory, turns),
-        (("asr", "local"),),
+        (("asr", profile),),
         load_settings(),
         100.0,
     )
@@ -361,38 +346,38 @@ def test_monitoring_point_combines_host_service_and_turn_metrics() -> None:
 
 
 @pytest.mark.asyncio
-async def test_remote_metrics_payload_is_bounded() -> None:
+async def test_service_metrics_payload_is_bounded() -> None:
     settings = load_settings()
-    aggregator = MetricsAggregator(settings, settings.resolved_placement())
+    aggregator = MetricsAggregator(settings)
 
     role, source, payload = await aggregator._fetch(
         OversizedMetricsClient(),
         "asr",
-        "remote",
-        "http://remote.test:8001",
+        settings.accelerator.profile,
+        "http://service.test:8001",
         {},
     )
 
-    assert (role, source, payload) == ("asr", "remote", None)
+    assert (role, source, payload) == ("asr", settings.accelerator.profile, None)
 
 
 @pytest.mark.asyncio
 async def test_monitoring_refreshes_service_health_before_scraping_metrics() -> None:
     settings = load_settings()
-    aggregator = MetricsAggregator(settings, settings.resolved_placement())
+    aggregator = MetricsAggregator(settings)
     client = MetricsClient()
     MetricsClient.requested_urls.clear()
 
     role, source, payload = await aggregator._fetch(
         client,
         "asr",
-        "local",
+        settings.accelerator.profile,
         "http://service.test:8001",
         {},
         probe_health=True,
     )
 
-    assert (role, source) == ("asr", "local")
+    assert (role, source) == ("asr", settings.accelerator.profile)
     assert payload is not None
     assert MetricsClient.requested_urls == [
         "http://service.test:8001/health",
@@ -402,9 +387,9 @@ async def test_monitoring_refreshes_service_health_before_scraping_metrics() -> 
 
 def test_unified_registry_emits_metric_metadata_once() -> None:
     settings = load_settings()
-    aggregator = MetricsAggregator(settings, settings.resolved_placement())
+    aggregator = MetricsAggregator(settings)
     payload = generate_latest(REGISTRY).decode("utf-8")
-    aggregator._payloads[("asr", "local")] = tuple(
+    aggregator._payloads[("asr", settings.accelerator.profile)] = tuple(
         family
         for family in text_string_to_metric_families(payload)
         if family.name.startswith("kotonoha_")

@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
-import os
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -401,7 +400,7 @@ async def _reload_backend() -> bool:
             await backend.shutdown()
         STATE["backend"] = None
         STATE["error"] = None
-        settings = load_settings(os.environ.get("KOTONOHA_CONFIG"))
+        settings = load_settings()
         try:
             backend = VllmTranslationBackend(settings.llm)
             await backend.start()

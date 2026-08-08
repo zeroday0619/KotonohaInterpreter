@@ -16,7 +16,7 @@ import asyncio
 import contextlib
 import json
 from pathlib import Path
-from typing import Any, ClassVar, Final, Literal
+from typing import Any, ClassVar, Final
 
 import httpx2
 import numpy as np
@@ -26,8 +26,13 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from kotonoha._call_compatibility import keyword_compatible
-from kotonoha._config import Settings, load_settings, local_config_path, read_yaml
-from kotonoha._config_store import apply_changes, get_path
+from kotonoha._config import (
+    Settings,
+    configuration_database_path,
+    configuration_snapshot,
+    load_settings,
+)
+from kotonoha._config_store import apply_changes, get_path, reset_changes
 from kotonoha._configuration_fields import (
     FIELDS,
     SECTION_LABELS,
@@ -50,8 +55,6 @@ from kotonoha._operation_catalog import (
     OPERATIONS,
 )
 from kotonoha._prometheus import install_metrics
-from kotonoha.clients._base import ServiceError
-from kotonoha.clients._config_admin import RemoteConfigClient, RemoteConfigSnapshot
 from kotonoha.store._db import Store
 from kotonoha.web._logs import LogBroadcaster
 from kotonoha.web._messages import MESSAGES
@@ -76,8 +79,12 @@ MODEL_ROLE_PREFIXES: Final[dict[str, tuple[str, ...]]] = {
 
 class ConfigurationUpdate(BaseModel):
     __slots__: ClassVar[tuple[str, ...]] = ()
-    target: Literal["local", "remote"] = "local"
     changes: dict[str, Any] = Field(default_factory=dict)
+
+
+class ConfigurationReset(BaseModel):
+    __slots__: ClassVar[tuple[str, ...]] = ()
+    paths: list[str] | None = None
 
 
 class OperationRequest(BaseModel):
@@ -98,7 +105,7 @@ class WebState:
         "sessions",
         "settings",
         "config_path",
-        "local_path",
+        "database_path",
     )
 
     settings: Settings
@@ -107,7 +114,7 @@ class WebState:
     operations: OperationManager
     monitoring: MonitoringService
     config_path: Path | None
-    local_path: Path
+    database_path: Path
     configuration_lock: asyncio.Lock
     reload_tasks: set[asyncio.Task[None]]
 
@@ -120,7 +127,7 @@ class WebState:
     ) -> None:
         self.settings = settings
         self.config_path = config_path
-        self.local_path = local_config_path()
+        self.database_path = configuration_database_path()
         self.configuration_lock = asyncio.Lock()
         self.reload_tasks = set()
         self.sessions = SessionManager(settings, maximum_sessions)
@@ -210,14 +217,6 @@ def create_app(
     async def configuration() -> dict[str, Any]:
         return _configuration_snapshot(state)
 
-    @application.get("/api/config/remote")
-    @keyword_compatible
-    async def remote_configuration() -> dict[str, Any]:
-        try:
-            return await _remote_configuration_snapshot(state)
-        except ServiceError as error:
-            raise HTTPException(502, str(error)) from error
-
     @application.put("/api/config")
     @keyword_compatible
     async def update_configuration(
@@ -225,12 +224,16 @@ def create_app(
         /,
     ) -> dict[str, Any]:
         async with state.configuration_lock:
-            if update.target == "remote":
-                try:
-                    return await _apply_remote_configuration_update(state, update)
-                except ServiceError as error:
-                    raise HTTPException(502, str(error)) from error
             return await _apply_configuration_update(state, update)
+
+    @application.delete("/api/config")
+    @keyword_compatible
+    async def reset_configuration(
+        reset: ConfigurationReset,
+        /,
+    ) -> dict[str, Any]:
+        async with state.configuration_lock:
+            return await _reset_configuration(state, reset)
 
     @application.get("/api/history")
     @keyword_compatible
@@ -382,8 +385,7 @@ def create_app(
                     "playback_rate": session.playback.sample_rate,
                     "mode": session.settings.session.mode,
                     "routing": session.settings.session.routing,
-                    "perf_mode": session.settings.perf_mode,
-                    "audio_leaves_device": session.settings.audio_leaves_device,
+                    "hardware_profile": session.settings.accelerator.profile,
                     "languages": list(session.settings.session.languages),
                     "target": session.settings.session.fixed_target,
                     "history_turns": session.settings.ui.history_turns,
@@ -420,28 +422,39 @@ def _configuration_snapshot(
     state: WebState,
     /,
 ) -> dict[str, Any]:
-    overrides = read_yaml(state.local_path) if state.local_path.exists() else {}
+    persisted = configuration_snapshot(state.config_path)
     fields = []
     for specification in FIELDS:
         value = effective_value(state.settings, specification.path)
-        secret = specification.path == "remote.token"
+        default_value = get_path(persisted.defaults, specification.path)
+        secret = specification.path == "transport.token"
+        choices = (
+            list(persisted.profiles)
+            if specification.path == "accelerator.profile"
+            else list(specification.choices)
+        )
         fields.append(
             {
                 "path": specification.path,
                 "section": specification.section,
                 "kind": specification.kind,
-                "choices": list(specification.choices),
+                "choices": choices,
                 "optional": specification.optional,
                 "value_kind": specification.value_kind,
                 "value": "" if secret else _json_value(value),
+                "default_value": "" if secret else _json_value(default_value),
                 "description": field_description(specification),
-                "modified": get_path(overrides, specification.path) is not None,
+                "modified": (
+                    specification.path != "accelerator.profile"
+                    and get_path(persisted.overrides, specification.path) is not None
+                ),
                 "secret": secret,
             }
         )
     return {
-        "target": "local",
-        "path": str(state.local_path),
+        "path": str(state.database_path),
+        "hardware_profile": persisted.profile,
+        "hardware_profiles": list(persisted.profiles),
         "sections": [
             {"name": section, "label": _(SECTION_LABELS[section])} for section in SECTIONS
         ],
@@ -450,92 +463,6 @@ def _configuration_snapshot(
             task.get_name().removeprefix("reload-") for task in state.reload_tasks
         ),
     }
-
-
-async def _remote_configuration_snapshot(
-    state: WebState,
-    /,
-) -> dict[str, Any]:
-    client = RemoteConfigClient(state.settings.remote.services.asr, state.settings.remote)
-    try:
-        snapshot = await client.read()
-    finally:
-        await client.aclose()
-    return _render_remote_configuration(snapshot)
-
-
-def _render_remote_configuration(
-    snapshot: RemoteConfigSnapshot,
-    /,
-    changed: list[str] | None = None,
-    reloading_roles: list[str] | None = None,
-) -> dict[str, Any]:
-    editable_paths = set(snapshot.editable_paths)
-    specifications = [
-        specification for specification in FIELDS if specification.path in editable_paths
-    ]
-    active_sections = {
-        specification.section for specification in specifications
-    }
-    fields = []
-    for specification in specifications:
-        fields.append(
-            {
-                "path": specification.path,
-                "section": specification.section,
-                "kind": specification.kind,
-                "choices": list(specification.choices),
-                "optional": specification.optional,
-                "value_kind": specification.value_kind,
-                "value": _json_value(get_path(snapshot.config, specification.path)),
-                "description": field_description(specification),
-                "modified": get_path(snapshot.overrides, specification.path) is not None,
-                "secret": False,
-            }
-        )
-    return {
-        "target": "remote",
-        "path": snapshot.path,
-        "sections": [
-            {"name": section, "label": _(SECTION_LABELS[section])}
-            for section in SECTIONS
-            if section in active_sections
-        ],
-        "fields": fields,
-        "changed": changed or [],
-        "retired_sessions": [],
-        "reloading_roles": reloading_roles or [],
-        "restart_required": snapshot.restart_required,
-    }
-
-
-async def _apply_remote_configuration_update(
-    state: WebState,
-    update: ConfigurationUpdate,
-    /,
-) -> dict[str, Any]:
-    client = RemoteConfigClient(state.settings.remote.services.asr, state.settings.remote)
-    try:
-        current = await client.read()
-        rejected = sorted(set(update.changes) - set(current.editable_paths))
-        if rejected:
-            raise HTTPException(
-                422,
-                f"unknown or non-editable remote settings: {', '.join(rejected)}",
-            )
-        snapshot = await client.update(update.changes)
-    finally:
-        await client.aclose()
-    changed = sorted(update.changes)
-    reloading_roles = _changed_model_roles(changed)
-    for role in reloading_roles:
-        task = asyncio.create_task(
-            _reload_model_role(state.settings, role, side="remote"),
-            name=f"reload-{role}",
-        )
-        state.reload_tasks.add(task)
-        task.add_done_callback(state.reload_tasks.discard)
-    return _render_remote_configuration(snapshot, changed, reloading_roles)
 
 
 async def _apply_configuration_update(
@@ -554,7 +481,7 @@ async def _apply_configuration_update(
         apply_changes,
         update.changes,
         state.config_path,
-        state.local_path,
+        state.database_path,
     )
     if not result.written:
         raise HTTPException(422, result.error or "invalid configuration")
@@ -576,6 +503,49 @@ async def _apply_configuration_update(
     snapshot["changed"] = result.changed
     snapshot["retired_sessions"] = retired_sessions
     snapshot["reloading_roles"] = reloading_roles
+    return snapshot
+
+
+async def _reset_configuration(
+    state: WebState,
+    reset: ConfigurationReset,
+    /,
+) -> dict[str, Any]:
+    editable_paths = {specification.path for specification in FIELDS}
+    if reset.paths is not None:
+        rejected = sorted(set(reset.paths) - editable_paths)
+        if rejected:
+            raise HTTPException(
+                422,
+                f"unknown or non-editable settings: {', '.join(rejected)}",
+            )
+    result = await asyncio.to_thread(
+        reset_changes,
+        reset.paths,
+        state.config_path,
+        state.database_path,
+    )
+    if not result.written:
+        raise HTTPException(422, result.error or "invalid configuration reset")
+    settings = await asyncio.to_thread(load_settings, state.config_path)
+    state.settings = settings
+    await state.monitoring.reconfigure(settings)
+    if reset.paths is None or any(path.startswith("logging.") for path in result.changed):
+        _apply_runtime_logging(settings)
+    retired_sessions = await state.sessions.replace_settings(settings)
+    reloading_roles = _changed_model_roles(result.changed)
+    for role in reloading_roles:
+        task = asyncio.create_task(
+            _reload_model_role(settings, role),
+            name=f"reload-{role}",
+        )
+        state.reload_tasks.add(task)
+        task.add_done_callback(state.reload_tasks.discard)
+    snapshot = _configuration_snapshot(state)
+    snapshot["changed"] = result.changed
+    snapshot["retired_sessions"] = retired_sessions
+    snapshot["reloading_roles"] = reloading_roles
+    snapshot["reset"] = True
     return snapshot
 
 
@@ -689,19 +659,22 @@ async def _reload_model_role(
     settings: Settings,
     role: str,
     /,
-    side: str | None = None,
 ) -> None:
-    side = side or settings.resolved_placement().get(role, "local")
-    url = settings.url_for(role, side).rstrip("/")
-    token = (settings.remote.token or "") if side == "remote" else ""
+    url = settings.service_url(role).rstrip("/")
+    token = settings.transport.token or ""
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     try:
         async with httpx2.AsyncClient(headers=headers, timeout=600.0) as client:
             response = await client.post(f"{url}/admin/reload")
             response.raise_for_status()
-        log.info("web.model_reloaded", role=role, side=side)
+        log.info("web.model_reloaded", role=role, hardware_profile=settings.accelerator.profile)
     except Exception as error:  # noqa: BLE001
-        log.error("web.model_reload_failed", role=role, side=side, error=repr(error))
+        log.error(
+            "web.model_reload_failed",
+            role=role,
+            hardware_profile=settings.accelerator.profile,
+            error=repr(error),
+        )
 
 
 async def _receive_loop(

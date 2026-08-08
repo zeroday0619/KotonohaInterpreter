@@ -8,10 +8,10 @@ are defined in [Performance Measurement](../docs/performance/measurement.md).
 
 The harness supports two isolated targets.
 
-| Target | Output directory | Configuration patch |
+| Target | Output directory | Configuration change set |
 |---|---|---|
-| Jetson AGX Orin | `spikes/out` | `local.yaml` |
-| RTX A6000 | `spikes/out/a6000` | `remote-server.local.yaml` |
+| Jetson AGX Orin | `spikes/out` | `configuration-changes.json` |
+| RTX A6000 | `spikes/out/a6000` | `configuration-changes.json` |
 
 Results from different targets are not interchangeable. Each JSON result records its
 target, runtime environment, and benchmark conditions.
@@ -24,7 +24,7 @@ target, runtime environment, and benchmark conditions.
 | `spike2_flash_attn.py` | Executes FlashAttention and measures vLLM-Omni Qwen3-TTS streaming |
 | `spike3_llm_tokrate.py` | Measures TranslateGemma through the FastAPI WebSocket service |
 | `run_all.sh` | Selects target images and runs each probe through Docker Compose |
-| `report.py` | Produces the target report and validated configuration values |
+| `report.py` | Produces the target report and Web API configuration change set |
 | `../docker/compose.spikes.yaml` | Defines isolated ASR, TTS, LLM, and report containers |
 
 ## Docker Interface

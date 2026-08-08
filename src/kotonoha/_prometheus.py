@@ -27,7 +27,7 @@ from prometheus_client.parser import text_string_to_metric_families
 
 from kotonoha._config import ROLES, LatencyBudgetConfig, Settings
 from kotonoha._metrics import TurnMetrics
-from kotonoha.clients._base import remote_transport_kwargs
+from kotonoha.clients._base import service_transport_kwargs
 
 HTTP_REQUESTS = Counter(
     "kotonoha_http_requests",
@@ -93,7 +93,7 @@ SERVICE_DISK = Gauge(
 TURNS = Counter(
     "kotonoha_turns",
     "Completed interpretation turns.",
-    ("outcome", "input_mode", "perf_mode"),
+    ("outcome", "input_mode", "hardware_profile"),
 )
 TURN_STAGE_DURATION = Histogram(
     "kotonoha_turn_stage_duration_seconds",
@@ -121,17 +121,13 @@ CROSS_VERIFICATION = Counter(
     "Turns classified by conditional ASR cross-verification state.",
     ("fired", "divergent"),
 )
-FAILOVERS = Counter(
-    "kotonoha_failovers",
-    "Role failover events recorded on completed turns.",
-)
 OVER_BUDGET_TURNS = Counter(
     "kotonoha_over_budget_turns",
     "Completed turns that exceeded at least one latency budget.",
 )
-REMOTE_SCRAPE_UP = Gauge(
-    "kotonoha_remote_metrics_scrape_up",
-    "Whether the metrics receiver received the latest service metrics payload.",
+SERVICE_SCRAPE_UP = Gauge(
+    "kotonoha_service_metrics_scrape_up",
+    "Whether the unified exporter received the latest service metrics payload.",
     ("service", "source"),
 )
 MAXIMUM_METRICS_PAYLOAD_BYTES: Final[int] = 2 * 1024 * 1024
@@ -145,39 +141,31 @@ class MetricsAggregator:
         "_client",
         "_endpoint_urls",
         "_headers",
-        "include_fallbacks",
         "_payload_lock",
         "_payloads",
         "_refresh_lock",
-        "placement",
         "settings",
     )
 
     settings: Settings
-    placement: dict[str, str]
     _endpoint_urls: dict[str, str] | None
     _headers: dict[str, str] | None
     _payloads: dict[tuple[str, str], tuple[Metric, ...]]
     _payload_lock: threading.Lock
     _refresh_lock: asyncio.Lock
     _client: httpx2.AsyncClient | None
-    include_fallbacks: bool
 
     def __init__(
         self,
         settings: Settings,
         /,
-        placement: Mapping[str, str],
         *,
         endpoint_urls: Mapping[str, str] | None = None,
         headers: Mapping[str, str] | None = None,
-        include_fallbacks: bool = False,
     ) -> None:
         self.settings = settings
-        self.placement = dict(placement)
         self._endpoint_urls = dict(endpoint_urls) if endpoint_urls is not None else None
         self._headers = dict(headers) if headers is not None else None
-        self.include_fallbacks = include_fallbacks
         self._payloads = {}
         self._payload_lock = threading.Lock()
         self._refresh_lock = asyncio.Lock()
@@ -185,24 +173,21 @@ class MetricsAggregator:
 
     async def refresh(
         self,
-        placement: Mapping[str, str],
         /,
         *,
         probe_health: bool = False,
     ) -> None:
         """Fetch metrics from every currently active role endpoint."""
         async with self._refresh_lock:
-            await self._refresh(placement, probe_health=probe_health)
+            await self._refresh(probe_health=probe_health)
 
     async def _refresh(
         self,
-        placement: Mapping[str, str],
         /,
         *,
         probe_health: bool = False,
     ) -> None:
-        self.placement = dict(placement)
-        transport = remote_transport_kwargs(self.settings.remote)
+        transport = service_transport_kwargs(self.settings.transport)
         if self._client is None:
             self._client = httpx2.AsyncClient(
                 verify=transport["verify"],
@@ -211,14 +196,14 @@ class MetricsAggregator:
                     connect=float(transport["connect_timeout"]),
                 ),
             )
-        endpoints = self.targets(self.placement)
+        endpoints = self.targets()
         active_keys = {(role, source) for role, source, _url in endpoints}
         with self._payload_lock:
             removed_keys = tuple(key for key in self._payloads if key not in active_keys)
             for key in removed_keys:
                 self._payloads.pop(key, None)
         for role, source in removed_keys:
-            REMOTE_SCRAPE_UP.labels(service=role, source=source).set(0)
+            SERVICE_SCRAPE_UP.labels(service=role, source=source).set(0)
         results = await asyncio.gather(
             *(
                 self._fetch(
@@ -229,7 +214,7 @@ class MetricsAggregator:
                     (
                         self._headers
                         if self._headers is not None
-                        else transport["headers"] if source == "remote" else {}
+                        else transport["headers"]
                     ),
                     probe_health=probe_health,
                 )
@@ -242,7 +227,7 @@ class MetricsAggregator:
             if payload is None:
                 with self._payload_lock:
                     self._payloads.pop(key, None)
-                REMOTE_SCRAPE_UP.labels(service=role, source=source).set(0)
+                SERVICE_SCRAPE_UP.labels(service=role, source=source).set(0)
                 continue
             try:
                 families = tuple(
@@ -253,32 +238,26 @@ class MetricsAggregator:
             except (TypeError, ValueError):
                 with self._payload_lock:
                     self._payloads.pop(key, None)
-                REMOTE_SCRAPE_UP.labels(service=role, source=source).set(0)
+                SERVICE_SCRAPE_UP.labels(service=role, source=source).set(0)
                 continue
             with self._payload_lock:
                 self._payloads[key] = families
-            REMOTE_SCRAPE_UP.labels(service=role, source=source).set(1)
+            SERVICE_SCRAPE_UP.labels(service=role, source=source).set(1)
 
     def targets(
         self,
-        placement: Mapping[str, str],
         /,
     ) -> tuple[tuple[str, str, str], ...]:
-        """Return bounded scrape targets for the active services and fallbacks."""
+        """Return one bounded scrape target for each configured service."""
         targets: list[tuple[str, str, str]] = []
         for role in ROLES:
-            source = placement[role]
+            source = self.settings.accelerator.profile
             url = (
                 self._endpoint_urls[role]
                 if self._endpoint_urls is not None
-                else self.settings.url_for(role, source)
+                else self.settings.service_url(role)
             )
             targets.append((role, source, url))
-            if not self.include_fallbacks or source != "remote" or self._endpoint_urls is not None:
-                continue
-            local_url = self.settings.url_for(role, "local")
-            if local_url.rstrip("/") != url.rstrip("/"):
-                targets.append((role, "local", local_url))
         return tuple(targets)
 
     async def aclose(
@@ -346,7 +325,7 @@ class MetricsAggregator:
         self,
         /,
     ) -> Iterable[Metric]:
-        """Merge cached service families and add bounded placement labels."""
+        """Merge cached service families and add bounded profile labels."""
         merged: dict[str, Metric] = {}
         with self._payload_lock:
             payloads = tuple(self._payloads.items())
@@ -577,7 +556,7 @@ def observe_turn(
     TURNS.labels(
         outcome=metrics.outcome,
         input_mode=metrics.input_mode,
-        perf_mode=metrics.perf_mode or "unknown",
+        hardware_profile=metrics.hardware_profile or "unknown",
     ).inc()
     for stage, duration_ms in record["stages_ms"].items():
         if duration_ms is not None:
@@ -598,8 +577,6 @@ def observe_turn(
             else "unknown"
         ),
     ).inc()
-    if metrics.failovers:
-        FAILOVERS.inc(metrics.failovers)
     if record.get("over_budget_ms"):
         OVER_BUDGET_TURNS.inc()
 

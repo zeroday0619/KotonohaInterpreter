@@ -28,7 +28,7 @@ import typer
 
 from kotonoha._async_runtime import run as run_async
 from kotonoha._call_compatibility import keyword_compatible
-from kotonoha._config import Settings, load_settings
+from kotonoha._config import ROLES, Settings, load_settings
 from kotonoha._i18n import _, available_locales, set_locale
 from kotonoha._logging_setup import setup_logging
 from kotonoha._typer_i18n import (
@@ -557,7 +557,7 @@ def glossary_list(
 
 @app.command(
     cls=LocalizedTyperCommand,
-    help=_("Report environment, role placement and service health"),
+    help=_("Report environment, hardware profile, and service health"),
 )
 @keyword_compatible
 def doctor(
@@ -570,23 +570,17 @@ def doctor(
 
     settings = _settings(context)
     print(f"python      {sys.version.split()[0]}  {platform.machine()}  {platform.system()}")
-    print(f"config      {context.obj.config or 'config/default.yaml'}")
+    print(f"database    {settings.resolve(settings.store.path)}")
+    print(f"profile     {settings.accelerator.profile}")
     print(
         f"asr backend {settings.asr.backend} / llm profile {settings.llm.profile} / "
         f"tts {settings.tts.backend}"
     )
     print(f"llm model   {settings.resolve(settings.llm.model_path)}")
-    placement = settings.resolved_placement()
     print(
-        f"perf_mode   {settings.perf_mode}  "
-        f"remote={'on' if settings.remote.enabled else 'off'}"
+        "services    "
+        + "  ".join(f"{role}={settings.service_url(role)}" for role in ROLES)
     )
-    print(
-        "placement   "
-        + "  ".join(f"{role}={side}" for role, side in placement.items())
-    )
-    if settings.audio_leaves_device:
-        print("            " + _("! In this mode utterance audio leaves the device"))
     print()
 
     modules = [
@@ -635,11 +629,7 @@ def doctor(
         group = build_service_group(settings)
         try:
             print("\n" + _("Services:"))
-            clients = [
-                (role.role, client)
-                for role in group.all()
-                for client in filter(None, (role.preferred, role.fallback))
-            ]
+            clients = [(managed.role, managed.active) for managed in group.all()]
             health_results = await asyncio.gather(
                 *(client.health() for _role, client in clients)
             )
@@ -660,7 +650,7 @@ def doctor(
 
 @app.command(
     cls=LocalizedTyperCommand,
-    help=_("Measure latency and throughput to the external server"),
+    help=_("Measure latency and throughput to configured model services"),
 )
 @keyword_compatible
 def netcheck(
@@ -669,41 +659,26 @@ def netcheck(
     samples: Annotated[int, typer.Option(help=_("Measurements per role"))] = 10,
     seconds: Annotated[float, typer.Option(help=_("Probe utterance length in seconds"))] = 6.0,
 ) -> None:
-    # Every remote stage pays the round trip, and the utterance audio pays the
-    # upload on top. §6 has 2.9 s total with no slack, so this gets measured
-    # rather than assumed.
+    # Every service stage pays endpoint latency, and audio services also pay the
+    # upload cost. This separates transport overhead from model inference.
     import statistics
 
     import httpx2
 
     from kotonoha._transport import encode_pcm
-    from kotonoha.clients._base import remote_transport_kwargs
+    from kotonoha.clients._base import service_transport_kwargs
 
     settings = _settings(context)
-    if not settings.remote.enabled:
-        print(_("remote.enabled is false. Use config/performance.yaml, or enable it and retry."))
-        raise typer.Exit(code=1)
-
-    placement = settings.resolved_placement()
-    remote_roles = [role for role, side in placement.items() if side == "remote"]
-    if not remote_roles:
-        print(_("No role is routed remotely under perf_mode={mode}.", mode=settings.perf_mode))
-        raise typer.Exit(code=1)
-
-    transport_options = remote_transport_kwargs(settings.remote)
+    transport_options = service_transport_kwargs(settings.transport)
     audio_samples = np.zeros(int(seconds * settings.shm.sample_rate), dtype=np.float32)
-    encoded_audio = encode_pcm(audio_samples, settings.remote.audio_encoding)
+    encoded_audio = encode_pcm(audio_samples, settings.transport.audio_encoding)
 
     async def execute() -> bool:
-        print(f"perf_mode   {settings.perf_mode}")
-        print(
-            "placement   "
-            + "  ".join(f"{role}={side}" for role, side in placement.items())
-        )
+        print(f"profile     {settings.accelerator.profile}")
         print(
             _("probe       {seconds}s utterance, {encoding}, {size} bytes",
                 seconds=seconds,
-                encoding=settings.remote.audio_encoding,
+                encoding=settings.transport.audio_encoding,
                 size=len(encoded_audio),
             )
             + "\n"
@@ -718,8 +693,8 @@ def netcheck(
             verify=transport_options["verify"],
             timeout=httpx2.Timeout(10.0, connect=transport_options["connect_timeout"]),
         ) as client:
-            for role in remote_roles:
-                url = settings.url_for(role, "remote").rstrip("/")
+            for role in ROLES:
+                url = settings.service_url(role).rstrip("/")
                 measurements = []
                 for _measurement_index in range(samples):
                     started_at = time.perf_counter()
@@ -749,7 +724,7 @@ def netcheck(
             for role in (
                 role for role in ("asr", "asr_verify") if role in round_trip_times
             ):
-                url = settings.url_for(role, "remote").rstrip("/")
+                url = settings.service_url(role).rstrip("/")
                 measurements = []
                 for _measurement_index in range(samples):
                     started_at = time.perf_counter()
@@ -783,7 +758,7 @@ def netcheck(
             print(
                 "\n"
                 + _(
-                    "Connection failed: {roles}. These roles will use onboard fallback services.",
+                    "Connection failed: {roles}.",
                     roles=", ".join(failed_roles),
                 )
             )
@@ -801,7 +776,7 @@ def netcheck(
         print("\n" + _("Estimated link overhead per turn  {ms} ms", ms=f"{overhead:.0f}"))
         print(_("Budget, end-of-utterance to first audio  {ms} ms", ms=slack))
         print(
-            _("  ! The link consumes more than 25% of the budget. Consider hybrid mode.")
+            _("  ! Service transport consumes more than 25% of the latency budget.")
             if overhead > slack * 0.25
             else _("  The link fits within the budget. The remainder is model inference time.")
         )

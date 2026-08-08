@@ -32,8 +32,8 @@ SECTIONS = (
     "session",
     "audio",
     "frontend",
+    "hardware",
     "runtime",
-    "remote",
     "asr",
     "asr_verify",
     "llm",
@@ -44,16 +44,14 @@ SECTIONS = (
 )
 
 TOP_LEVEL_SECTIONS = {
-    "accelerator": "runtime",
+    "accelerator": "hardware",
     "ui": "interface",
     "session": "session",
     "audio": "audio",
     "frontend": "frontend",
     "shm": "runtime",
     "services": "runtime",
-    "perf_mode": "remote",
-    "placement": "remote",
-    "remote": "remote",
+    "transport": "runtime",
     "asr": "asr",
     "asr_verify": "asr_verify",
     "llm": "llm",
@@ -71,11 +69,11 @@ SECTION_LABELS: dict[str, str] = {
     "audio": N_("Audio devices"),
     "data": N_("Context and storage"),
     "frontend": N_("Audio frontend"),
+    "hardware": N_("Hardware profile"),
     "interface": N_("Interface"),
     "language": N_("Language processing"),
     "llm": N_("Translation LLM"),
     "observability": N_("Logging and latency budgets"),
-    "remote": N_("External server"),
     "runtime": N_("Runtime services"),
     "session": N_("Session"),
     "tts": N_("Speech synthesis"),
@@ -89,6 +87,9 @@ VALUE_KIND_DESCRIPTIONS: dict[str, str] = {
 }
 
 FIELD_DESCRIPTIONS: dict[str, str] = {
+    "accelerator.profile": N_(
+        "Selects hardware-specific model, memory, and runtime defaults."
+    ),
     "asr.backend": N_("vLLM is the default; Transformers is the fallback."),
     "asr.n_best": N_("Hypotheses returned per utterance. The correction pass consumes all."),
     "asr_verify.mode": N_(
@@ -117,20 +118,7 @@ FIELD_DESCRIPTIONS: dict[str, str] = {
     "logging.prometheus_port": N_(
         "Optional localhost port for Prometheus turn metrics. Empty disables the exporter."
     ),
-    "perf_mode": N_(
-        "onboard runs everything locally. hybrid moves only the LLM and keeps audio on the "
-        "device. remote moves every model. custom selects each role independently."
-    ),
-    "placement": N_(
-        "Custom mode placement for ASR, verification ASR, translation LLM, and TTS."
-    ),
-    "remote.audio_encoding": N_("s16le halves the bytes on the wire against f32le."),
-    "remote.enabled": N_("When false, every role runs locally regardless of perf_mode."),
-    "remote.failover_after": N_("Consecutive transport failures before a role falls back."),
-    "remote.services.asr": N_("ASR service URL on the external server."),
-    "remote.services.asr_verify": N_("Verification service URL on the external server."),
-    "remote.services.llm": N_("Translation service URL on the external server."),
-    "remote.services.tts": N_("Speech synthesis service URL on the external server."),
+    "transport.audio_encoding": N_("s16le halves audio transport bytes against f32le."),
     "session.mode": N_(
         "push_to_talk requires a key press, auto segments on the VAD, and text closes the "
         "microphone and takes utterances from the keyboard."
@@ -180,8 +168,8 @@ def _field_spec(
 ) -> FieldSpec:
     if path in {"audio.input_device", "audio.output_device"}:
         return FieldSpec(path, section, "device", optional=True)
-    if path == "placement":
-        return FieldSpec(path, section, "placement", value_kind="collection")
+    if path == "accelerator.profile":
+        return FieldSpec(path, section, "select")
     annotation, optional = _without_none(annotation)
     origin = get_origin(annotation)
     if origin is Literal:

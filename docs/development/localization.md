@@ -31,8 +31,7 @@ terminology as the English interface but are not extracted into gettext catalogs
 - Use `interpretation` for the end-to-end product workflow. Do not substitute
   `translation` when speech input or speech output is part of the workflow.
 - Use `turn` for one completed source-and-translation exchange.
-- Use `onboard` for execution on the Jetson and `remote` for execution on the external
-  server.
+- Use `hardware profile` for the selected deployment-specific model and engine settings.
 - Avoid idioms, phrasal abbreviations, ambiguous pronouns, and English-specific wordplay.
 - Do not embed terminal layout with repeated spaces unless the alignment is intentional.
   Add an `i18n:` translator comment when leading or trailing whitespace is required.
@@ -62,7 +61,7 @@ Use locale-native punctuation for complete standalone sentences.
 | glossary | 용어집 | 用語集 | 詞彙表 |
 | verification ASR | 검증 ASR | 検証 ASR | 驗證 ASR |
 | fallback | 대체 | 代替 | 備援 |
-| placement | 배치 | 配置 | 配置 |
+| hardware profile | 하드웨어 프로파일 | ハードウェアプロファイル | 硬體設定檔 |
 | latency | 지연 | 遅延 | 延遲 |
 | throughput | 처리량 | スループット | 處理量 |
 | configuration | 설정 | 設定 | 設定 |
@@ -79,12 +78,12 @@ describes configuration choices.
 Do not translate or rewrite:
 
 - Placeholders such as `{path}`, `{count}`, and `{error}`
-- Identifiers and dotted settings such as `perf_mode` and `remote.enabled`
+- Identifiers and dotted settings such as `accelerator.profile` and `transport.token`
 - Commands, options, environment variables, paths, URLs, and MIME types
 - Product and component names such as Kotonoha, vLLM, Transformers, and DeepFilterNet3
 - Protocol and format names such as JSON, JSONL, YAML, WAV, and PCM
 - Model-role abbreviations such as ASR, LLM, TTS, VAD, PTT, and EOU
-- Enum values such as `onboard`, `hybrid`, `remote`, `custom`, `conditional`, and `always`
+- Enum values such as `conditional`, `always`, and hardware-profile identifiers
 - Model and backend values such as `vllm_omni`, `silero_onnx`, `s16le`, and `f32le`
 
 Preserve placeholder names, repetition counts, conversions, and format specifications.

@@ -76,7 +76,7 @@ def test_management_script_has_valid_shell_syntax_and_help() -> None:
         (
             ("web", "a6000"),
             (
-                "docker/compose.remote.yaml",
+                "docker/compose.a6000.yaml",
                 "docker/compose.yaml",
                 "docker/compose.web.a6000.yaml",
                 "up -d web",

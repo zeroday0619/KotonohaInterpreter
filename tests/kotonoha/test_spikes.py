@@ -33,7 +33,7 @@ SPIKE_ENTRYPOINT = PROJECT_ROOT / "spikes" / "container_entrypoint.sh"
 PROJECT_CONFIGURATION = PROJECT_ROOT / "pyproject.toml"
 
 
-def test_a6000_report_generates_remote_configuration_patch(
+def test_a6000_report_generates_configuration_changes(
     _positional_only: object | None = None,
     /,
     *,
@@ -69,7 +69,7 @@ def test_a6000_report_generates_remote_configuration_patch(
         encoding="utf-8",
     )
     report_path = result_directory / "PERFORMANCE.md"
-    patch_path = result_directory / "remote-server.local.yaml"
+    patch_path = result_directory / "configuration-changes.json"
 
     completed = subprocess.run(
         [
@@ -92,10 +92,11 @@ def test_a6000_report_generates_remote_configuration_patch(
 
     assert completed.returncode == 0, completed.stderr
     assert "A6000" in report_path.read_text(encoding="utf-8")
-    patch = patch_path.read_text(encoding="utf-8")
-    assert "backend: vllm" in patch
-    assert "vllm_gpu_memory_utilization: 0.85" in patch
-    assert "vllm_enforce_eager: false" in patch
+    changes = json.loads(patch_path.read_text(encoding="utf-8"))["changes"]
+    assert changes["accelerator.profile"] == "nvidia.rtx.a6000"
+    assert changes["asr.backend"] == "vllm"
+    assert changes["asr.vllm_gpu_memory_utilization"] == 0.85
+    assert changes["asr.vllm_enforce_eager"] is False
 
 
 def test_spike_runner_keeps_target_outputs_separate() -> None:
@@ -105,7 +106,7 @@ def test_spike_runner_keeps_target_outputs_separate() -> None:
     assert "jetson|a6000" in source
     assert "spikes/out/a6000" in source
     assert "PERFORMANCE.md" in source
-    assert "remote-server.local.yaml" in source
+    assert "configuration-changes.json" in source
     assert "docker/compose.spikes.yaml" in source
     assert 'run --rm asr' in source
     assert 'run --rm tts' in source
@@ -121,7 +122,7 @@ def test_spike_runner_keeps_target_outputs_separate() -> None:
 
 def test_translategemma_report_generates_profile_patch() -> None:
     namespace = runpy.run_path(str(REPORT_SCRIPT))
-    patch = namespace["patch_yaml"](
+    patch = namespace["configuration_changes"](
         None,
         None,
         {
@@ -134,8 +135,8 @@ def test_translategemma_report_generates_profile_patch() -> None:
         "a6000",
     )
 
-    assert "llm:" in patch
-    assert "profile: translategemma" in patch
+    changes = json.loads(patch)["changes"]
+    assert changes["llm.profile"] == "translategemma"
 
 
 def test_spike_runner_preserves_compose_variables_through_sudo() -> None:
@@ -270,11 +271,11 @@ def test_vllm_omni_probe_uses_the_deployment_speech_api_contract() -> None:
         "kotonoha.services._tts_server:app",
         "--host",
     ]
-    assert environment["TTS_MODEL"] == "/models/Qwen3-TTS-0.6B"
-    assert environment["TTS_STARTUP_TIMEOUT_SECONDS"] == "600.0"
-    assert environment["TTS_SERVED_MODEL_NAME"] == "kotonoha-tts"
-    assert environment["TTS_GPU_MEMORY_UTILIZATION"] == "0.25"
-    assert environment["TTS_ENFORCE_EAGER"] == "1"
+    assert environment["KOTONOHA__TTS__MODEL_PATH"] == "/models/Qwen3-TTS-0.6B"
+    assert environment["KOTONOHA__TTS__STARTUP_TIMEOUT_S"] == "600.0"
+    assert environment["KOTONOHA__TTS__SERVED_MODEL_NAME"] == "kotonoha-tts"
+    assert environment["KOTONOHA__TTS__GPU_MEMORY_UTILIZATION"] == "0.25"
+    assert environment["KOTONOHA__TTS__ENFORCE_EAGER"] == "1"
     assert "KOTONOHA_SERVICE_TOKEN" not in environment
 
 

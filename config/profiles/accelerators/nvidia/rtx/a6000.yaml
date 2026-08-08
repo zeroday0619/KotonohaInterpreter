@@ -9,7 +9,29 @@ accelerator:
   runtime: cuda
   architecture: sm_86
 
+asr:
+  backend: vllm
+  model_id: /models/Qwen3-ASR-0.6B-hf
+  vllm_model_id: /models/Voxtral-Mini-4B-Realtime-2602
+  vllm_realtime_architecture: voxtral
+  dtype: bfloat16
+  vllm_gpu_memory_utilization: 0.28
+
+asr_verify:
+  backend: faster_whisper
+  model_id: /models/faster-whisper-large-v3
+  compute_type: float16
+  device: cuda
+  timeout_s: 5.0
+
 llm:
+  profiles:
+    translategemma:
+      repo: google/translategemma-12b-it
+      directory: translategemma-12b-it
+      quantization: null
+      dtype: bfloat16
+  models_dir: /models/llm
   gpu_memory_utilization: 0.90
   kv_cache_dtype: auto
   max_num_seqs: 1
@@ -20,3 +42,13 @@ llm:
   compilation_cudagraph_capture_sizes: [1, 2, 4]
   compilation_cache_dir: /models/vllm-compile-cache
   enforce_eager: false
+  max_tokens: 768
+
+tts:
+  model_path: /models/Qwen3-TTS-0.6B
+  deploy_config: null
+  gpu_memory_utilization: 0.25
+  enforce_eager: true
+
+logging:
+  prometheus_port: 9091

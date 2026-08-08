@@ -72,7 +72,7 @@ uv run ruff check .
 uv run pytest -q
 ```
 
-Current baseline: 414 tests and zero lint findings.
+Current baseline: 374 tests and zero lint findings.
 
 `.github/workflows/ci.yml` runs these gates plus lock consistency, wheel catalog
 compilation, and Python 3.10 import parity. See
@@ -283,13 +283,18 @@ template requires it.
 
 ## Configuration
 
-Settings merge in this order, with later sources taking precedence:
+Settings resolve in this order, with later sources taking precedence:
 
-1. `config/default.yaml`
-2. The selected accelerator profile under `config/profiles/accelerators/`
-3. The file passed through `--config`
-4. `config/local.yaml`
-5. Environment variables using `KOTONOHA__SECTION__FIELD`
+1. Packaged base defaults from `config/default.yaml`, synchronized into SQLite
+2. The selected hardware profile under `config/profiles/accelerators/`, synchronized
+   into SQLite
+3. Operator overrides stored in `data/kotonoha.db`
+4. Environment variables using `KOTONOHA__SECTION__FIELD`
+
+`KOTONOHA_INITIAL_HARDWARE_PROFILE` selects the profile only when the database has no
+stored selection. The Web configuration editor owns subsequent profile changes. Legacy
+`--config`, `KOTONOHA_CONFIG`, `KOTONOHA_LOCAL_CONFIG`, and `config/local.yaml` inputs are
+imported once into SQLite and are not active persistence layers.
 
 Pending hardware decisions remain configuration values, not hard-coded branches.
 
@@ -302,19 +307,17 @@ When adding a setting:
 5. Add a specific field description only when the generic type description is
    insufficient.
 
-Accelerator profiles use `<vendor>.<family>.<model>` identifiers and live under
+Hardware profiles use `<vendor>.<family>.<model>` identifiers and live under
 `config/profiles/accelerators/<vendor>/<family>/<model>.yaml`. Keep hardware-specific
 engine tuning in the profile file, and keep runtime code independent of product names.
 
-The configuration editor writes local changes to `config/local.yaml`. Remote changes use
-the authenticated `/admin/config` endpoint and write
-`config/remote-server.local.yaml`. Neither path writes baseline or selected overlay
-files.
+The Web configuration editor stores only operator overrides in SQLite. Resetting one
+field deletes that override and restores the active profile default. Resetting all fields
+preserves the selected hardware profile. Neither operation modifies packaged YAML.
 
-The remote allowlist contains only settings consumed by resident model services. Do not
-expose credentials, client policy, audio devices, or local storage. Remote model changes
-persist through `/admin/config`. The Web control center additionally invokes the affected
-service `/admin/reload` endpoint after a validated save.
+Resident model services expose only service-owned settings through authenticated
+`/admin/config` and `/admin/reload` endpoints. Do not expose credentials, browser policy,
+audio devices, or local storage through those endpoints.
 
 ## Localization
 
@@ -367,34 +370,27 @@ or structured log fields. Spike verdicts remain Korean in `PHASE0.md` and
 
 Do not duplicate the translation and TTS tail for text mode.
 
-### High-performance mode
+### Hardware profiles
 
-`perf_mode` controls role placement. `custom` reads the `placement` mapping, and each
-role accepts `local` or `remote`.
-
-| Mode | Placement |
-|---|---|
-| `onboard` | All roles on Jetson |
-| `hybrid` | LLM remote; audio roles remain on Jetson |
-| `remote` | ASR, verification ASR, LLM, and TTS remote |
-| `custom` | Each role follows the `placement` mapping |
+`accelerator.profile` selects model identifiers, engine settings, service endpoints, and
+memory limits for one deployment host. Profile identifiers use
+`<vendor>.<family>.<model>` and remain independent of runtime branching.
 
 Preserve these contracts:
 
-- The orchestrator does not branch on placement. Clients select from `AudioPayload`,
-  which carries shared-memory and PCM representations.
-- Every remote role retains a loaded onboard fallback.
-- Transport failures retry locally. HTTP 4xx application errors do not.
-- Streaming failover occurs only before the first emitted chunk.
-- Turn logs record `placement` and `failovers`.
+- The orchestrator uses one configured endpoint for each model role.
+- The Web process and resident model services share one SQLite configuration database.
+- Browser audio uses binary frames. Co-located service audio uses shared memory where
+  supported.
+- Turn logs record the active hardware profile and service endpoints.
 - Network services enforce bearer authentication when `KOTONOHA_SERVICE_TOKEN` is set.
 - Services log `auth.disabled` when authentication is not configured.
 
 ## Tests
 
 The test suite must run without models, microphones, target hardware, or network access.
-`tests/kotonoha/conftest.py` sets `KOTONOHA_SKIP_LOCAL_CONFIG` so device endpoints and
-tokens from `config/local.yaml` never enter tests.
+`tests/kotonoha/conftest.py` assigns an isolated SQLite configuration database to every
+test.
 
 | Test module | Contract |
 |---|---|
@@ -406,8 +402,8 @@ tokens from `config/local.yaml` never enter tests.
 | `test_shmring.py` | Publish, read, overwrite detection, truncation |
 | `test_routing_and_quality.py` | Language routing and verification gate |
 | `test_state_and_metrics.py` | State transitions and five-point timing |
-| `test_remote_mode.py` | Placement, transport encoding, failover |
-| `test_config_admin.py` | Remote authorization, allowlist, validation, persistence |
+| `test_hardware_profiles.py` | Profile selection, defaults, reset, direct endpoints |
+| `test_config_admin.py` | Service authorization, allowlist, validation, SQLite persistence |
 | `test_deploy_script.py` | Deployment interface and host templates |
 | `test_gpu_allocator.py` | GPU inventory parsing, reservations, stable UUID placement |
 | `test_i18n.py` | Catalog completeness, placeholders, locale resolution |
@@ -448,20 +444,20 @@ Do not mix application logs and turn metrics in one file.
 | Shared memory | Use `np.ndarray(buffer=...)` for writable views; `np.frombuffer` is read-only |
 | Metrics | Do not add `event` to `TurnLog.write`; it collides with structlog |
 | Settings sources | Keep environment values above initialization values |
-| YAML overlays | Merge incomplete overlays over `config/default.yaml` |
+| SQLite defaults | Refresh packaged defaults without replacing profile selection or overrides |
 | VAD preroll | Keep `math.ceil` plus the onset-trigger frame slot |
 | Push-to-talk | The key owns both edges; buffer with `append`, never `feed`, or a quiet VAD discards the utterance |
 | Replay | Force automatic mode because files have no PTT key event |
-| Client fallback | Bind loop values passed through retryable lambdas |
+| Service clients | Bind loop values passed through request lambdas |
 | Typer localization | Help is rendered at import time; use `KOTONOHA_LANG` for localized help |
 | gettext catalogs | Compile after `.po` changes; stale `.mo` files serve old text |
 | History search | Escape `%` and `_` before SQL LIKE matching |
-| Test isolation | Keep `KOTONOHA_SKIP_LOCAL_CONFIG`; local config contains device secrets |
+| Test isolation | Assign one temporary `KOTONOHA_SETTINGS_DATABASE` per test |
 | Privileged Compose | Pass the interpolation allowlist through `sudo env`; sudo removes exported variables |
-| Web Compose | A6000 combines base, remote-service, and A6000 Web overlay files |
+| Web Compose | A6000 combines base, A6000 service, and A6000 Web overlay files |
 | Web sessions | Give each session its own `shm.name`; one ring shared between sessions hands their audio to each other |
 | Browser capture rate | Trust the rate the client reports, not the one requested; a refused AudioContext rate shifts pitch |
-| Accelerator profiles | Use `config/profiles/accelerators/<vendor>/<family>/<model>.yaml`; select profiles with `<vendor>.<family>.<model>` identifiers and keep engine argument generation data-driven |
+| Hardware profiles | Use `config/profiles/accelerators/<vendor>/<family>/<model>.yaml`; select profiles with `<vendor>.<family>.<model>` identifiers and keep engine argument generation data-driven |
 | Jetson NVML | Build Jetson images with the vLLM non-NVML platform patch; use raw CUDA device queries in deployment probes |
 | Docker accelerator profiles | Load `docker/profiles/accelerators/<vendor>/<family>/<model>.env`; keep runtime, driver, visible-device, image, and patch settings out of service-specific branches |
 | Jetson TTS memory | Use `docker/tts/qwen3_tts_jetson.yaml` with one sequence per stage; the upstream profile is H100-tuned |

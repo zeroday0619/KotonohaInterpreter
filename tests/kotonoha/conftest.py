@@ -1,13 +1,14 @@
 """Test-wide isolation.
 
 The suite must run offline and produce the same result on every host (AGENTS.md).
-config/local.yaml is a real device's configuration — it carries remote endpoints and
+The deployment database is real device state and carries service endpoints and
 a bearer token — so reading it would point tests at the external server and make
 results depend on whose machine they run on.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import httpx2
@@ -42,14 +43,14 @@ def _compile_translation_catalogs() -> Any:
     yield
 
 
-@pytest.fixture(autouse=True, scope="session")
-def _ignore_device_local_config() -> Any:
-    import os
-
-    previous = os.environ.get("KOTONOHA_SKIP_LOCAL_CONFIG")
-    os.environ["KOTONOHA_SKIP_LOCAL_CONFIG"] = "1"
-    yield
-    if previous is None:
-        os.environ.pop("KOTONOHA_SKIP_LOCAL_CONFIG", None)
-    else:
-        os.environ["KOTONOHA_SKIP_LOCAL_CONFIG"] = previous
+@pytest.fixture(autouse=True)
+def _isolate_settings_database(
+    _positional_only: object | None = None,
+    /,
+    *,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Give every test an empty SQLite configuration state."""
+    monkeypatch.setenv("KOTONOHA_SKIP_LOCAL_CONFIG", "1")
+    monkeypatch.setenv("KOTONOHA_SETTINGS_DATABASE", str(tmp_path / "kotonoha.db"))

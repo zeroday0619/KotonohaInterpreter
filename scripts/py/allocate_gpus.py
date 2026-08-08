@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the memory-aware GPU allocator for remote model services."""
+"""Run the memory-aware GPU allocator for A6000 model services."""
 
 from __future__ import annotations
 

@@ -34,7 +34,7 @@ from kotonoha.audio._statistics import signal_statistics
 from kotonoha.clients._base import ServiceError, ServiceTimeout
 from kotonoha.clients._build import ServiceGroup, build_service_group
 from kotonoha.clients._llm import GenerationStatistics
-from kotonoha.clients._router import FailoverClient
+from kotonoha.clients._managed import ManagedServiceClient
 from kotonoha.core._clauses import ClauseStreamer
 from kotonoha.core._events import EventBus
 from kotonoha.core._lid import decide_language, decide_typed_language, route_targets
@@ -93,10 +93,10 @@ class Orchestrator:
     machine: Machine
     ring: AudioRing | None
     services: ServiceGroup
-    primary_asr: FailoverClient
-    asr_verifier: FailoverClient
-    language_model: FailoverClient
-    text_to_speech: FailoverClient
+    primary_asr: ManagedServiceClient
+    asr_verifier: ManagedServiceClient
+    language_model: ManagedServiceClient
+    text_to_speech: ManagedServiceClient
     store: Store
     turn_log: TurnLog
     traditionalizer: TraditionalChineseConverter
@@ -135,9 +135,9 @@ class Orchestrator:
         self.machine = Machine(on_change=self._on_state_change)
 
         self.ring = None
-        # Text input can switch to voice input after the terminal interface starts.
+        # Text input can switch to voice input after the Web session starts.
         # Starting the tracker during construction prevents that later transition
-        # from spawning it with terminal-owned file descriptors.
+        # from spawning it with server-owned file descriptors.
         prepare_shared_memory_tracking()
         self.store = Store(
             settings.resolve(settings.store.path),
@@ -162,18 +162,14 @@ class Orchestrator:
                 {
                     "llm_profile": settings.llm.profile,
                     "asr_backend": settings.asr.backend,
-                    "perf_mode": settings.perf_mode,
-                    "placement": settings.resolved_placement(),
+                    "hardware_profile": settings.accelerator.profile,
                 },
             )
 
             # HTTP clients do not open sockets during construction. Building
             # them after persistent state prevents failed initialization from
             # leaving the database or shared-memory segment open.
-            self.services = build_service_group(
-                settings,
-                on_change=self._on_placement_change,
-            )
+            self.services = build_service_group(settings)
         except Exception:
             self.store.close()
             raise
@@ -228,18 +224,8 @@ class Orchestrator:
             "orchestrator.started",
             session=self.session_id,
             mode=self.settings.session.mode,
-            perf_mode=self.settings.perf_mode,
-            placement=self.services.placement,
+            hardware_profile=self.settings.accelerator.profile,
         )
-        if self.settings.audio_leaves_device:
-            # Worth stating plainly: in this mode the utterance audio is sent to
-            # another machine. §1 asked for the device to be self-contained.
-            log.warning("privacy.audio_offbox", placement=self.services.placement)
-            self.event_bus.emit(
-                "privacy",
-                audio_leaves_device=True,
-                placement=self.services.placement,
-            )
 
     async def stop(
         self,
@@ -367,8 +353,8 @@ class Orchestrator:
                 "service",
                 name=role.name,
                 ok=bool(health.get("ok")),
-                side=role.side,
-                degraded=role.degraded,
+                hardware_profile=self.settings.accelerator.profile,
+                endpoint=role.active.base_url,
                 detail=health,
             )
         log.info("resources.snapshot", services=resource_status)
@@ -381,16 +367,6 @@ class Orchestrator:
     ) -> None:
         del interval
         await self._probe_services()
-
-    def _on_placement_change(
-        self,
-        /,
-        role: str,
-        side: str,
-        reason: str,
-    ) -> None:
-        """A role moved between the A6000 and the on-board service."""
-        self.event_bus.emit("placement", role=role, side=side, reason=reason)
 
     # -- push-to-talk (§4: the initial implementation) ---------------------
     def ptt_down(
@@ -524,9 +500,10 @@ class Orchestrator:
     ) -> None:
         metrics = TurnMetrics()
         metrics.mark("eou")
-        metrics.perf_mode = self.settings.perf_mode
-        metrics.placement = dict(self.services.placement)
-        failover_baseline = self._failover_total()
+        metrics.hardware_profile = self.settings.accelerator.profile
+        metrics.service_endpoints = {
+            role.role: role.active.base_url for role in self.services.all()
+        }
         if self.machine.state is State.LISTENING:
             self.machine.to(State.PROCESSING, "eou")
 
@@ -544,11 +521,11 @@ class Orchestrator:
 
         if pcm.size == 0:
             metrics.outcome = "empty_asr"
-            await self._finish(metrics, None, None, None, failover_baseline)
+            await self._finish(metrics, None, None, None)
             return
 
-        # Both carriers are prepared: the shm reference for an on-board service
-        # and the PCM itself for one on the A6000. The client picks (transport.py).
+        # The shared-memory reference avoids copying utterance audio between
+        # colocated Web and model-service containers selected by the profile.
         if self.ring is None:
             self.ring = await asyncio.to_thread(self._create_audio_ring)
         payload = AudioPayload(
@@ -579,7 +556,7 @@ class Orchestrator:
             log.error("asr.failed", error=repr(error))
             self.event_bus.emit("error", where="asr", message=str(error))
             metrics.outcome = "asr_failed"
-            await self._finish(metrics, None, None, None, failover_baseline)
+            await self._finish(metrics, None, None, None)
             return
         metrics.mark("asr_done")
         metrics.asr_avg_logprob = round(asr_result.best_avg_logprob, 4)
@@ -588,7 +565,7 @@ class Orchestrator:
             # §10: an empty result is treated as silence. Back to IDLE, nothing played.
             metrics.outcome = "empty_asr"
             self.event_bus.emit("asr", text="", empty=True)
-            await self._finish(metrics, None, None, None, failover_baseline)
+            await self._finish(metrics, None, None, None)
             return
 
         # -- LID decision (§5, §10) ---------------------------------------
@@ -672,7 +649,6 @@ class Orchestrator:
             verify_text,
             decision.language,
             history,
-            failover_baseline,
         )
 
     # -- routing shared by the spoken and typed paths ----------------------
@@ -684,13 +660,12 @@ class Orchestrator:
         verify_text: str | None,
         source_language: str,
         history: Any,
-        failover_baseline: int,
     ) -> None:
         targets = route_targets(source_language, self.settings.session)
         if not targets:
             metrics.outcome = "ok"
             metrics.notes["no_target"] = True
-            await self._finish(metrics, n_best[0], None, None, failover_baseline)
+            await self._finish(metrics, n_best[0], None, None)
             return
         metrics.target_lang = ",".join(targets)
         metrics.llm_profile = self.settings.llm.profile
@@ -711,7 +686,6 @@ class Orchestrator:
             n_best[0],
             translation,
             source_language,
-            failover_baseline,
         )
 
     # -- typed input --------------------------------------------------------
@@ -808,9 +782,10 @@ class Orchestrator:
         # skipped rather than measured, which the marks show as a zero-length stage.
         metrics.mark("eou")
         metrics.mark("asr_done")
-        metrics.perf_mode = self.settings.perf_mode
-        metrics.placement = dict(self.services.placement)
-        failover_baseline = self._failover_total()
+        metrics.hardware_profile = self.settings.accelerator.profile
+        metrics.service_endpoints = {
+            role.role: role.active.base_url for role in self.services.all()
+        }
         self.machine.to(State.PROCESSING, "text")
 
         self.event_bus.emit("text_submitted", turn_id=metrics.turn_id, text=text)
@@ -849,7 +824,6 @@ class Orchestrator:
             None,
             decision.language,
             history,
-            failover_baseline,
         )
 
     # -- translation + TTS -------------------------------------------------
@@ -1015,7 +989,10 @@ class Orchestrator:
 
         metrics.output_tokens = generation_statistics.token_count
         metrics.tok_per_s = generation_statistics.tokens_per_second
-        metrics.placement = dict(self.services.placement)
+        metrics.hardware_profile = self.settings.accelerator.profile
+        metrics.service_endpoints = {
+            role.role: role.active.base_url for role in self.services.all()
+        }
         text = self._apply_traditional_chinese(
             streamer.translation,
             target_language,
@@ -1093,8 +1070,8 @@ class Orchestrator:
                         maximum_seconds=self.settings.tts.playback_buffer_seconds,
                     )
             except (ServiceTimeout, ServiceError) as error:
-                # The router may retry a remote request against the resident
-                # onboard vLLM-Omni service before this failure reaches the turn.
+                # A transport failure reaches the turn after the resident
+                # vLLM-Omni request has failed.
                 log.error("tts.failed", error=repr(error), characters=len(clause))
                 metrics.outcome = "tts_failed"
                 self.event_bus.emit("error", where="tts", message=str(error))
@@ -1198,12 +1175,6 @@ class Orchestrator:
         return output
 
     # -- wrap-up -----------------------------------------------------------
-    def _failover_total(
-        self,
-        /,
-    ) -> int:
-        return sum(client.failover_count for client in self.services.all())
-
     async def _finish(
         self,
         /,
@@ -1211,11 +1182,11 @@ class Orchestrator:
         source_text: str | None,
         translation: str | None,
         source_language: str | None,
-        failover_baseline: int = 0,
     ) -> None:
-        # Report failovers for *this* turn, not the session total.
-        metrics.failovers = max(0, self._failover_total() - failover_baseline)
-        metrics.placement = dict(self.services.placement)
+        metrics.hardware_profile = self.settings.accelerator.profile
+        metrics.service_endpoints = {
+            role.role: role.active.base_url for role in self.services.all()
+        }
         try:
             record = await self.turn_log.write(metrics)
         except OSError as error:

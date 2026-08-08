@@ -49,10 +49,10 @@ OPERATION_DESCRIPTIONS: dict[str, str] = {
     "completion_install": N_("Install completion for the active shell."),
     "completion_show": N_("Print the completion script for the active shell."),
     "devices": N_("Print available audio devices and system defaults."),
-    "doctor": N_("Inspect dependencies, placement, models, and service health."),
+    "doctor": N_("Inspect dependencies, hardware profile, models, and service health."),
     "glossary_import": N_("Load glossary terms and Chinese conversion rules."),
     "glossary_list": N_("Print every term stored in the local glossary."),
-    "netcheck": N_("Measure remote service latency and audio upload throughput."),
+    "netcheck": N_("Measure configured service latency and audio upload throughput."),
     "replay": N_("Run the full pipeline from a 16-bit PCM WAV file."),
     "serve": N_("Start one Python ASR service."),
 }

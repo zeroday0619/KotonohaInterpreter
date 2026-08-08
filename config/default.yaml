@@ -21,7 +21,7 @@ session:
 audio:
   # Store "device name, host API" rather than a PortAudio index. Linux device
   # indices change across reboots and USB reconnects. null selects the current default.
-  input_device: null # Check and test the selection through `kotonoha config`.
+  input_device: null # Check and test the selection through the Web interface.
   output_device: null
   capture_sample_rate: 48000
   capture_block_ms: 20
@@ -59,43 +59,19 @@ services:
   llm: http://127.0.0.1:8003
   tts: http://127.0.0.1:8004
 
-# --- High-performance mode: the external RTX A6000 -------------------------
-#
-#   onboard  everything on the Orin. The original design.
-#   hybrid   only the LLM goes to the A6000. It is text-only, so audio remains
-#            on the device.
-#   remote   ASR, verification and TTS also move to the external server.
-#            Utterance audio crosses the network.
-#   custom   each role follows the matching entry in `placement`.
-#
-# Run `kotonoha netcheck` before trusting any of this: the link adds RTT to
-# every stage, and §6 has no slack for a bad one.
-perf_mode: onboard # onboard | hybrid | remote | custom
-placement: {} # custom role map, e.g. {asr: local, llm: remote, tts: remote}
-
-remote:
-  enabled: false
-  services:
-    asr: http://a6000.lan:8001
-    asr_verify: http://a6000.lan:8002
-    llm: http://a6000.lan:8003
-    tts: http://a6000.lan:8004
-  token: null # bearer token; prefer KOTONOHA__REMOTE__TOKEN
+# Model services run with the Web application under the selected hardware
+# profile. These transport values apply uniformly to every service endpoint.
+transport:
+  token: null # bearer token; prefer KOTONOHA__TRANSPORT__TOKEN
   verify_tls: true
   ca_bundle: null
   connect_timeout_s: 1.5
-  # §10 applied to the link: after this many consecutive transport failures the
-  # role drops to the on-board service, and only returns once the remote has
-  # been healthy for recover_after_s.
-  failover_after: 2
-  recover_after_s: 30.0
-  health_interval_s: 10.0
-  audio_encoding: s16le # s16le halves the bytes on the wire; f32le for debugging
+  audio_encoding: s16le
 
 asr:
   # [SPIKE-1] vLLM is the primary runtime. Transformers remains an explicit fallback.
   backend: vllm # vllm | transformers
-  # Jetson uses the compact Qwen checkpoint. The A6000 overlay selects Voxtral.
+  # Jetson uses the compact Qwen checkpoint. The A6000 profile selects Voxtral.
   model_id: Qwen/Qwen3-ASR-0.6B-hf
   # Hugging Face commit confirmed through the official model API on 2026-08-08.
   model_revision: 7f1569a48a89f3e3f4dc3a5c9d28bddd903bc76c
@@ -125,8 +101,8 @@ asr:
 
 asr_verify:
   enabled: true
-  # §5.5 makes this conditional because it costs 0.8 s on the Orin. Remote
-  # deployments can select always after measuring the external service.
+  # §5.5 makes this conditional because it costs 0.8 s on the Orin. Other
+  # profiles can select always after target measurement.
   mode: conditional # conditional | always
   backend: faster_whisper # faster_whisper | whisper_cpp
   model_id: large-v3
@@ -140,7 +116,7 @@ asr_verify:
   divergence_cer: 0.25
 
 llm:
-  # Jetson uses 4B. The remote service overlay replaces this snapshot with 12B.
+  # Jetson uses 4B. The A6000 profile replaces this snapshot with 12B.
   # Spike 3 must verify generation rate and one-pass ASR correction on each target.
   profile: translategemma
   profiles:
@@ -164,7 +140,12 @@ llm:
 tts:
   # vLLM-Omni serves the offline CustomVoice snapshot through /v1/audio/speech.
   backend: vllm_omni
+  model_path: ./models/Qwen3-TTS-0.6B
+  deploy_config: null # null selects the vLLM-Omni packaged deployment file
   served_model_name: kotonoha-tts
+  gpu_memory_utilization: 0.30
+  enforce_eager: true
+  startup_timeout_s: 600.0
   task_type: CustomVoice
   sample_rate: 24000
   timeout_s: 5.0

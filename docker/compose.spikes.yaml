@@ -19,6 +19,8 @@ x-spike-runtime: &spike-runtime
     HF_HUB_OFFLINE: "1"
     TRANSFORMERS_OFFLINE: "1"
     ACCELERATOR_PROFILE: ${ACCELERATOR_PROFILE:-nvidia.jetson.agx-orin}
+    KOTONOHA_INITIAL_HARDWARE_PROFILE: ${ACCELERATOR_PROFILE:-nvidia.jetson.agx-orin}
+    KOTONOHA_SETTINGS_DATABASE: /tmp/kotonoha-spike/settings.db
     ${ACCELERATOR_DEVICE_ENV:-NVIDIA_VISIBLE_DEVICES}: ${SPIKE_GPU_DEVICE:-all}
     KOTONOHA_SPIKE_IMAGE: ${SPIKE_VLLM_IMAGE:-nvcr.io/nvidia/vllm:26.07-py3}
     SPIKE_GROUP_ID: ${SPIKE_GROUP_ID:-0}
@@ -38,6 +40,8 @@ services:
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
       ACCELERATOR_PROFILE: ${ACCELERATOR_PROFILE:-nvidia.jetson.agx-orin}
+      KOTONOHA_INITIAL_HARDWARE_PROFILE: ${ACCELERATOR_PROFILE:-nvidia.jetson.agx-orin}
+      KOTONOHA_SETTINGS_DATABASE: /tmp/kotonoha-spike/settings.db
       ${ACCELERATOR_DEVICE_ENV:-NVIDIA_VISIBLE_DEVICES}: ${SPIKE_GPU_DEVICE:-all}
       KOTONOHA_SPIKE_IMAGE: ${SPIKE_ASR_IMAGE:-kotonohainterpreter-spike-asr}
       SPIKE_GROUP_ID: ${SPIKE_GROUP_ID:-0}
@@ -54,6 +58,8 @@ services:
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
       ACCELERATOR_PROFILE: ${ACCELERATOR_PROFILE:-nvidia.jetson.agx-orin}
+      KOTONOHA_INITIAL_HARDWARE_PROFILE: ${ACCELERATOR_PROFILE:-nvidia.jetson.agx-orin}
+      KOTONOHA_SETTINGS_DATABASE: /tmp/kotonoha-spike/settings.db
       ${ACCELERATOR_DEVICE_ENV:-NVIDIA_VISIBLE_DEVICES}: ${SPIKE_GPU_DEVICE:-all}
       KOTONOHA_SPIKE_IMAGE: ${SPIKE_TTS_IMAGE:-kotonohainterpreter-spike-tts:jetson}
       SPIKE_GROUP_ID: ${SPIKE_GROUP_ID:-0}
@@ -70,6 +76,8 @@ services:
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
       ACCELERATOR_PROFILE: ${ACCELERATOR_PROFILE:-nvidia.jetson.agx-orin}
+      KOTONOHA_INITIAL_HARDWARE_PROFILE: ${ACCELERATOR_PROFILE:-nvidia.jetson.agx-orin}
+      KOTONOHA_SETTINGS_DATABASE: /tmp/kotonoha-spike/settings.db
       ${ACCELERATOR_DEVICE_ENV:-NVIDIA_VISIBLE_DEVICES}: ${SPIKE_GPU_DEVICE:-all}
       KOTONOHA_SPIKE_IMAGE: ${SPIKE_LLM_IMAGE:-kotonohainterpreter-spike-llm:jetson}
       SPIKE_GROUP_ID: ${SPIKE_GROUP_ID:-0}

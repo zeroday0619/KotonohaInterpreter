@@ -1,11 +1,14 @@
 # System Architecture
 
+The [configuration architecture](configuration.md) defines SQLite persistence, hardware
+profile selection, reset behavior, and legacy YAML migration.
+
 ## Processing Model
 
 Kotonoha processes completed utterances. It does not implement simultaneous
 interpretation. The audio frontend and orchestrator run in the selected client process,
-and model services remain resident across turns. The client can be a Jetson-hosted Web UI or an
-browser session, or a browser session hosted with the model stack on an A6000 server.
+and model services remain resident across turns. A browser session connects to the Web
+process deployed with the model stack on the selected host.
 
 ```text
 [microphone or browser MediaStream]
@@ -58,24 +61,18 @@ samples before the state machine reopens capture.
 ## Monitoring Path
 
 Every resident model service exposes Prometheus metrics on its service port. The Web
-process continuously polls the active service endpoints and any distinct onboard
-fallback endpoints. It merges those samples with Web and turn metrics, then exposes one
-deployment-independent `/metrics` endpoint and a bounded JSON history at
-`/api/monitoring`.
+process polls the four endpoints selected by the active hardware profile. It merges those
+samples with Web and turn metrics, then exposes one deployment-wide `/metrics` endpoint
+and bounded JSON history at `/api/monitoring`.
 
-Metrics collection does not depend on `perf_mode`. Onboard, hybrid, remote, and custom
-placements use the same collector. Placement labels distinguish local and remote
-samples. A separate port `9091` receiver remains available for headless deployments that
-do not run the Web process.
+Hardware-profile labels identify every aggregated sample. A separate port `9091`
+receiver remains available for headless deployments that do not run the Web process.
 
 ## Audio Transport
 
-Local ASR services receive an `AudioRef` containing `{name, slot, seq, frames}` and read
-PCM from POSIX shared memory. Remote ASR services receive binary multipart PCM. Neither
-path base64-encodes audio.
-
-The orchestrator publishes both representations in `AudioPayload`. Client routing selects
-the representation, so role placement does not branch the processing pipeline.
+Co-located ASR services receive an `AudioRef` containing `{name, slot, seq, frames}` and
+read PCM from POSIX shared memory. Browser capture and HTTP upload paths use binary PCM.
+Neither path base64-encodes audio.
 
 ## Accuracy Contracts
 
@@ -94,47 +91,41 @@ These contracts require explicit approval and regression coverage before modific
 Traditional Chinese input and output pass through OpenCC `s2twp`. Translation prompts
 enforce Taiwanese vocabulary, including `軟體`, `影片`, `資訊`, and `滑鼠`.
 
-## Runtime Placement
+## Service Topology
 
-`perf_mode` controls service placement.
+Every deployment runs one Web process and one resident service for each model role. The
+active hardware profile supplies the ASR, verification ASR, translation, and TTS
+endpoints. The orchestrator calls each endpoint directly and does not maintain placement
+modes or resident fallback clients.
 
-| Mode | ASR | Verification | LLM | TTS | Transport |
-|---|---|---|---|---|---|
-| `onboard` | Local | Local | Local | Local | Shared memory |
-| `hybrid` | Local | Local | Remote | Local | Shared memory plus remote text |
-| `remote` | Remote | Remote | Remote | Remote | Binary PCM and HTTP/WebSocket |
-| `custom` | Per-role | Per-role | Per-role | Per-role | Determined per role |
-
-`custom` reads the `placement` mapping. Each role accepts `local` or `remote`; omitted
-roles inherit the `onboard` placement. Remote roles require `remote.enabled: true`.
-
-Each remote role retains a configured local fallback. Transport failures retry locally.
-HTTP 4xx application errors do not activate failover. Streaming roles fail over only
-before the first chunk because an active stream cannot be rewound.
+Jetson and RTX A6000 deployments use host IPC for co-located shared-memory audio. Browser
+traffic remains binary WebSocket or HTTP data. A service transport failure fails the
+affected turn and leaves the state machine available for the next turn.
 
 The ASR and translation services run separate vLLM engines. Their GPU memory utilization
 limits are independent and must leave capacity for verification ASR and TTS. The checked-in
 split is provisional until concurrent-residency measurements pass on each target.
 
-## Accelerator Profiles
+## Hardware Profiles
 
-Hardware identity and engine tuning are defined by accelerator profiles under
+Hardware identity and engine tuning are defined by hardware profiles under
 `config/profiles/accelerators/<vendor>/<family>/<model>.yaml`. Profile identifiers use the
 stable `<vendor>.<family>.<model>` format.
 
 | Profile | Runtime | Current use |
 |---|---|---|
-| `nvidia.jetson.agx-orin` | CUDA, `sm_87` | Onboard services with unified-memory limits |
-| `nvidia.rtx.a6000` | CUDA, `sm_86` | Remote services on one dedicated Ampere GPU |
+| `nvidia.jetson.agx-orin` | CUDA, `sm_87` | Unified-memory appliance deployment |
+| `nvidia.rtx.a6000` | CUDA, `sm_86` | Dedicated-memory server deployment |
 
-The configuration loader applies the selected profile between the default configuration
-and the deployment overlay. vLLM argument construction consumes typed profile values and
-does not branch on product names. This allows future CUDA, ROCm, Metal, and accelerator
-runtime profiles to add measured settings without changing the translation service.
+The configuration loader synchronizes packaged base defaults and hardware profile
+defaults into SQLite. Operator overrides form the final persistent layer. vLLM argument
+construction consumes typed profile values and does not branch on product names. This
+allows future CUDA, ROCm, Metal, and accelerator runtime profiles to add measured
+settings without changing the translation service.
 
-Profile selection uses `accelerator.profile` or the
-`KOTONOHA__ACCELERATOR__PROFILE` environment variable. The profile metadata is exposed in
-the Web configuration editor and is editable through the authenticated remote API.
+Profile selection uses `accelerator.profile`. `KOTONOHA_INITIAL_HARDWARE_PROFILE` seeds a
+new database, and `KOTONOHA__ACCELERATOR__PROFILE` provides an explicit process-level
+override. The Web configuration editor exposes registered profile identifiers.
 
 On a multi-GPU A6000 host, `scripts/py/allocate_gpus.py` reads GPU UUID, model name, total
 memory, and free memory from `nvidia-smi`. It applies per-role memory reservations and
@@ -142,7 +133,7 @@ selects the placement with the lowest projected maximum memory utilization. Comp
 each service to one generated GPU UUID through `device_ids`. Cached UUID assignments avoid
 placement changes across routine service restarts.
 
-Remote services require a bearer token when `KOTONOHA_SERVICE_TOKEN` is set. Plain HTTP
+Network-accessible services require a bearer token when `KOTONOHA_SERVICE_TOKEN` is set. Plain HTTP
 does not provide confidentiality. Restrict service ports to a trusted network or place a
 TLS reverse proxy in front of them.
 

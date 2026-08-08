@@ -21,7 +21,7 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from kotonoha._call_compatibility import keyword_compatible
-from kotonoha._config import QWEN_LANGUAGE_VOICES, QWEN_VOICE_NAMES, QwenVoice
+from kotonoha._config import QWEN_LANGUAGE_VOICES, QWEN_VOICE_NAMES, QwenVoice, load_settings
 from kotonoha._logging_setup import setup_logging
 from kotonoha._prometheus import install_metrics, observe_service_health
 from kotonoha.services._auth import install_auth
@@ -31,10 +31,6 @@ from kotonoha.services._resources import resource_report
 log = setup_logging(service="tts", console=True)
 
 EXPECTED_RELEASE: Final = (0, 26)
-DEFAULT_MODEL: Final = "/models/Qwen3-TTS-0.6B"
-DEFAULT_SERVED_MODEL_NAME: Final = "kotonoha-tts"
-DEFAULT_GPU_MEMORY_UTILIZATION: Final = 0.30
-DEFAULT_STARTUP_TIMEOUT_SECONDS: Final = 600.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,35 +128,6 @@ def _validate_runtime_versions() -> tuple[str, str]:
     return vllm_version, omni_version
 
 
-def _parse_positive_float(
-    name: str,
-    value: str,
-    /,
-    *,
-    maximum: float | None = None,
-) -> float:
-    try:
-        parsed = float(value)
-    except ValueError as error:
-        raise ValueError(f"{name} must be a number: {value}") from error
-    if parsed <= 0.0 or maximum is not None and parsed > maximum:
-        range_description = f" and at most {maximum}" if maximum is not None else ""
-        raise ValueError(f"{name} must be greater than 0{range_description}: {parsed}")
-    return parsed
-
-
-def _parse_boolean(
-    name: str,
-    value: str,
-    /,
-) -> bool:
-    if value == "1":
-        return True
-    if value == "0":
-        return False
-    raise ValueError(f"{name} must be 0 or 1: {value}")
-
-
 def _default_deploy_config() -> Path:
     module_specification = find_spec("vllm_omni")
     if module_specification is None or not module_specification.submodule_search_locations:
@@ -170,15 +137,16 @@ def _default_deploy_config() -> Path:
 
 
 def runtime_configuration() -> RuntimeConfiguration:
-    model = Path(os.environ.get("TTS_MODEL", DEFAULT_MODEL))
+    settings = load_settings()
+    tts = settings.tts
+    model = settings.resolve(tts.model_path)
     configuration_path = model / "config.json"
     if not configuration_path.is_file() or configuration_path.stat().st_size == 0:
         raise RuntimeError(f"vLLM-Omni TTS model snapshot is incomplete: {model}")
     vllm_version, omni_version = _validate_runtime_versions()
-    configured_deploy_config = os.environ.get("TTS_DEPLOY_CONFIG")
     deploy_config = (
-        Path(configured_deploy_config)
-        if configured_deploy_config is not None
+        settings.resolve(tts.deploy_config)
+        if tts.deploy_config is not None
         else _default_deploy_config()
     )
     if not deploy_config.is_file() or deploy_config.stat().st_size == 0:
@@ -186,29 +154,10 @@ def runtime_configuration() -> RuntimeConfiguration:
 
     return RuntimeConfiguration(
         model=model,
-        served_model_name=os.environ.get(
-            "TTS_SERVED_MODEL_NAME",
-            DEFAULT_SERVED_MODEL_NAME,
-        ),
-        gpu_memory_utilization=_parse_positive_float(
-            "TTS_GPU_MEMORY_UTILIZATION",
-            os.environ.get(
-                "TTS_GPU_MEMORY_UTILIZATION",
-                str(DEFAULT_GPU_MEMORY_UTILIZATION),
-            ),
-            maximum=1.0,
-        ),
-        enforce_eager=_parse_boolean(
-            "TTS_ENFORCE_EAGER",
-            os.environ.get("TTS_ENFORCE_EAGER", "1"),
-        ),
-        startup_timeout_seconds=_parse_positive_float(
-            "TTS_STARTUP_TIMEOUT_SECONDS",
-            os.environ.get(
-                "TTS_STARTUP_TIMEOUT_SECONDS",
-                str(DEFAULT_STARTUP_TIMEOUT_SECONDS),
-            ),
-        ),
+        served_model_name=tts.served_model_name,
+        gpu_memory_utilization=tts.gpu_memory_utilization,
+        enforce_eager=tts.enforce_eager,
+        startup_timeout_seconds=tts.startup_timeout_s,
         deploy_config=deploy_config,
         vllm_version=vllm_version,
         omni_version=omni_version,

@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
 
 from kotonoha._config import TextToSpeechVoices
+from kotonoha._config_store import apply_changes
 from kotonoha.services import _tts_server
 
 
@@ -115,6 +116,45 @@ def test_qwen_custom_voice_defaults_and_language_constraints() -> None:
     assert TextToSpeechVoices(en="Aiden", zh_tw="Serena").en == "Aiden"
     with pytest.raises(ValidationError):
         TextToSpeechVoices(ko="Vivian")
+
+
+def test_runtime_configuration_uses_sqlite_settings(
+    _positional_only: object | None = None,
+    /,
+    *,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    model_path = tmp_path / "tts-model"
+    model_path.mkdir()
+    (model_path / "config.json").write_text("{}", encoding="utf-8")
+    deploy_config = tmp_path / "tts-deploy.yaml"
+    deploy_config.write_text("model: qwen3-tts\n", encoding="utf-8")
+    result = apply_changes(
+        {
+            "tts.model_path": str(model_path),
+            "tts.deploy_config": str(deploy_config),
+            "tts.served_model_name": "test-tts",
+            "tts.gpu_memory_utilization": 0.22,
+            "tts.enforce_eager": False,
+            "tts.startup_timeout_s": 123.0,
+        }
+    )
+    assert result.written is True
+    monkeypatch.setattr(
+        _tts_server,
+        "_validate_runtime_versions",
+        lambda: ("0.26.0", "0.26.0"),
+    )
+
+    configuration = _tts_server.runtime_configuration()
+
+    assert configuration.model == model_path
+    assert configuration.deploy_config == deploy_config
+    assert configuration.served_model_name == "test-tts"
+    assert configuration.gpu_memory_utilization == 0.22
+    assert configuration.enforce_eager is False
+    assert configuration.startup_timeout_seconds == 123.0
 
 
 def test_speech_request_normalizes_and_checks_the_native_voice() -> None:

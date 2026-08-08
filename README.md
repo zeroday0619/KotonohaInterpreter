@@ -82,9 +82,11 @@ bash scripts/manage.sh web a6000
 ```
 
 The Web UI provides interpretation, complete configuration editing, history management,
-operator tools, dependency licenses, and application logs. Configuration writes are
-validated and applied without restarting the Web process. Resident model settings invoke
-service-level backend reloads.
+operator tools, dependency licenses, and application logs. SQLite stores the selected
+hardware profile, packaged defaults, and operator overrides. Configuration writes are
+validated and applied without restarting the Web process. Field and global reset actions
+restore the active profile defaults. Resident model settings invoke service-level backend
+reloads.
 
 The [management script reference](docs/operations/management.md) defines model staging,
 target setup, benchmarking, deployment, and dry-run commands.
@@ -111,7 +113,7 @@ The [documentation index](docs/README.md) organizes project documentation by cat
 - Translation AWQ loading and throughput remain unverified until Spike 3 runs on each
   target.
 - Default A6000 GPU memory reservations remain provisional until peak resident memory is
-  measured with the complete remote stack.
+  measured with the complete A6000 stack.
 - Complete model inference cannot be validated on the macOS development workstation.
 - Push-to-talk uses a toggle control in the Web interface and the Space keyboard shortcut.
 - A resident model is temporarily unavailable while its in-process backend reloads.

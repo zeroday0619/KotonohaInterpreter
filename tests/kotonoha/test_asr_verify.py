@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from kotonoha._config import DEFAULT_CONFIG, AsrVerificationConfig, load_settings, read_yaml
+from kotonoha._config_store import apply_changes
 from kotonoha.services._asr_verify_server import (
     MAXIMUM_WHISPER_CPP_RESPONSE_BYTES,
     STATE,
@@ -31,11 +32,12 @@ def test_jetson_verification_defaults_to_cpu_int8() -> None:
     assert default_config["compute_type"] == typed_config.compute_type
 
 
-def test_remote_verification_retains_cuda_float16() -> None:
-    remote_config = load_settings("config/remote-server.yaml").asr_verify
+def test_a6000_verification_retains_cuda_float16() -> None:
+    assert apply_changes({"accelerator.profile": "nvidia.rtx.a6000"}).written
+    a6000_config = load_settings().asr_verify
 
-    assert remote_config.device == "cuda"
-    assert remote_config.compute_type == "float16"
+    assert a6000_config.device == "cuda"
+    assert a6000_config.compute_type == "float16"
 
 
 def test_jetson_verification_image_checks_cpu_int8_capability() -> None:

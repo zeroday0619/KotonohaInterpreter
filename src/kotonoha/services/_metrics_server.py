@@ -99,7 +99,7 @@ def main() -> None:
         raise RuntimeError("logging.prometheus_port must be set for the metrics receiver")
     uvicorn.run(
         app,
-        # The remote receiver must accept external scrapes and enforces bearer authentication.
+        # The headless receiver accepts external scrapes and enforces bearer authentication.
         host="0.0.0.0",  # nosec B104
         port=port,
         loop="uvloop",

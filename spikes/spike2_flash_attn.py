@@ -170,13 +170,12 @@ def server_environment(
 ) -> dict[str, str]:
     environment = {
         **os.environ,
-        "KOTONOHA_CONFIG": "/workspace/config/default.yaml",
-        "KOTONOHA_SKIP_LOCAL_CONFIG": "1",
-        "TTS_MODEL": model,
-        "TTS_STARTUP_TIMEOUT_SECONDS": str(startup_timeout_seconds),
-        "TTS_SERVED_MODEL_NAME": SERVED_MODEL_NAME,
-        "TTS_GPU_MEMORY_UTILIZATION": str(gpu_memory_utilization),
-        "TTS_ENFORCE_EAGER": "1" if enforce_eager else "0",
+        "KOTONOHA_SETTINGS_DATABASE": "/tmp/kotonoha-spike/tts-settings.db",
+        "KOTONOHA__TTS__MODEL_PATH": model,
+        "KOTONOHA__TTS__STARTUP_TIMEOUT_S": str(startup_timeout_seconds),
+        "KOTONOHA__TTS__SERVED_MODEL_NAME": SERVED_MODEL_NAME,
+        "KOTONOHA__TTS__GPU_MEMORY_UTILIZATION": str(gpu_memory_utilization),
+        "KOTONOHA__TTS__ENFORCE_EAGER": "1" if enforce_eager else "0",
     }
     environment.pop("KOTONOHA_SERVICE_TOKEN", None)
     return environment

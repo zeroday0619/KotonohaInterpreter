@@ -99,12 +99,11 @@ def server_environment(
     environment = os.environ.copy()
     environment.update(
         {
-            "KOTONOHA_CONFIG": "/workspace/config/default.yaml",
+            "KOTONOHA_SETTINGS_DATABASE": "/tmp/kotonoha-spike/llm-settings.db",
             "KOTONOHA__LLM__MODELS_DIR": str(models_directory),
             "KOTONOHA__LLM__MAX_MODEL_LEN": str(context_length),
             "KOTONOHA__LLM__GPU_MEMORY_UTILIZATION": str(gpu_memory_utilization),
             "KOTONOHA__LLM__ENFORCE_EAGER": "1" if enforce_eager else "0",
-            "KOTONOHA_SKIP_LOCAL_CONFIG": "1",
             "TRANSFORMERS_OFFLINE": "1",
             "HF_HUB_OFFLINE": "1",
         }

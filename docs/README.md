@@ -5,7 +5,7 @@
 | Category | Scope | Entry point |
 |---|---|---|
 | Planning | Phase sequence, gates, deliverables, and current acceptance state | [Implementation Plan](planning/README.md) |
-| Architecture | Runtime topology, processing contracts, placement, and model identifiers | [System Architecture](architecture/README.md) |
+| Architecture | Runtime topology, processing contracts, hardware profiles, and model identifiers | [System Architecture](architecture/README.md) |
 | User guide | Web UI, CLI, text input, history, configuration, and localization | [Operator Guide](user-guide/README.md) |
 | Deployment | Host requirements, installation, model staging, and acceptance | [Deployment](deployment/README.md) |
 | Operations | Service lifecycle, security, troubleshooting, and observability | [Operations](operations/README.md) |

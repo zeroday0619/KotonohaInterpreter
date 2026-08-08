@@ -142,8 +142,7 @@ function handleControl(message) {
       state.recentHistoryLimit = message.history_turns ?? 20;
       view.session.textContent = message.session;
       view.routing.textContent = message.routing || "—";
-      view.performanceMode.textContent = message.perf_mode || "—";
-      view.privacyWarning.hidden = !message.audio_leaves_device;
+      view.hardwareProfile.textContent = message.hardware_profile || "—";
       fillLanguages(message.languages, message.target);
       updateRecentTurnsVisibility();
       updateModeView();
@@ -269,17 +268,6 @@ function handleEvent(kind, payload) {
     case "service":
       state.services[payload.name] = payload;
       renderServiceStatus();
-      break;
-    case "placement":
-      if (state.services[payload.role]) {
-        state.services[payload.role].side = payload.side;
-        state.services[payload.role].degraded = true;
-        renderServiceStatus();
-      }
-      setStatus(`${payload.role} to ${payload.side}: ${payload.reason}`, "error");
-      break;
-    case "privacy":
-      view.privacyWarning.hidden = !payload.audio_leaves_device;
       break;
     case "error":
       setStage(payload.where, "failed", payload.message || "");
@@ -628,8 +616,8 @@ function renderServiceStatus() {
     } else {
       const detail = service.detail || {};
       const tag = detail.backend || detail.error || "";
-      status.textContent = `${service.ok ? "UP" : "DOWN"} · ${service.side || "local"}${
-        service.degraded ? " · degraded" : ""
+      status.textContent = `${service.ok ? "UP" : "DOWN"} · ${
+        service.hardware_profile || "profile"
       }${tag ? ` · ${String(tag).slice(0, 40)}` : ""}`;
       status.dataset.status = service.ok ? "ready" : "failed";
     }
@@ -748,7 +736,6 @@ function renderMonitoring(monitoring) {
   element("monitor-turns").textContent = formatNumber(summary.turns_total);
   element("monitor-first-audio").textContent = formatDuration(summary.first_audio_p95_ms);
   element("monitor-over-budget").textContent = formatNumber(summary.over_budget_turns_total);
-  element("monitor-failovers").textContent = formatNumber(summary.failovers_total);
   const generatedAt = new Date(monitoring.generated_at * 1000).toLocaleTimeString();
   const sampleCount = monitoring.series.length;
   element("monitor-status").textContent = monitoring.last_error
@@ -996,9 +983,7 @@ function renderChartLegend(canvas, datasets) {
 
 async function loadConfiguration() {
   try {
-    const target = element("config-target").value;
-    const path = target === "remote" ? "/api/config/remote" : "/api/config";
-    state.configuration = await fetchJson(path);
+    state.configuration = await fetchJson("/api/config");
     renderConfiguration(state.configuration);
     element("config-status").textContent = "Configuration loaded";
   } catch (error) {
@@ -1060,9 +1045,9 @@ function renderConfiguration(configuration) {
 }
 
 function configurationField(field) {
-  const row = document.createElement("label");
+  const row = document.createElement("div");
   row.className = "configuration-field";
-  const title = document.createElement("span");
+  const title = document.createElement("label");
   title.className = "configuration-path";
   title.textContent = `${field.path}${field.modified ? "  [modified]" : ""}`;
   row.appendChild(title);
@@ -1081,7 +1066,7 @@ function configurationField(field) {
     input = document.createElement("input");
     input.type = "checkbox";
     input.checked = Boolean(field.value);
-  } else if (field.value_kind === "collection" || field.kind === "placement") {
+  } else if (field.value_kind === "collection") {
     input = document.createElement("textarea");
     input.rows = 4;
     input.value = JSON.stringify(field.value, null, 2);
@@ -1097,12 +1082,31 @@ function configurationField(field) {
   input.dataset.optional = String(field.optional);
   input.dataset.secret = String(field.secret);
   input.dataset.original = JSON.stringify(field.value);
+  input.id = `configuration-${field.path.replaceAll(".", "-")}`;
+  title.htmlFor = input.id;
   row.appendChild(input);
   const description = document.createElement("p");
   description.className = "configuration-description";
   description.textContent = field.description || "";
-  row.appendChild(description);
+  const defaultText = document.createElement("p");
+  defaultText.className = "configuration-default";
+  defaultText.textContent = `${translate("Default")}: ${formatConfigurationDefault(field)}`;
+  const reset = document.createElement("button");
+  reset.type = "button";
+  reset.className = "configuration-reset";
+  reset.textContent = translate("Reset");
+  reset.disabled = !field.modified || field.path === "accelerator.profile";
+  reset.addEventListener("click", () => resetConfiguration([field.path]));
+  row.append(description, defaultText, reset);
   return row;
+}
+
+function formatConfigurationDefault(field) {
+  if (field.secret) return "••••";
+  if (field.default_value === null || field.default_value === "") return "—";
+  return typeof field.default_value === "object"
+    ? JSON.stringify(field.default_value)
+    : String(field.default_value);
 }
 
 function configurationValue(input) {
@@ -1123,7 +1127,7 @@ function configurationValue(input) {
     }
     return number;
   }
-  if (input.dataset.valueKind === "collection" || input.dataset.kind === "placement") {
+  if (input.dataset.valueKind === "collection") {
     return JSON.parse(raw);
   }
   return raw;
@@ -1145,7 +1149,7 @@ async function saveConfiguration() {
     element("config-save").disabled = true;
     const result = await fetchJson("/api/config", {
       method: "PUT",
-      body: JSON.stringify({ target: element("config-target").value, changes }),
+      body: JSON.stringify({ changes }),
     });
     const roles = result.reloading_roles.length ? `; reloading ${result.reloading_roles.join(", ")}` : "";
     element("config-status").textContent = `Applied ${result.changed.length} settings${roles}`;
@@ -1155,6 +1159,26 @@ async function saveConfiguration() {
     element("config-status").textContent = error.message;
   } finally {
     element("config-save").disabled = false;
+  }
+}
+
+async function resetConfiguration(paths) {
+  const resettingAll = paths === null;
+  if (resettingAll && !window.confirm(translate("Reset every setting to the selected hardware profile defaults?"))) {
+    return;
+  }
+  try {
+    const result = await fetchJson("/api/config", {
+      method: "DELETE",
+      body: JSON.stringify({ paths }),
+    });
+    state.configuration = result;
+    renderConfiguration(result);
+    element("config-status").textContent = resettingAll
+      ? translate("All settings reset")
+      : translate("Reset {count} settings").replace("{count}", result.changed.length);
+  } catch (error) {
+    element("config-status").textContent = error.message;
   }
 }
 
@@ -1418,8 +1442,7 @@ async function main() {
   view.language = element("language");
   view.mode = element("mode");
   view.routing = element("routing");
-  view.performanceMode = element("performance-mode");
-  view.privacyWarning = element("privacy-warning");
+  view.hardwareProfile = element("hardware-profile");
   view.talk = element("talk");
   view.connection = element("connection");
   view.target = element("target");
@@ -1502,7 +1525,7 @@ async function main() {
   });
   element("config-save").addEventListener("click", saveConfiguration);
   element("config-reload").addEventListener("click", loadConfiguration);
-  element("config-target").addEventListener("change", loadConfiguration);
+  element("config-reset").addEventListener("click", () => resetConfiguration(null));
   element("history-reload").addEventListener("click", loadHistoryArchive);
   element("history-search").addEventListener("keydown", (event) => {
     if (event.key === "Enter") {

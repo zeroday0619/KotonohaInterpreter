@@ -8,11 +8,16 @@ from collections import Counter
 from typing import Any
 
 import pytest
-import yaml
 
 from kotonoha import _i18n as i18n
-from kotonoha._config import REPO_ROOT, load_settings
-from kotonoha._config_store import apply_changes, get_path, set_path, validate_candidate
+from kotonoha._config import REPO_ROOT, configuration_snapshot, load_settings
+from kotonoha._config_store import (
+    apply_changes,
+    get_path,
+    reset_changes,
+    set_path,
+    validate_candidate,
+)
 from kotonoha._configuration_fields import (
     FIELD_DESCRIPTIONS,
     FIELDS,
@@ -242,8 +247,8 @@ def test_editor_exposes_the_complete_settings_schema() -> None:
         "frontend.vad.max_utterance_ms",
         "shm.slot_seconds",
         "services.asr",
-        "placement",
-        "remote.verify_tls",
+        "accelerator.profile",
+        "transport.verify_tls",
         "asr.lid.min_confidence",
         "asr_verify.compute_type",
         "llm.profiles",
@@ -305,10 +310,10 @@ def test_formatting_applies_in_every_locale() -> None:
 # -- configuration editor ---------------------------------------------------
 def test_dotted_path_helpers() -> None:
     data: dict = {}
-    set_path(data, "remote.services.llm", "http://x")
-    assert data == {"remote": {"services": {"llm": "http://x"}}}
-    assert get_path(data, "remote.services.llm") == "http://x"
-    assert get_path(data, "remote.services.missing") is None
+    set_path(data, "services.llm", "http://x")
+    assert data == {"services": {"llm": "http://x"}}
+    assert get_path(data, "services.llm") == "http://x"
+    assert get_path(data, "services.missing") is None
     assert get_path(data, "nothing.here") is None
 
 
@@ -317,34 +322,32 @@ def test_configuration_defaults_are_isolated_between_instances() -> None:
     second = load_settings()
 
     first.session.pair.append("ja")
-    first.placement["llm"] = "remote"
-    first.remote.services.llm = "http://changed.test:8003"
+    first.services.llm = "http://changed.test:8003"
 
     assert second.session.pair == ["ko", "en"]
-    assert second.placement == {}
-    assert second.remote.services.llm == "http://a6000.lan:8003"
+    assert second.services.llm == "http://127.0.0.1:8003"
 
 
 def test_dotted_path_helper_rejects_invalid_and_conflicting_paths() -> None:
     with pytest.raises(ValueError, match="non-empty"):
-        set_path({}, "remote..llm", "http://x")
+        set_path({}, "services..llm", "http://x")
     with pytest.raises(ValueError, match="non-mapping"):
-        set_path({"remote": "disabled"}, "remote.services.llm", "http://x")
+        set_path({"services": "disabled"}, "services.llm", "http://x")
 
 
 def test_effective_value_reads_through_the_model() -> None:
     s = load_settings()
     assert effective_value(s, "frontend.vad.preroll_ms") == s.frontend.vad.preroll_ms
-    assert effective_value(s, "remote.services.llm") == s.remote.services.llm
+    assert effective_value(s, "services.llm") == s.services.llm
 
 
 def test_valid_candidate_is_accepted() -> None:
-    assert validate_candidate(None, {"perf_mode": "hybrid"}) is None
+    assert validate_candidate(None, {"session": {"fixed_target": "ja"}}) is None
 
 
 def test_invalid_candidate_is_rejected_with_a_reason() -> None:
-    problem = validate_candidate(None, {"perf_mode": "turbo"})
-    assert problem is not None and "perf_mode" in problem
+    problem = validate_candidate(None, {"unknown": {"setting": True}})
+    assert problem is not None and "unknown" in problem
 
 
 def test_preroll_below_the_floor_is_rejected() -> None:
@@ -353,63 +356,35 @@ def test_preroll_below_the_floor_is_rejected() -> None:
     assert problem is not None and "preroll_ms" in problem
 
 
-def test_apply_changes_writes_local_yaml(
-    _positional_only: object | None = None,
-    /,
-    *,
-    tmp_path: Any,
-) -> None:
-    target = tmp_path / "local.yaml"
+def test_apply_changes_writes_sqlite_overrides() -> None:
     result = apply_changes(
-        {"perf_mode": "hybrid", "remote.enabled": True, "ui.language": "ja"},
-        local_path=target,
+        {"services.llm": "http://service.test:8003", "ui.language": "ja"},
     )
     assert result.written
-    assert result.changed == ["perf_mode", "remote.enabled", "ui.language"]
+    assert result.changed == ["services.llm", "ui.language"]
+    assert configuration_snapshot().overrides == {
+        "services": {"llm": "http://service.test:8003"},
+        "ui": {"language": "ja"},
+    }
 
-    written = yaml.safe_load(target.read_text(encoding="utf-8"))
-    assert written == {"perf_mode": "hybrid", "remote": {"enabled": True}, "ui": {"language": "ja"}}
 
-
-def test_apply_changes_refuses_to_write_an_invalid_configuration(
-    _positional_only: object | None = None,
-    /,
-    *,
-    tmp_path: Any,
-) -> None:
-    """An unloadable configuration on a device is worse than a rejected edit."""
-    target = tmp_path / "local.yaml"
-    result = apply_changes({"asr": {"n_best": "many"}}, local_path=target)
+def test_apply_changes_refuses_to_write_an_invalid_configuration() -> None:
+    result = apply_changes({"asr.n_best": "many"})
     assert not result.written
     assert result.error is not None
-    assert not target.exists()
+    assert configuration_snapshot().overrides == {}
 
 
-def test_apply_changes_preserves_unrelated_existing_values(
-    _positional_only: object | None = None,
-    /,
-    *,
-    tmp_path: Any,
-) -> None:
-    target = tmp_path / "local.yaml"
-    target.write_text(yaml.safe_dump({"audio": {"input_device": 3}}), encoding="utf-8")
-    assert apply_changes({"perf_mode": "hybrid"}, local_path=target).written
-    written = yaml.safe_load(target.read_text(encoding="utf-8"))
-    assert written["audio"]["input_device"] == 3
-    assert written["perf_mode"] == "hybrid"
+def test_apply_changes_preserves_unrelated_existing_values() -> None:
+    assert apply_changes({"audio.input_device": "USB microphone, ALSA"}).written
+    assert apply_changes({"session.fixed_target": "ja"}).written
+    settings = load_settings()
+    assert settings.audio.input_device == "USB microphone, ALSA"
+    assert settings.session.fixed_target == "ja"
 
 
-def test_apply_changes_rejects_a_path_that_crosses_a_scalar(
-    _positional_only: object | None = None,
-    /,
-    *,
-    tmp_path: Any,
-) -> None:
-    target = tmp_path / "local.yaml"
-    target.write_text(yaml.safe_dump({"remote": "disabled"}), encoding="utf-8")
-
-    result = apply_changes({"remote.enabled": True}, local_path=target)
-
-    assert not result.written
-    assert result.error is not None and "non-mapping" in result.error
-    assert yaml.safe_load(target.read_text(encoding="utf-8")) == {"remote": "disabled"}
+def test_reset_changes_restores_profile_defaults() -> None:
+    assert apply_changes({"session.fixed_target": "ja"}).written
+    result = reset_changes(["session.fixed_target"])
+    assert result.changed == ["session.fixed_target"]
+    assert load_settings().session.fixed_target == "en"

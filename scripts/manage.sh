@@ -13,7 +13,7 @@ docker_requires_sudo=false
 docker_environment_names=(
   ACCELERATOR_OMNI_IMAGE
   ACCELERATOR_PROFILE
-  ACCELERATOR_REMOTE_BASE
+  ACCELERATOR_SERVICE_BASE
   ACCELERATOR_VLLM_IMAGE
   ASR_BASE
   ASR_GPU_DEVICE
@@ -22,25 +22,14 @@ docker_environment_names=(
   GPU_DRIVER
   KOTONOHA_DISABLE_NVML
   KOTONOHA_SERVICE_TOKEN
-  KOTONOHA_WEB_CONFIG
   KOTONOHA_WEB_HOST
-  KOTONOHA_WEB_LOCAL_CONFIG
   KOTONOHA_WEB_PORT
   KOTONOHA_WEB_SESSIONS
-  LLM_ENABLE_PREFIX_CACHING
   LLM_GPU_DEVICE
-  LLM_GPU_MEMORY_UTILIZATION
   LLM_IMAGE
-  LLM_KV_CACHE_DTYPE
-  LLM_MAX_MODEL_LEN
-  LLM_MAX_NUM_BATCHED_TOKENS
   MODELS_DIR
-  PROMETHEUS_PORT
-  REMOTE_ASR_BASE
-  REMOTE_BASE
-  TTS_ENFORCE_EAGER
+  SERVICE_BASE
   TTS_GPU_DEVICE
-  TTS_GPU_MEMORY_UTILIZATION
   TTS_IMAGE
   VERIFY_BASE
   VLLM_NVML_PATCH
@@ -89,7 +78,7 @@ Commands:
   setup       Prepare the detected host or an explicitly selected host.
   models      Download or validate every offline model artifact.
   i18n        Extract, update, compile, or check gettext catalogs.
-  benchmark   Run Docker hardware spikes or the Jetson-to-A6000 link benchmark.
+  benchmark   Run Docker hardware spikes or the configured service-link benchmark.
   deploy      Build and start resident model services on the detected inference host.
   web         Serve the browser interface over HTTP. Audio runs in the
               browser. Loopback unless KOTONOHA_WEB_HOST is set, and it
@@ -210,7 +199,11 @@ load_web_accelerator_environment() {
   if [ "$deployment_target" != "a6000" ]; then
     return
   fi
-  local gpu_environment_file="$repository_root/config/remote-gpu.env"
+  local gpu_environment_file="$repository_root/config/a6000-gpu.env"
+  if [ ! -f "$gpu_environment_file" ] \
+    && [ -f "$repository_root/config/remote-gpu.env" ]; then
+    gpu_environment_file="$repository_root/config/remote-gpu.env"
+  fi
   if [ ! -f "$gpu_environment_file" ]; then
     [ "$dry_run" = true ] && return
     fail "A6000 GPU allocation is missing; run scripts/manage.sh deploy a6000 first"
@@ -234,7 +227,7 @@ run_web() {
   load_web_accelerator_environment "$deployment_target"
   if [ "$deployment_target" = "a6000" ]; then
     compose_arguments+=(-f "$compose_file")
-    compose_file="$repository_root/docker/compose.remote.yaml"
+    compose_file="$repository_root/docker/compose.a6000.yaml"
     web_target_compose_file="$repository_root/docker/compose.web.a6000.yaml"
   fi
   if [ -f "$repository_root/.env" ]; then
@@ -497,8 +490,8 @@ case "$command_name" in
       *) fail "benchmark target must be auto, jetson, a6000, or link" ;;
     esac
     if [ "$benchmark_target" = "link" ]; then
-      confirm "Benchmark the external network link"
-      run_command uv run kotonoha -c config/performance.yaml netcheck "$@"
+      confirm "Benchmark configured service endpoints"
+      run_command uv run kotonoha netcheck "$@"
     else
       benchmark_target=$(resolve_inference_equipment "$benchmark_target")
       confirm "Run $benchmark_target hardware benchmarks"

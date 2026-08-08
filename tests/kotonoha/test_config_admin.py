@@ -1,38 +1,19 @@
-"""Remote configuration management API and client."""
+"""SQLite configuration management API contracts."""
 
 from __future__ import annotations
 
-from typing import Any
+from pathlib import Path
 
 import httpx2
 import pytest
-import yaml
 from fastapi import FastAPI
 
-from kotonoha._config import load_settings
-from kotonoha.clients._base import ServiceApplicationError
-from kotonoha.clients._config_admin import RemoteConfigClient
+from kotonoha._config import configuration_database_path, load_settings
+from kotonoha._config_store import apply_changes
 from kotonoha.services._auth import install_auth
 from kotonoha.services._config_admin import router
 
 SERVICE_TOKEN = "test-service-token-0123456789abcdef"
-REMOTE_CLIENT_TOKEN = "test-remote-token-0123456789abcdef"
-
-
-@pytest.fixture
-def admin_environment(
-    _positional_only: object | None = None,
-    /,
-    *,
-    tmp_path: Any,
-    monkeypatch: Any,
-) -> Any:
-    override = tmp_path / "remote-server.local.yaml"
-    monkeypatch.setenv("KOTONOHA_CONFIG", "config/remote-server.yaml")
-    monkeypatch.setenv("KOTONOHA_LOCAL_CONFIG", str(override))
-    monkeypatch.setenv("KOTONOHA_SERVICE_TOKEN", SERVICE_TOKEN)
-    monkeypatch.setenv("KOTONOHA__REMOTE__TOKEN", REMOTE_CLIENT_TOKEN)
-    return override
 
 
 def build_admin_app() -> FastAPI:
@@ -47,131 +28,103 @@ def build_admin_app() -> FastAPI:
     return application
 
 
+@pytest.fixture
+def authenticated_environment(
+    _positional_only: object | None = None,
+    /,
+    *,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("KOTONOHA_SERVICE_TOKEN", SERVICE_TOKEN)
+
+
 async def test_admin_api_requires_the_service_token(
     _positional_only: object | None = None,
     /,
     *,
-    admin_environment: Any,
+    authenticated_environment: None,
 ) -> None:
+    del authenticated_environment
     transport = httpx2.ASGITransport(app=build_admin_app())
     async with httpx2.AsyncClient(transport=transport, base_url="http://test") as client:
         assert (await client.get("/admin/config")).status_code == 401
         response = await client.get(
-            "/admin/config", headers={"authorization": f"Bearer {SERVICE_TOKEN}"}
+            "/admin/config",
+            headers={"authorization": f"Bearer {SERVICE_TOKEN}"},
         )
         assert response.status_code == 200
 
 
-async def test_auth_exposes_only_health_without_a_token(
+async def test_admin_api_persists_and_resets_sqlite_overrides(
     _positional_only: object | None = None,
     /,
     *,
-    admin_environment: Any,
+    authenticated_environment: None,
 ) -> None:
-    del admin_environment
+    del authenticated_environment
     transport = httpx2.ASGITransport(app=build_admin_app())
-    async with httpx2.AsyncClient(transport=transport, base_url="http://test") as client:
-        assert (await client.get("/health")).status_code == 200
-        assert (await client.get("/openapi.json")).status_code == 401
-        assert (await client.get("/docs")).status_code == 401
-
-
-async def test_admin_api_validates_and_persists_overrides(
-    _positional_only: object | None = None,
-    /,
-    *,
-    admin_environment: Any,
-) -> None:
-    override = admin_environment
-    transport = httpx2.ASGITransport(app=build_admin_app())
+    headers = {"authorization": f"Bearer {SERVICE_TOKEN}"}
     async with httpx2.AsyncClient(
         transport=transport,
         base_url="http://test",
-        headers={"authorization": f"Bearer {SERVICE_TOKEN}"},
+        headers=headers,
     ) as client:
         response = await client.put(
             "/admin/config",
-            json={
-                "changes": {
-                    "llm.max_model_len": 8192,
-                    "asr_verify.compute_type": "float16",
-                }
-            },
+            json={"changes": {"llm.max_model_len": 1536}},
         )
+        reset = await client.request(
+            "DELETE",
+            "/admin/config",
+            json={"paths": ["llm.max_model_len"]},
+        )
+
     assert response.status_code == 200
-    body = response.json()
-    assert body["config"]["llm"]["max_model_len"] == 8192
-    assert "llm.max_model_len" in body["editable_paths"]
-    assert "asr.vllm_realtime_architecture" in body["editable_paths"]
-    assert "accelerator.profile" in body["editable_paths"]
-    assert "logging.prometheus_port" in body["editable_paths"]
-    assert "remote.token" not in body["editable_paths"]
-    assert "token" not in body["config"]["remote"]
-    assert body["restart_required"] is True
-
-    written = yaml.safe_load(override.read_text(encoding="utf-8"))
-    assert written["llm"]["max_model_len"] == 8192
-    assert written["asr_verify"]["compute_type"] == "float16"
+    assert response.json()["config"]["llm"]["max_model_len"] == 1536
+    assert Path(response.json()["path"]) == configuration_database_path()
+    assert reset.status_code == 200
+    assert reset.json()["config"]["llm"]["max_model_len"] == 2048
+    assert load_settings().llm.max_model_len == 2048
 
 
-async def test_admin_api_rejects_invalid_values_without_writing(
+async def test_admin_api_rejects_invalid_and_web_owned_settings(
     _positional_only: object | None = None,
     /,
     *,
-    admin_environment: Any,
+    authenticated_environment: None,
 ) -> None:
-    override = admin_environment
+    del authenticated_environment
     transport = httpx2.ASGITransport(app=build_admin_app())
+    headers = {"authorization": f"Bearer {SERVICE_TOKEN}"}
     async with httpx2.AsyncClient(
         transport=transport,
         base_url="http://test",
-        headers={"authorization": f"Bearer {SERVICE_TOKEN}"},
+        headers=headers,
     ) as client:
-        response = await client.put(
-            "/admin/config", json={"changes": {"llm.max_model_len": "many"}}
+        invalid = await client.put(
+            "/admin/config",
+            json={"changes": {"llm.max_model_len": "many"}},
         )
-    assert response.status_code == 422
-    assert not override.exists()
+        rejected = await client.put(
+            "/admin/config",
+            json={"changes": {"transport.token": "replacement"}},
+        )
+
+    assert invalid.status_code == 422
+    assert rejected.status_code == 422
+    assert "transport.token" in rejected.text
 
 
-async def test_admin_api_rejects_client_owned_settings(
+async def test_admin_api_redacts_transport_credentials(
     _positional_only: object | None = None,
     /,
     *,
-    admin_environment: Any,
+    authenticated_environment: None,
 ) -> None:
-    override = admin_environment
-    transport = httpx2.ASGITransport(app=build_admin_app())
-    async with httpx2.AsyncClient(
-        transport=transport,
-        base_url="http://test",
-        headers={"authorization": f"Bearer {SERVICE_TOKEN}"},
-    ) as client:
-        response = await client.put(
-            "/admin/config", json={"changes": {"remote.token": "replacement"}}
-        )
-    assert response.status_code == 422
-    assert "remote.token" in response.text
-    assert not override.exists()
-
-
-async def test_admin_api_redacts_secrets_from_manual_overrides(
-    _positional_only: object | None = None,
-    /,
-    *,
-    admin_environment: Any,
-) -> None:
-    override = admin_environment
-    override.write_text(
-        yaml.safe_dump(
-            {
-                "root": "/sensitive/root",
-                "remote": {"token": "manual-secret"},
-                "llm": {"max_model_len": 4096},
-            }
-        ),
-        encoding="utf-8",
-    )
+    del authenticated_environment
+    assert apply_changes(
+        {"transport.token": "persisted-secret-0123456789abcdef"}
+    ).written
     transport = httpx2.ASGITransport(app=build_admin_app())
     async with httpx2.AsyncClient(
         transport=transport,
@@ -181,65 +134,33 @@ async def test_admin_api_redacts_secrets_from_manual_overrides(
         response = await client.get("/admin/config")
 
     assert response.status_code == 200
-    overrides = response.json()["overrides"]
-    assert "root" not in overrides
-    assert "token" not in overrides["remote"]
-    assert overrides["llm"]["max_model_len"] == 4096
+    assert "token" not in response.json()["config"]["transport"]
+    assert "token" not in response.json()["defaults"]["transport"]
+    assert "token" not in response.json()["overrides"].get("transport", {})
 
 
-async def test_remote_config_client_reads_and_updates(
+async def test_admin_global_reset_preserves_web_owned_overrides(
     _positional_only: object | None = None,
     /,
     *,
-    admin_environment: Any,
+    authenticated_environment: None,
 ) -> None:
-    application = build_admin_app()
-    settings = load_settings("config/performance.yaml")
-    settings.remote.token = SERVICE_TOKEN
-    client = RemoteConfigClient("http://remote.test", settings.remote)
-    await client._client.aclose()
-    client._client = httpx2.AsyncClient(
-        transport=httpx2.ASGITransport(app=application),
-        base_url="http://remote.test",
+    del authenticated_environment
+    assert apply_changes(
+        {
+            "llm.max_model_len": 1536,
+            "session.fixed_target": "ja",
+        }
+    ).written
+    transport = httpx2.ASGITransport(app=build_admin_app())
+    async with httpx2.AsyncClient(
+        transport=transport,
+        base_url="http://test",
         headers={"authorization": f"Bearer {SERVICE_TOKEN}"},
-    )
-    try:
-        before = await client.read()
-        assert before.config["llm"]["profile"] == "translategemma"
-        assert before.config["llm"]["profiles"]["translategemma"]["directory"] == (
-            "translategemma-12b-it"
-        )
-        assert "llm.max_num_batched_tokens" in before.editable_paths
-        assert "llm.compilation_mode" in before.editable_paths
-        assert not any(path.startswith("tts.") for path in before.editable_paths)
-        after = await client.update({"llm.max_num_batched_tokens": 8192})
-        assert after.config["llm"]["max_num_batched_tokens"] == 8192
-        assert after.overrides["llm"]["max_num_batched_tokens"] == 8192
-    finally:
-        await client.aclose()
+    ) as client:
+        response = await client.request("DELETE", "/admin/config", json={})
 
-
-async def test_remote_config_client_classifies_streaming_error_without_reading_closed_body(
-    _positional_only: object | None = None,
-    /,
-) -> None:
-    settings = load_settings("config/performance.yaml")
-
-    def reject_request(
-        request: httpx2.Request,
-        /,
-    ) -> httpx2.Response:
-        del request
-        return httpx2.Response(422, content=b'{"detail":"invalid configuration"}')
-
-    client = RemoteConfigClient("http://remote.test", settings.remote)
-    await client._client.aclose()
-    client._client = httpx2.AsyncClient(
-        transport=httpx2.MockTransport(reject_request),
-        base_url="http://remote.test",
-    )
-    try:
-        with pytest.raises(ServiceApplicationError, match="HTTP 422"):
-            await client.read()
-    finally:
-        await client.aclose()
+    assert response.status_code == 200
+    settings = load_settings()
+    assert settings.llm.max_model_len == 2048
+    assert settings.session.fixed_target == "ja"

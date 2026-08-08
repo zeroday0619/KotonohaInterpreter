@@ -65,7 +65,7 @@ Resolve hardware-dependent runtime decisions before feature acceptance begins.
 | `spikes/out/spike2.json` | FlashAttention and TTS backend evidence |
 | `spikes/out/spike3.json` | TranslateGemma WebSocket and generation measurements |
 | `spikes/out/PHASE0.md` | Consolidated verdict and unresolved failures |
-| `spikes/out/local.yaml` | Measured Jetson configuration decisions |
+| `spikes/out/configuration-changes.json` | Measured Web API configuration changes |
 
 ### Exit Criteria
 
@@ -230,16 +230,16 @@ behind larger models.
 
 ## A6000 Performance Workstream
 
-The external server is a parallel deployment workstream. It does not replace Jetson
-fallbacks or phase acceptance.
+The A6000 server is a parallel hardware-profile workstream. It does not replace Jetson
+phase acceptance.
 
 | Gate | Required evidence |
 |---|---|
 | Model-stage performance | A6000 ASR, TTS, and TranslateGemma measurements |
 | Concurrent residency | All four services healthy with `nvidia-smi` evidence |
-| Link acceptance | Jetson `netcheck` RTT and six-second PCM upload results |
-| Placement | Accepted `onboard`, `hybrid`, `remote`, or `custom` configuration |
-| Recovery | Transport failures complete through resident Jetson fallbacks |
+| Endpoint acceptance | Web `netcheck` RTT and six-second PCM upload results |
+| Profile | Accepted `nvidia.rtx.a6000` configuration |
+| Recovery | A failed service turn returns the session to an input-ready state |
 | Security | Bearer authentication and restricted service ports |
 
 Store A6000 results under `spikes/out/a6000`. Do not combine server inference and network
@@ -249,7 +249,7 @@ overhead into one unlabelled measurement.
 
 Every phase report contains:
 
-- Source revision and configuration overlays
+- Source revision and configuration snapshot
 - Host, GPU, runtime, and model identifiers
 - Test data and measurement conditions
 - Measured results separated from unverified behavior

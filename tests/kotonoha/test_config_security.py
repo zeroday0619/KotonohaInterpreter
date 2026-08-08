@@ -13,12 +13,12 @@ from kotonoha._config import (
     LanguageModelConfig,
     LanguageModelProfile,
     LatencyBudgetConfig,
-    RemoteConfig,
     ServiceEndpointsConfig,
+    ServiceTransportConfig,
     SessionConfig,
     SharedMemoryConfig,
     VadConfig,
-    accelerator_profile_path,
+    hardware_profile_path,
     load_settings,
 )
 from kotonoha._env import load_env_file, parse_env_file
@@ -39,8 +39,8 @@ def test_accelerator_profile_rejects_path_and_case_escape(
     *,
     profile: str,
 ) -> None:
-    with pytest.raises(ValueError, match="accelerator profile"):
-        accelerator_profile_path(profile)
+    with pytest.raises(ValueError, match="hardware profile"):
+        hardware_profile_path(profile)
 
 
 def test_asr_model_revision_requires_an_immutable_commit() -> None:
@@ -58,9 +58,7 @@ def test_accuracy_and_allocation_limits_reject_unsafe_configuration() -> None:
     with pytest.raises(ValidationError, match="neg_threshold"):
         VadConfig(threshold=0.3, neg_threshold=0.5)
     with pytest.raises(ValidationError):
-        RemoteConfig(failover_after=0)
-    with pytest.raises(ValidationError):
-        RemoteConfig(token="short")
+        ServiceTransportConfig(token="short")
 
 
 @pytest.mark.parametrize(
@@ -112,15 +110,6 @@ def test_latency_budget_rejects_a_negative_post_silence_target() -> None:
         LatencyBudgetConfig(silence=800, total=799)
 
 
-def test_unknown_placement_role_fails_during_configuration_load() -> None:
-    settings = load_settings()
-    values = settings.model_dump()
-    values["placement"] = {"unknown": "remote"}
-
-    with pytest.raises(ValidationError, match="unknown role"):
-        type(settings)(**values)
-
-
 def test_shared_memory_slot_must_hold_the_maximum_utterance() -> None:
     settings = load_settings()
     settings.shm.slot_seconds = 1
@@ -152,14 +141,14 @@ def test_environment_file_parser_supports_documented_syntax() -> None:
         """
         # comment
         export KOTONOHA_LANG=ja
-        KOTONOHA_CONFIG="config/performance.yaml"
+        KOTONOHA_SETTINGS_DATABASE="data/kotonoha.db"
         INVALID LINE
         """
     )
 
     assert values == {
         "KOTONOHA_LANG": "ja",
-        "KOTONOHA_CONFIG": "config/performance.yaml",
+        "KOTONOHA_SETTINGS_DATABASE": "data/kotonoha.db",
     }
 
 

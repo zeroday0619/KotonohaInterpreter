@@ -213,5 +213,6 @@ eval/out/
 config/local.yaml
 config/remote-server.local.yaml
 config/remote-llm.env
+config/a6000-gpu.env
 config/remote-gpu.env
 .DS_Store

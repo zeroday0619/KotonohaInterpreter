@@ -1,10 +1,4 @@
-"""Configuration loading — YAML plus environment variables (pydantic-settings).
-
-Precedence: environment (KOTONOHA__*) > local YAML > the selected overlay >
-the selected accelerator profile > config/default.yaml. Nested keys use a double
-underscore for overrides,
-e.g. KOTONOHA__LLM__PROFILE=translategemma
-"""
+"""Configuration loading from SQLite defaults, overrides, and environment values."""
 
 from __future__ import annotations
 
@@ -18,6 +12,15 @@ import yaml
 from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from kotonoha._settings_database import (
+    ConfigurationSnapshot,
+    mark_migration_completed,
+    migration_completed,
+    read_snapshot,
+    seed_defaults,
+    settings_database_path,
+    write_overrides,
+)
 from kotonoha._typing import override
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -211,56 +214,16 @@ class AcceleratorConfig(BaseModel):
 
 
 ROLES = ("asr", "asr_verify", "llm", "tts")
-Placement = Literal["local", "remote"]
-
-# Which side runs each role, per performance mode.
-#
-#   onboard  everything on the Orin. The original design.
-#   hybrid   only the LLM goes to the A6000. It is text-only, so audio remains
-#            on the device.
-#   remote   ASR, verification and TTS also move to the external server.
-#            Utterance audio crosses the network.
-#   custom   each role follows the matching entry in `placement`.
-PERF_PLACEMENT: dict[str, dict[str, Placement]] = {
-    "onboard": {"asr": "local", "asr_verify": "local", "llm": "local", "tts": "local"},
-    "hybrid": {"asr": "local", "asr_verify": "local", "llm": "remote", "tts": "local"},
-    "remote": {"asr": "remote", "asr_verify": "remote", "llm": "remote", "tts": "remote"},
-    "custom": {"asr": "local", "asr_verify": "local", "llm": "local", "tts": "local"},
-}
 
 
-class RemoteConfig(BaseModel):
-    """The external RTX A6000 box.
-
-    This server is private infrastructure rather than a cloud API, so §12 still
-    applies. In `remote` mode, utterance audio leaves the device. The `hybrid`
-    mode keeps audio processing on the device.
-    """
+class ServiceTransportConfig(BaseModel):
+    """Authenticated transport shared by the resident model-service clients."""
     __slots__: ClassVar[tuple[str, ...]] = ()
 
-    enabled: bool = False
-    services: ServiceEndpointsConfig = Field(
-        default_factory=lambda: ServiceEndpointsConfig(
-            asr="http://a6000.lan:8001",
-            asr_verify="http://a6000.lan:8002",
-            llm="http://a6000.lan:8003",
-            tts="http://a6000.lan:8004",
-        )
-    )
     token: str | None = Field(None, min_length=32, max_length=4096)
     verify_tls: bool = True
     ca_bundle: Path | None = None
     connect_timeout_s: float = Field(1.5, gt=0.0, le=60.0)
-
-    # Failover (§10 applied to the link): drop to the on-board service after
-    # this many consecutive transport failures, and only return once the remote
-    # has been healthy again for recover_after_s.
-    failover_after: int = Field(2, ge=1, le=100)
-    recover_after_s: float = Field(30.0, ge=0.0, le=3600.0)
-    health_interval_s: float = Field(10.0, gt=0.0, le=3600.0)
-
-    # Audio upload encoding. s16le halves the bytes on the wire against f32le
-    # and costs nothing in ASR quality at 16 kHz.
     audio_encoding: Literal["s16le", "f32le"] = "s16le"
 
 
@@ -297,11 +260,11 @@ class AsrVerificationConfig(BaseModel):
     __slots__: ClassVar[tuple[str, ...]] = ()
     enabled: bool = True
     # §5.5 makes verification conditional because it costs 0.8 s on the Orin.
-    # The policy remains configurable for measured remote deployments.
+    # The policy remains configurable for measured hardware profiles.
     mode: Literal["conditional", "always"] = "conditional"
     backend: Literal["faster_whisper", "whisper_cpp"] = "faster_whisper"
     model_id: str = Field("large-v3", min_length=1, max_length=512)
-    # The Jetson AArch64 wheel uses the CPU path. Remote overlays can select CUDA.
+    # The Jetson AArch64 wheel uses the CPU path. Other profiles can select CUDA.
     compute_type: str = Field("int8", min_length=1, max_length=64)
     device: str = Field("cpu", min_length=1, max_length=64)
     beam_size: int = Field(5, ge=1, le=20)
@@ -412,7 +375,12 @@ class TextToSpeechVoices(BaseModel):
 class TextToSpeechConfig(BaseModel):
     __slots__: ClassVar[tuple[str, ...]] = ()
     backend: Literal["vllm_omni"] = "vllm_omni"
+    model_path: Path = Path("./models/Qwen3-TTS-0.6B")
+    deploy_config: Path | None = None
     served_model_name: str = Field("kotonoha-tts", min_length=1, max_length=128)
+    gpu_memory_utilization: float = Field(0.30, gt=0.0, le=1.0)
+    enforce_eager: bool = True
+    startup_timeout_s: float = Field(600.0, gt=0.0, le=3600.0)
     task_type: Literal["CustomVoice"] = "CustomVoice"
     sample_rate: int = Field(24000, ge=24000, le=24000)
     timeout_s: float = Field(5.0, gt=0.0, le=300.0)
@@ -517,18 +485,12 @@ class Settings(BaseSettings):
         extra="forbid",
     )
 
-    # onboard | hybrid | remote | custom — see PERF_PLACEMENT.
-    perf_mode: Literal["onboard", "hybrid", "remote", "custom"] = "onboard"
-    # Custom mode uses this map for each resident model role. Other modes retain
-    # their preset and accept explicit per-role overrides for compatibility.
-    placement: dict[str, Placement] = Field(default_factory=dict, max_length=4)
-
     session: SessionConfig = Field(default_factory=SessionConfig)
     audio: AudioConfig = Field(default_factory=AudioConfig)
     frontend: FrontendConfig = Field(default_factory=FrontendConfig)
     shm: SharedMemoryConfig = Field(default_factory=SharedMemoryConfig)
     services: ServiceEndpointsConfig = Field(default_factory=ServiceEndpointsConfig)
-    remote: RemoteConfig = Field(default_factory=RemoteConfig)
+    transport: ServiceTransportConfig = Field(default_factory=ServiceTransportConfig)
     accelerator: AcceleratorConfig = Field(default_factory=AcceleratorConfig)
     asr: AsrConfig = Field(default_factory=AsrConfig)
     asr_verify: AsrVerificationConfig = Field(default_factory=AsrVerificationConfig)
@@ -549,11 +511,6 @@ class Settings(BaseSettings):
         self,
         /,
     ) -> Settings:
-        unknown_roles = set(self.placement) - set(ROLES)
-        if unknown_roles:
-            raise ValueError(
-                f"unknown role in placement: {', '.join(sorted(unknown_roles))}"
-            )
         required_milliseconds = (
             self.frontend.vad.max_utterance_ms + self.frontend.vad.frame_ms
         )
@@ -571,43 +528,15 @@ class Settings(BaseSettings):
     ) -> Path:
         return path if path.is_absolute() else (self.root / path).resolve()
 
-    # -- role placement ----------------------------------------------------
-    def resolved_placement(
+    def service_url(
         self,
-        /,
-    ) -> dict[str, Placement]:
-        """Where each role actually runs.
-
-        With the remote disabled everything collapses to local, whatever
-        perf_mode says. A mode that silently points at an unreachable box would
-        just turn into a per-turn timeout.
-        """
-        resolved = dict(PERF_PLACEMENT[self.perf_mode])
-        for role, side in self.placement.items():
-            if role not in ROLES:
-                raise ValueError(f"unknown role in placement: {role}")
-            resolved[role] = side
-        if not self.remote.enabled:
-            return dict.fromkeys(ROLES, "local")
-        return resolved
-
-    def url_for(
-        self,
-        /,
         role: str,
-        side: Placement,
-    ) -> str:
-        services = self.remote.services if side == "remote" else self.services
-        return getattr(services, role)
-
-    @property
-    def audio_leaves_device(
-        self,
         /,
-    ) -> bool:
-        """Return whether utterance audio leaves the application host."""
-        placement = self.resolved_placement()
-        return placement["asr"] == "remote" or placement["asr_verify"] == "remote"
+    ) -> str:
+        """Return the endpoint selected by the active hardware profile."""
+        if role not in ROLES:
+            raise ValueError(f"unknown service role: {role}")
+        return str(getattr(self.services, role))
 
     @classmethod
     @override
@@ -664,14 +593,30 @@ def read_yaml(
             accelerator_data = data.setdefault("accelerator", {})
             if isinstance(accelerator_data, dict):
                 accelerator_data["profile"] = legacy_profiles[legacy_memory_profile]
+    data.pop("perf_mode", None)
+    data.pop("placement", None)
+    legacy_remote = data.pop("remote", None)
+    if isinstance(legacy_remote, dict):
+        if legacy_remote.get("enabled") and isinstance(legacy_remote.get("services"), dict):
+            data["services"] = deep_merge(
+                data.get("services", {}),
+                legacy_remote["services"],
+            )
+        transport = {
+            key: legacy_remote[key]
+            for key in ("token", "verify_tls", "ca_bundle", "connect_timeout_s", "audio_encoding")
+            if key in legacy_remote
+        }
+        if transport:
+            data["transport"] = deep_merge(data.get("transport", {}), transport)
     return data
 
 
-def accelerator_profile_path(
+def hardware_profile_path(
     profile: str,
     /,
 ) -> Path:
-    """Resolve a dotted accelerator profile identifier to its YAML source."""
+    """Resolve a dotted hardware profile identifier to its YAML source."""
     components = profile.split(".")
     invalid_component = any(
         ACCELERATOR_PROFILE_COMPONENT.fullmatch(component) is None
@@ -679,110 +624,142 @@ def accelerator_profile_path(
     )
     if len(components) < 3 or invalid_component:
         raise ValueError(
-            "accelerator profile must use <vendor>.<family>.<model> naming"
+            "hardware profile must use <vendor>.<family>.<model> naming"
         )
     path = ACCELERATOR_PROFILES_ROOT.joinpath(*components[:-1], f"{components[-1]}.yaml")
     if not path.is_file():
-        raise FileNotFoundError(f"accelerator profile not found: {profile} ({path})")
+        raise FileNotFoundError(f"hardware profile not found: {profile} ({path})")
     return path
 
 
-def _profile_identifier(
+def _hardware_profile_documents() -> dict[str, dict[str, Any]]:
+    profiles: dict[str, dict[str, Any]] = {}
+    for source in sorted(ACCELERATOR_PROFILES_ROOT.rglob("*.yaml")):
+        relative = source.relative_to(ACCELERATOR_PROFILES_ROOT)
+        identifier = ".".join((*relative.parts[:-1], relative.stem))
+        document = read_yaml(source)
+        declared = document.get("accelerator", {}).get("profile")
+        if declared != identifier:
+            raise ValueError(
+                f"hardware profile identifier mismatch: {source} declares {declared!r}"
+            )
+        profiles[identifier] = document
+    return profiles
+
+
+def _default_profile(
     default_data: dict[str, Any],
     /,
-    *,
-    chosen_data: dict[str, Any],
-    local_data: dict[str, Any],
-    local_override: dict[str, Any] | None = None,
 ) -> str:
-    candidates = (
-        os.environ.get("KOTONOHA__ACCELERATOR__PROFILE"),
-        (local_override or {}).get("accelerator", {}).get("profile"),
-        local_data.get("accelerator", {}).get("profile"),
-        chosen_data.get("accelerator", {}).get("profile"),
-        default_data.get("accelerator", {}).get("profile"),
-    )
-    for candidate in candidates:
-        if isinstance(candidate, str) and candidate:
-            return candidate
-    return AcceleratorConfig().profile
+    initial_profile = os.environ.get("KOTONOHA_INITIAL_HARDWARE_PROFILE")
+    if initial_profile:
+        return initial_profile
+    candidate = default_data.get("accelerator", {}).get("profile")
+    return candidate if isinstance(candidate, str) and candidate else AcceleratorConfig().profile
 
 
-def _configuration_layers(
-    path: str | Path | None = None,
+def _legacy_sources(
+    path: str | Path | None,
     /,
-    *,
-    local_override: dict[str, Any] | None = None,
-) -> list[Path]:
-    chosen = Path(path or os.environ.get("KOTONOHA_CONFIG") or DEFAULT_CONFIG)
-    if not chosen.exists() and (path is not None or os.environ.get("KOTONOHA_CONFIG")):
-        raise FileNotFoundError(f"config not found: {chosen}")
-
-    default_data = read_yaml(DEFAULT_CONFIG) if DEFAULT_CONFIG.exists() else {}
-    chosen_data = read_yaml(chosen) if chosen.exists() else {}
-    local = local_config_path()
+) -> tuple[Path, ...]:
+    sources: list[Path] = []
+    selected = path or os.environ.get("KOTONOHA_CONFIG")
+    if selected:
+        chosen = Path(selected)
+        if not chosen.exists():
+            raise FileNotFoundError(f"config not found: {chosen}")
+        if chosen.resolve() != DEFAULT_CONFIG.resolve():
+            sources.append(chosen)
+    local = Path(
+        os.environ.get("KOTONOHA_LOCAL_CONFIG", DEFAULT_CONFIG.parent / "local.yaml")
+    )
     skip_local = bool(os.environ.get("KOTONOHA_SKIP_LOCAL_CONFIG")) and not os.environ.get(
         "KOTONOHA_LOCAL_CONFIG"
     )
-    local_data = read_yaml(local) if local.exists() and not skip_local else {}
-    profile = accelerator_profile_path(
-        _profile_identifier(
-            default_data,
-            chosen_data=chosen_data,
-            local_data=local_data,
-            local_override=local_override,
-        )
+    if local.exists() and not skip_local:
+        sources.append(local)
+    return tuple(sources)
+
+
+def _remove_profile_override(
+    data: dict[str, Any],
+    /,
+) -> tuple[dict[str, Any], str | None]:
+    copied = deep_merge({}, data)
+    accelerator = copied.get("accelerator")
+    profile = None
+    if isinstance(accelerator, dict):
+        candidate = accelerator.pop("profile", None)
+        profile = candidate if isinstance(candidate, str) else None
+        if not accelerator:
+            copied.pop("accelerator", None)
+    return copied, profile
+
+
+def _migrate_legacy_sources(
+    database: Path,
+    sources: tuple[Path, ...],
+    default_profile: str,
+    /,
+) -> None:
+    for source in sources:
+        migration = f"yaml:{source.resolve()}"
+        if migration_completed(database, migration):
+            continue
+        snapshot = read_snapshot(database, default_profile)
+        imported, imported_profile = _remove_profile_override(read_yaml(source))
+        profile = imported_profile or snapshot.profile
+        hardware_profile_path(profile)
+        write_overrides(database, deep_merge(snapshot.overrides, imported), profile)
+        mark_migration_completed(database, migration)
+
+
+def configuration_snapshot(
+    path: str | Path | None = None,
+    /,
+) -> ConfigurationSnapshot:
+    """Return SQLite defaults and overrides after refreshing built-in profiles."""
+    default_data = read_yaml(DEFAULT_CONFIG)
+    profiles = _hardware_profile_documents()
+    default_profile = _default_profile(default_data)
+    database = settings_database_path(REPO_ROOT)
+    seed_defaults(database, default_data, profiles, default_profile)
+    _migrate_legacy_sources(database, _legacy_sources(path), default_profile)
+    forced_profile = os.environ.get("KOTONOHA__ACCELERATOR__PROFILE")
+    skip_overrides = bool(os.environ.get("KOTONOHA_SKIP_LOCAL_CONFIG")) and not os.environ.get(
+        "KOTONOHA_SETTINGS_DATABASE"
+    )
+    return read_snapshot(
+        database,
+        default_profile,
+        forced_profile=forced_profile,
+        include_overrides=not skip_overrides,
     )
 
-    layers: list[Path] = []
-    if DEFAULT_CONFIG.exists():
-        layers.append(DEFAULT_CONFIG)
-    if profile.resolve() not in {layer.resolve() for layer in layers}:
-        layers.append(profile)
-    if chosen.exists() and chosen.resolve() != DEFAULT_CONFIG.resolve():
-        layers.append(chosen)
-    return layers
+
+def configuration_snapshot_for_profile(
+    profile: str,
+    path: str | Path | None = None,
+    /,
+) -> ConfigurationSnapshot:
+    """Return defaults and overrides as they would apply to one hardware profile."""
+    hardware_profile_path(profile)
+    default_data = read_yaml(DEFAULT_CONFIG)
+    profiles = _hardware_profile_documents()
+    default_profile = _default_profile(default_data)
+    database = settings_database_path(REPO_ROOT)
+    seed_defaults(database, default_data, profiles, default_profile)
+    _migrate_legacy_sources(database, _legacy_sources(path), default_profile)
+    return read_snapshot(database, default_profile, forced_profile=profile)
 
 
 def load_settings(
     path: str | Path | None = None,
     /,
 ) -> Settings:
-    """Read the YAML layers and build Settings.
-
-    Layers, each merged over the previous:
-
-      1. config/default.yaml                         the full baseline
-      2. the selected accelerator profile            measured device defaults
-      3. the file given by --config or KOTONOHA_CONFIG, if it is a different one
-      4. config/local.yaml                           per-device overrides, if present
-
-    Layer 2 exists so files like performance.yaml can be small overlays that say
-    only what differs, instead of duplicating the whole baseline and drifting
-    from it. Environment variables still beat all three.
-
-    KOTONOHA_SKIP_LOCAL_CONFIG drops layer 3 when it resolves to this machine's own
-    config/local.yaml. The test suite sets it: that file carries a real device's
-    remote endpoints and token, and a suite that read it would dial the external
-    server instead of running offline. An explicit KOTONOHA_LOCAL_CONFIG still
-    applies, so the layer itself remains testable.
-    """
-    layers = _configuration_layers(path)
-    # The skip applies to this machine's own file, not to the mechanism: a caller
-    # that names a path with KOTONOHA_LOCAL_CONFIG still gets that layer, which is
-    # how the management API and its tests exercise it.
-    skip_local = bool(os.environ.get("KOTONOHA_SKIP_LOCAL_CONFIG")) and not os.environ.get(
-        "KOTONOHA_LOCAL_CONFIG"
-    )
-    if not skip_local:
-        local = local_config_path()
-        if local.exists():
-            layers.append(local)
-
-    data: dict[str, Any] = {}
-    for layer in layers:
-        data = deep_merge(data, read_yaml(layer))
-
+    """Build validated settings from SQLite and higher-priority environment values."""
+    snapshot = configuration_snapshot(path)
+    data = snapshot.effective
     data.setdefault("root", str(REPO_ROOT))
     return Settings(**data)
 
@@ -793,22 +770,17 @@ def config_layers(
     *,
     local_override: dict[str, Any] | None = None,
 ) -> list[Path]:
-    """The YAML files load_settings would merge, in order.
-
-    The configuration editor needs this to validate a candidate local.yaml against
-    the same profile and overlay layering the runtime uses.
-    """
-    return _configuration_layers(path, local_override=local_override)
-
-
-LOCAL_CONFIG = DEFAULT_CONFIG.parent / "local.yaml"
+    """Return bootstrap YAML sources retained for legacy tooling compatibility."""
+    del local_override
+    snapshot = configuration_snapshot(path)
+    return [DEFAULT_CONFIG, hardware_profile_path(snapshot.profile)]
 
 
 def local_config_path() -> Path:
-    """Return the host-specific override path.
+    """Return the legacy YAML path used only by the one-time migration."""
+    return Path(os.environ.get("KOTONOHA_LOCAL_CONFIG", DEFAULT_CONFIG.parent / "local.yaml"))
 
-    The Orin uses config/local.yaml. Remote containers set KOTONOHA_LOCAL_CONFIG
-    to a separate file, so editing the A6000 cannot overwrite the Orin's values
-    when both trees are mounted from the same development checkout.
-    """
-    return Path(os.environ.get("KOTONOHA_LOCAL_CONFIG", LOCAL_CONFIG))
+
+def configuration_database_path() -> Path:
+    """Return the active SQLite configuration database path."""
+    return settings_database_path(REPO_ROOT)

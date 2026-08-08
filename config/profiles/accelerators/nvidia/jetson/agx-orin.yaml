@@ -10,11 +10,18 @@ accelerator:
   architecture: sm_87
 
 asr:
+  model_id: /models/Qwen3-ASR-0.6B-hf
+  vllm_model_id: /models/Qwen3-ASR-0.6B
+  vllm_realtime_architecture: qwen3_asr
   # LLM and TTS share unified memory with ASR. This budget leaves room for their
   # resident weights and the CUDA runtime while retaining cache for one turn.
   vllm_gpu_memory_utilization: 0.15
 
+asr_verify:
+  model_id: /models/faster-whisper-large-v3
+
 llm:
+  models_dir: /models/llm
   gpu_memory_utilization: 0.35
   kv_cache_dtype: fp8
   max_num_seqs: 1
@@ -27,4 +34,10 @@ llm:
   compilation_mode: null
   compilation_cudagraph_capture_sizes: []
   compilation_cache_dir: null
+  enforce_eager: true
+
+tts:
+  model_path: /models/Qwen3-TTS-0.6B
+  deploy_config: /opt/kotonoha/qwen3_tts_jetson.yaml
+  gpu_memory_utilization: 0.30
   enforce_eager: true

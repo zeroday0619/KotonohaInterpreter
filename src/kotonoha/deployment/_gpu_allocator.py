@@ -1,4 +1,4 @@
-"""Assign remote model services to NVIDIA GPUs by available memory."""
+"""Assign A6000 model services to NVIDIA GPUs by available memory."""
 
 from __future__ import annotations
 
@@ -408,7 +408,7 @@ def print_allocation(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Assign Kotonoha remote services to GPUs by memory capacity."
+        description="Assign Kotonoha A6000 services to GPUs by memory capacity."
     )
     parser.add_argument("--environment-file", type=Path)
     parser.add_argument("--output", type=Path, required=True)

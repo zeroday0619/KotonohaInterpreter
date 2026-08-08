@@ -113,7 +113,7 @@ configure_target() {
     asr_vllm_model=Qwen3-ASR-0.6B
     llm_model=translategemma-4b-it
     report_name=PHASE0.md
-    patch_name=local.yaml
+    patch_name=configuration-changes.json
   else
     : "${SPIKE_VLLM_IMAGE:=${ACCELERATOR_VLLM_IMAGE:-nvcr.io/nvidia/vllm:26.07-py3}}"
     : "${SPIKE_ASR_IMAGE:=kotonohainterpreter-spike-asr:a6000}"
@@ -131,7 +131,7 @@ configure_target() {
     asr_vllm_model=Voxtral-Mini-4B-Realtime-2602
     llm_model=translategemma-12b-it
     report_name=PERFORMANCE.md
-    patch_name=remote-server.local.yaml
+    patch_name=configuration-changes.json
   fi
   models_directory=${MODELS_DIR:-./models}
   case "$models_directory" in
@@ -201,7 +201,7 @@ build_asr_image() {
   else
     "${docker_command[@]}" build \
       --build-arg "ASR_BASE_IMAGE=$SPIKE_VLLM_IMAGE" \
-      --file docker/Dockerfile.remote \
+      --file docker/Dockerfile.a6000 \
       --target asr \
       --tag "$SPIKE_ASR_IMAGE" \
       .
@@ -260,7 +260,7 @@ build_llm_image() {
   else
     "${docker_command[@]}" build \
       --build-arg "LLM_BASE_IMAGE=$SPIKE_VLLM_IMAGE" \
-      --file docker/Dockerfile.remote \
+      --file docker/Dockerfile.a6000 \
       --target llm \
       --tag "$SPIKE_LLM_IMAGE" \
       .

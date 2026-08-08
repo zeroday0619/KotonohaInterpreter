@@ -1,10 +1,11 @@
-# Runtime Profiles
+# Hardware Profiles
 
-Runtime profiles separate accelerator identity from service configuration.
+Hardware profiles bind host identity, accelerator metadata, model selection, and measured
+runtime limits to one stable identifier.
 
 ## Naming
 
-Accelerator profile identifiers use the following format:
+Hardware profile identifiers use the following format:
 
 ```text
 <vendor>.<accelerator-family>.<model>
@@ -30,19 +31,19 @@ config/profiles/
             └── <model>.yaml
 ```
 
-Each profile contains accelerator metadata and measured service defaults. The selected
-deployment overlay can override individual fields, and local configuration remains the
-highest-priority layer.
+Each profile contains accelerator metadata and measured service defaults. Startup
+synchronizes every profile into SQLite. Operator changes remain separate overrides in
+`data/kotonoha.db`.
 
 ## Adding a profile
 
 1. Add a YAML file under the vendor and accelerator-family directories.
 2. Set the matching `accelerator.profile` identifier and complete accelerator metadata.
 3. Define only measured service settings in the profile.
-4. Select the profile through `accelerator.profile` in a deployment overlay.
+4. Select the profile through the Web configuration page or the deployment script.
 5. Add configuration and engine-argument tests before target validation.
 
-The loader applies the profile after `config/default.yaml` and before the selected
-deployment overlay. `KOTONOHA__ACCELERATOR__PROFILE` selects a profile without modifying
-a YAML file. Docker-specific settings for the same identifier live under
+The loader combines `config/default.yaml`, the selected hardware profile, and SQLite
+operator overrides. `KOTONOHA__ACCELERATOR__PROFILE` is a non-persistent process override
+for diagnostics. Docker-specific settings for the same identifier live under
 `docker/profiles/accelerators/`.

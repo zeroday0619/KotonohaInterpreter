@@ -1,16 +1,15 @@
 """How an utterance reaches a service.
 
-Two paths, chosen by where the service runs:
+Two paths, chosen by the service transport:
 
   local   the shared-memory ring (§3). The service attaches to /dev/shm and
           reads the slot. Nothing is copied, nothing is serialised.
-  remote  the raw PCM goes over the wire as a multipart upload.
+  upload  the raw PCM goes over the wire as a multipart upload.
 
 The §3 rule was "do not put audio in an HTTP body", and the reason was the
-100-200 ms wasted on base64 for a purely local hop. Across a network there is
-no shared memory to use, so the audio has to travel — but it still does not get
-base64'd. It goes as a binary part, as s16le by default, which halves the bytes
-against float32 and costs nothing at 16 kHz.
+100-200 ms wasted on base64 for a purely local hop. A process outside the shared
+IPC namespace must upload audio, but it still does not use base64. The binary
+part uses s16le by default, which halves the bytes against float32 at 16 kHz.
 
     6 s utterance @ 16 kHz
       f32le  384 KB
@@ -37,7 +36,7 @@ class AudioPayload:
 
     The orchestrator always has the float32 PCM and always publishes it to the
     ring, so both forms are available and the client picks. That keeps the
-    local/remote choice out of the orchestrator entirely.
+    shared-memory/upload choice out of the orchestrator entirely.
     """
 
     pcm: np.ndarray

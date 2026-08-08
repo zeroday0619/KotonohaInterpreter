@@ -1,4 +1,4 @@
-"""Memory-aware GPU allocation for the remote model-service stack."""
+"""Memory-aware GPU allocation for the A6000 model-service stack."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from kotonoha.deployment import (
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ALLOCATOR_SCRIPT = PROJECT_ROOT / "scripts" / "py" / "allocate_gpus.py"
-REMOTE_COMPOSE = PROJECT_ROOT / "docker" / "compose.remote.yaml"
+REMOTE_COMPOSE = PROJECT_ROOT / "docker" / "compose.a6000.yaml"
 
 
 def _devices(
@@ -118,7 +118,7 @@ def test_allocator_reuses_stable_uuid_assignments(
     tmp_path: Path,
 ) -> None:
     inventory_path = tmp_path / "inventory.csv"
-    output_path = tmp_path / "remote-gpu.env"
+    output_path = tmp_path / "a6000-gpu.env"
     inventory_path.write_text(
         "0, GPU-0000, NVIDIA RTX A6000, 49140, 49140\n"
         "1, GPU-1111, NVIDIA RTX A6000, 49140, 49140\n",

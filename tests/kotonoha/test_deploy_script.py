@@ -10,7 +10,7 @@ from pathlib import Path
 
 import yaml
 
-from kotonoha._config import read_yaml
+from kotonoha._config import load_settings, read_yaml
 from kotonoha._config_store import validate_candidate
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -51,7 +51,7 @@ def test_deploy_inline_python_checks_have_valid_syntax() -> None:
     source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
     commands = re.findall(r"-c \\\n\s+'([^']+)' \\", source)
 
-    assert len(commands) == 7
+    assert len(commands) == 8
     for command in commands:
         compile(command, "scripts/deploy.sh", "exec")
 
@@ -122,7 +122,7 @@ def test_deploy_script_preserves_compose_variables_through_sudo() -> None:
     assert match is not None
     preserved_variables = set(match.group("variables").split())
     compose_variables: set[str] = set()
-    for compose_name in ("compose.yaml", "compose.remote.yaml"):
+    for compose_name in ("compose.yaml", "compose.a6000.yaml"):
         compose_source = (PROJECT_ROOT / "docker" / compose_name).read_text(
             encoding="utf-8"
         )
@@ -178,31 +178,35 @@ def test_prepare_only_rejects_service_stopping_gpu_reallocation() -> None:
     assert "cannot be combined" in result.stderr
 
 
-def test_jetson_override_template_validates() -> None:
-    template = read_yaml(PROJECT_ROOT / "config" / "jetson.local.example.yaml")
-    assert validate_candidate(None, template) is None
+def test_jetson_hardware_profile_validates() -> None:
+    assert validate_candidate(
+        None,
+        {"accelerator": {"profile": "nvidia.jetson.agx-orin"}},
+    ) is None
 
 
-def test_remote_override_template_validates() -> None:
-    template = read_yaml(PROJECT_ROOT / "config" / "remote-server.local.example.yaml")
-    remote_base = PROJECT_ROOT / "config" / "remote-server.yaml"
-    assert validate_candidate(remote_base, template) is None
+def test_a6000_hardware_profile_validates() -> None:
+    assert validate_candidate(
+        None,
+        {"accelerator": {"profile": "nvidia.rtx.a6000"}},
+    ) is None
 
 
-def test_remote_services_default_to_mounted_offline_models() -> None:
-    remote_config = read_yaml(PROJECT_ROOT / "config" / "remote-server.yaml")
+def test_a6000_services_default_to_mounted_offline_models() -> None:
     accelerator_profile = read_yaml(
         PROJECT_ROOT / "config" / "profiles" / "accelerators" / "nvidia" / "rtx" / "a6000.yaml"
     )
-    compose = (PROJECT_ROOT / "docker" / "compose.remote.yaml").read_text(encoding="utf-8")
+    compose = (PROJECT_ROOT / "docker" / "compose.a6000.yaml").read_text(encoding="utf-8")
     deploy_script = DEPLOY_SCRIPT.read_text(encoding="utf-8")
 
-    assert remote_config["asr"]["vllm_model_id"] == (
+    assert accelerator_profile["asr"]["vllm_model_id"] == (
         "/models/Voxtral-Mini-4B-Realtime-2602"
     )
-    assert remote_config["asr"]["vllm_realtime_architecture"] == "voxtral"
-    assert remote_config["asr"]["vllm_gpu_memory_utilization"] == 0.28
-    assert remote_config["asr_verify"]["model_id"] == "/models/faster-whisper-large-v3"
+    assert accelerator_profile["asr"]["vllm_realtime_architecture"] == "voxtral"
+    assert accelerator_profile["asr"]["vllm_gpu_memory_utilization"] == 0.28
+    assert accelerator_profile["asr_verify"]["model_id"] == (
+        "/models/faster-whisper-large-v3"
+    )
     assert "vllm/vllm-omni:v0.26.0" in compose
     assert "HF_HUB_OFFLINE=${TRANSFORMERS_OFFLINE:-0}" in compose
     assert 'Voxtral-Mini-4B-Realtime-2602/config.json"' in deploy_script
@@ -211,10 +215,10 @@ def test_remote_services_default_to_mounted_offline_models() -> None:
     assert 'faster-whisper-large-v3/config.json"' in deploy_script
     assert 'Qwen3-TTS-0.6B/config.json"' in deploy_script
     assert 'llm/translategemma-12b-it/config.json"' in deploy_script
-    assert remote_config["llm"]["profiles"]["translategemma"]["directory"] == (
+    assert accelerator_profile["llm"]["profiles"]["translategemma"]["directory"] == (
         "translategemma-12b-it"
     )
-    assert remote_config["accelerator"]["profile"] == "nvidia.rtx.a6000"
+    assert accelerator_profile["accelerator"]["profile"] == "nvidia.rtx.a6000"
     assert accelerator_profile["llm"]["gpu_memory_utilization"] == 0.90
     assert accelerator_profile["llm"]["max_num_seqs"] == 1
     assert accelerator_profile["llm"]["max_num_batched_tokens"] == 4096
@@ -247,12 +251,32 @@ def test_a6000_deploy_rejects_a_stale_asr_memory_override_before_start() -> None
 
     assert "minimum_gpu_memory_utilization=0.28" in deploy_script
     assert "load_settings().asr.vllm_gpu_memory_utilization" in deploy_script
-    assert "update config/remote-server.local.yaml" in deploy_script
+    assert "reset asr.vllm_gpu_memory_utilization in the Web settings" in deploy_script
     validation_call = (
         'verify_a6000_asr_configuration "$compose_file" "$environment_file"'
     )
     assert validation_call in deploy_body
     assert deploy_body.index(validation_call) < deploy_body.index("up -d")
+
+
+def test_deployment_selects_the_target_hardware_profile_before_validation() -> None:
+    deploy_script = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+    jetson_body = deploy_script.split("deploy_jetson() {", 1)[1].split(
+        "deploy_a6000() {", 1
+    )[0]
+    a6000_body = deploy_script.split("deploy_a6000() {", 1)[1].split(
+        "remove_project_images() {", 1
+    )[0]
+
+    jetson_selection = "nvidia.jetson.agx-orin"
+    a6000_selection = "nvidia.rtx.a6000"
+    assert "apply_changes" in deploy_script
+    assert jetson_body.index(jetson_selection) < jetson_body.index(
+        "verify_jetson_asr_configuration"
+    )
+    assert a6000_body.index(a6000_selection) < a6000_body.index(
+        "verify_a6000_asr_configuration"
+    )
 
 
 def test_jetson_deploy_rejects_stale_asr_overrides_before_start() -> None:
@@ -267,15 +291,15 @@ def test_jetson_deploy_rejects_stale_asr_overrides_before_start() -> None:
     assert '"/models/Qwen3-ASR-0.6B"' in deploy_script
     assert '"/models/Qwen3-ASR-0.6B-hf"' in deploy_script
     assert '"qwen3_asr"' in deploy_script
-    assert "Stale asr overrides in config/local.yaml" in deploy_script
-    assert "Stale asr_verify overrides in config/local.yaml" in deploy_script
+    assert "Stale ASR overrides in SQLite settings" in deploy_script
+    assert "Stale verification ASR overrides in SQLite settings" in deploy_script
     assert '("asr_verify.device", "cpu"' in deploy_script
     assert '("asr_verify.compute_type", "int8"' in deploy_script
     assert "get_supported_compute_types(" in deploy_script
 
     # Every mismatch is reported in one run. Exiting on the first stale key made an
     # operator repeat an image build and container start once per key.
-    for probe_marker in ("Stale asr overrides", "Stale asr_verify overrides"):
+    for probe_marker in ("Stale ASR overrides", "Stale verification ASR overrides"):
         probe = deploy_script.split(probe_marker, 1)[0].rsplit("-c \\\n", 1)[1]
         assert "sys.exit(1)" in deploy_script.split(probe_marker, 1)[1]
         assert probe.count("sys.exit(") == 0, f"{probe_marker} probe exits early"
@@ -331,7 +355,7 @@ def test_jetson_deployment_validates_budget_and_starts_roles_sequentially() -> N
 
 def test_remote_compose_uses_distinct_role_images_and_in_process_translation() -> None:
     compose = yaml.safe_load(
-        (PROJECT_ROOT / "docker" / "compose.remote.yaml").read_text(encoding="utf-8")
+        (PROJECT_ROOT / "docker" / "compose.a6000.yaml").read_text(encoding="utf-8")
     )
     services = compose["services"]
     python_roles = ("asr", "asr-verify", "llm")
@@ -354,16 +378,16 @@ def test_remote_compose_uses_distinct_role_images_and_in_process_translation() -
     )
 
 
-def test_remote_compose_does_not_mount_the_host_source_tree() -> None:
+def test_a6000_compose_does_not_mount_the_host_source_tree() -> None:
     compose = yaml.safe_load(
-        (PROJECT_ROOT / "docker" / "compose.remote.yaml").read_text(encoding="utf-8")
+        (PROJECT_ROOT / "docker" / "compose.a6000.yaml").read_text(encoding="utf-8")
     )
     common_volumes = set(compose["x-a6000"]["volumes"])
     metrics_volumes = set(compose["services"]["metrics"]["volumes"])
 
     assert "../:/app" not in common_volumes
     assert "../:/app" not in metrics_volumes
-    assert "../config:/app/config" in common_volumes
+    assert "../config:/app/config:ro" in common_volumes
     assert "../data:/app/data" in common_volumes
     assert "../config:/app/config:ro" in metrics_volumes
     assert "../data:/app/data" in metrics_volumes
@@ -377,7 +401,7 @@ def test_jetson_compose_mounts_source_read_only() -> None:
 
     assert "../:/app" not in volumes
     assert "../:/app:ro" in volumes
-    assert "../config:/app/config" in volumes
+    assert "../config:/app/config:ro" in volumes
     assert "../data:/app/data" in volumes
 
 
@@ -392,12 +416,12 @@ def test_asr_images_use_target_vllm_runtimes_with_realtime_support_checks() -> N
         (PROJECT_ROOT / "docker" / "compose.yaml").read_text(encoding="utf-8")
     )
     remote_compose = yaml.safe_load(
-        (PROJECT_ROOT / "docker" / "compose.remote.yaml").read_text(encoding="utf-8")
+        (PROJECT_ROOT / "docker" / "compose.a6000.yaml").read_text(encoding="utf-8")
     )
     jetson_dockerfile = (PROJECT_ROOT / "docker" / "Dockerfile.asr").read_text(
         encoding="utf-8"
     )
-    remote_dockerfile = (PROJECT_ROOT / "docker" / "Dockerfile.remote").read_text(
+    remote_dockerfile = (PROJECT_ROOT / "docker" / "Dockerfile.a6000").read_text(
         encoding="utf-8"
     )
 
@@ -473,7 +497,7 @@ def test_asr_images_use_target_vllm_runtimes_with_realtime_support_checks() -> N
     assert "vendor-vllm.pth" not in jetson_llm_dockerfile
     deploy_script = DEPLOY_SCRIPT.read_text(encoding="utf-8")
     assert 'a6000_vllm_image="nvcr.io/nvidia/vllm:26.07-py3"' in deploy_script
-    assert "must set REMOTE_ASR_BASE=$a6000_vllm_image" in deploy_script
+    assert "must set ASR_BASE=$a6000_vllm_image" in deploy_script
     assert "must set LLM_IMAGE=$a6000_vllm_image" in deploy_script
     assert "import torch, vllm" in deploy_script
     assert "from transformers import GenerationMixin" in deploy_script
@@ -573,7 +597,7 @@ def test_jetson_gpu_services_bypass_the_crashing_nvml_path() -> None:
         assert "NVML_BYPASS" not in build_arguments
 
     remote_compose = yaml.safe_load(
-        (PROJECT_ROOT / "docker" / "compose.remote.yaml").read_text(encoding="utf-8")
+        (PROJECT_ROOT / "docker" / "compose.a6000.yaml").read_text(encoding="utf-8")
     )
     assert remote_compose["services"]["tts"]["build"]["args"]["VLLM_NVML_PATCH"] == (
         "${VLLM_NVML_PATCH:-0}"
@@ -616,7 +640,7 @@ def test_vllm_nvml_patch_generates_valid_guarded_source(
 
 def test_remote_lock_and_dockerfile_use_target_specific_python_environments() -> None:
     lock_text = (PROJECT_ROOT / "uv.lock").read_text(encoding="utf-8")
-    dockerfile = (PROJECT_ROOT / "docker" / "Dockerfile.remote").read_text(encoding="utf-8")
+    dockerfile = (PROJECT_ROOT / "docker" / "Dockerfile.a6000").read_text(encoding="utf-8")
     project_configuration = (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
     assert "platform_machine == 'x86_64' and sys_platform == 'linux'" in lock_text
@@ -655,7 +679,7 @@ def test_editable_container_installs_include_the_custom_build_hook() -> None:
             project_install = dockerfile.rindex("uv sync --active")
         assert dockerfile.index(required_copy) < project_install
 
-    remote_dockerfile = (PROJECT_ROOT / "docker" / "Dockerfile.remote").read_text(
+    remote_dockerfile = (PROJECT_ROOT / "docker" / "Dockerfile.a6000").read_text(
         encoding="utf-8"
     )
     editable_stages = tuple(
@@ -678,7 +702,7 @@ def test_editable_container_installs_include_the_custom_build_hook() -> None:
 
 def test_tts_uses_the_fastapi_service_on_the_official_vllm_omni_base() -> None:
     compose = yaml.safe_load(
-        (PROJECT_ROOT / "docker" / "compose.remote.yaml").read_text(encoding="utf-8")
+        (PROJECT_ROOT / "docker" / "compose.a6000.yaml").read_text(encoding="utf-8")
     )
     dockerfile = (PROJECT_ROOT / "docker" / "Dockerfile.tts").read_text(encoding="utf-8")
     server = TTS_SERVER.read_text(encoding="utf-8")
@@ -716,10 +740,22 @@ def test_jetson_tts_uses_a_single_sequence_memory_profile() -> None:
             encoding="utf-8"
         )
     )
+    hardware_profile = read_yaml(
+        PROJECT_ROOT
+        / "config"
+        / "profiles"
+        / "accelerators"
+        / "nvidia"
+        / "jetson"
+        / "agx-orin.yaml"
+    )
 
     environment = jetson_compose["services"]["tts"]["environment"]
-    assert "TTS_DEPLOY_CONFIG=/opt/kotonoha/qwen3_tts_jetson.yaml" in environment
-    assert "TTS_GPU_MEMORY_UTILIZATION=${TTS_GPU_MEMORY_UTILIZATION:-0.30}" in environment
+    assert not any(item.startswith("TTS_") for item in environment)
+    assert hardware_profile["tts"]["deploy_config"] == (
+        "/opt/kotonoha/qwen3_tts_jetson.yaml"
+    )
+    assert hardware_profile["tts"]["gpu_memory_utilization"] == 0.30
     assert "COPY docker/tts/qwen3_tts_jetson.yaml" in dockerfile
     assert [stage["max_num_seqs"] for stage in profile["stages"]] == [1, 1]
     assert [stage["gpu_memory_utilization"] for stage in profile["stages"]] == [0.3, 0.3]
@@ -729,7 +765,7 @@ def test_jetson_tts_uses_a_single_sequence_memory_profile() -> None:
 def test_python_service_containers_force_uvloop() -> None:
     compose_paths = (
         PROJECT_ROOT / "docker" / "compose.yaml",
-        PROJECT_ROOT / "docker" / "compose.remote.yaml",
+        PROJECT_ROOT / "docker" / "compose.a6000.yaml",
     )
     for compose_path in compose_paths:
         compose = yaml.safe_load(compose_path.read_text(encoding="utf-8"))
@@ -742,7 +778,7 @@ def test_python_service_containers_force_uvloop() -> None:
         PROJECT_ROOT / "docker" / "Dockerfile.asr",
         PROJECT_ROOT / "docker" / "Dockerfile.asr-verify",
         PROJECT_ROOT / "docker" / "Dockerfile.llm",
-        PROJECT_ROOT / "docker" / "Dockerfile.remote",
+        PROJECT_ROOT / "docker" / "Dockerfile.a6000",
         PROJECT_ROOT / "docker" / "Dockerfile.tts",
     )
     for dockerfile_path in dockerfile_paths:
@@ -860,21 +896,23 @@ def test_web_service_reaches_models_without_a_host_audio_device() -> None:
     assert web["build"]["dockerfile"] == "docker/Dockerfile.web"
 
 
-def test_a6000_web_overlay_uses_pcm_transport_to_local_resident_services() -> None:
+def test_a6000_web_overlay_uses_the_hardware_profile_service_contract() -> None:
     overlay = yaml.safe_load(
         (PROJECT_ROOT / "docker" / "compose.web.a6000.yaml").read_text(encoding="utf-8")
     )
     environment = overlay["services"]["web"]["environment"]
 
-    assert "KOTONOHA__PERF_MODE=remote" in environment
-    assert "KOTONOHA__REMOTE__ENABLED=true" in environment
-    assert all(
-        any(
-            item.startswith(f"KOTONOHA__REMOTE__SERVICES__{role}=http://127.0.0.1:")
-            for item in environment
-        )
-        for role in ("ASR", "ASR_VERIFY", "LLM", "TTS")
-    )
+    assert not any("PERF_MODE" in item or "REMOTE" in item for item in environment)
+    assert any("KOTONOHA_INITIAL_HARDWARE_PROFILE=" in item for item in environment)
+    assert any("KOTONOHA__TRANSPORT__TOKEN=" in item for item in environment)
+    assert not any(item.startswith("KOTONOHA__SERVICES__") for item in environment)
+    settings = load_settings()
+    assert settings.services.model_dump() == {
+        "asr": "http://127.0.0.1:8001",
+        "asr_verify": "http://127.0.0.1:8002",
+        "llm": "http://127.0.0.1:8003",
+        "tts": "http://127.0.0.1:8004",
+    }
 
 
 def test_web_service_binds_loopback_unless_the_operator_opts_out() -> None:

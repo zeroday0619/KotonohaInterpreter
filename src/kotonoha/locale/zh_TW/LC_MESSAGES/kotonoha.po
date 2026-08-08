@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Kotonoha Interpreter 0.1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-09 03:08+0800\n"
+"POT-Creation-Date: 2026-08-09 04:02+0800\n"
 "PO-Revision-Date: 2026-08-05 15:30+0900\n"
 "Last-Translator: Kotonoha Interpreter\n"
 "Language: zh_TW\n"
@@ -147,340 +147,297 @@ msgid "List registered terms"
 msgstr "列出已登錄的詞彙"
 
 #: kotonoha/_cli.py:560
-msgid "Report environment, role placement and service health"
-msgstr "檢查環境、角色配置與服務狀態"
+msgid "Report environment, hardware profile, and service health"
+msgstr "報告環境、硬體設定檔及服務狀態"
 
-#: kotonoha/_cli.py:589
-msgid "! In this mode utterance audio leaves the device"
-msgstr "！此模式下語音會離開本機"
-
-#: kotonoha/_cli.py:625
+#: kotonoha/_cli.py:619
 #, python-brace-format
 msgid "Translation catalogs not compiled: {locales}"
 msgstr "翻譯目錄尚未編譯：{locales}"
 
-#: kotonoha/_cli.py:626
+#: kotonoha/_cli.py:620
 msgid "Run: uv run python scripts/py/i18n.py compile"
 msgstr "執行：uv run python scripts/py/i18n.py compile"
 
-#: kotonoha/_cli.py:628
+#: kotonoha/_cli.py:622
 #, python-brace-format
 msgid "Translation catalogs compiled: {locales}"
 msgstr "翻譯目錄已編譯：{locales}"
 
-#: kotonoha/_cli.py:637
+#: kotonoha/_cli.py:631
 msgid "Services:"
 msgstr "服務："
 
-#: kotonoha/_cli.py:663
-msgid "Measure latency and throughput to the external server"
-msgstr "量測到外部伺服器的延遲與處理量"
+#: kotonoha/_cli.py:653
+msgid "Measure latency and throughput to configured model services"
+msgstr "測量已設定模型服務的延遲與輸送量"
 
-#: kotonoha/_cli.py:669 kotonoha/_operation_catalog.py:152
+#: kotonoha/_cli.py:659 kotonoha/_operation_catalog.py:152
 msgid "Measurements per role"
 msgstr "每個角色的量測次數"
 
-#: kotonoha/_cli.py:670
+#: kotonoha/_cli.py:660
 msgid "Probe utterance length in seconds"
 msgstr "探測語句長度（秒）"
 
-#: kotonoha/_cli.py:684
-msgid "remote.enabled is false. Use config/performance.yaml, or enable it and retry."
-msgstr "remote.enabled 為 false。請改用 config/performance.yaml，或啟用後重試。"
-
-#: kotonoha/_cli.py:690
-#, python-brace-format
-msgid "No role is routed remotely under perf_mode={mode}."
-msgstr "perf_mode={mode} 下沒有任何角色送往遠端。"
-
-#: kotonoha/_cli.py:704
+#: kotonoha/_cli.py:679
 #, python-brace-format
 msgid "probe       {seconds}s utterance, {encoding}, {size} bytes"
 msgstr "probe       {seconds} 秒語句、{encoding}、{size} 位元組"
 
-#: kotonoha/_cli.py:786
+#: kotonoha/_cli.py:761
 #, python-brace-format
-msgid "Connection failed: {roles}. These roles will use onboard fallback services."
-msgstr "連線失敗：{roles}。這些角色將使用本機備援服務。"
+msgid "Connection failed: {roles}."
+msgstr "連線失敗：{roles}。"
 
-#: kotonoha/_cli.py:801
+#: kotonoha/_cli.py:776
 #, python-brace-format
 msgid "Estimated link overhead per turn  {ms} ms"
 msgstr "每輪連線額外耗時估計  {ms} ms"
 
-#: kotonoha/_cli.py:802
+#: kotonoha/_cli.py:777
 #, python-brace-format
 msgid "Budget, end-of-utterance to first audio  {ms} ms"
 msgstr "語句結束到首次發聲的預算  {ms} ms"
 
-#: kotonoha/_cli.py:804
+#: kotonoha/_cli.py:779
 #, python-format
-msgid "  ! The link consumes more than 25% of the budget. Consider hybrid mode."
-msgstr "  ！連線佔用超過預算的 25%，建議評估 hybrid 模式。"
+msgid "  ! Service transport consumes more than 25% of the latency budget."
+msgstr "  ! 服務傳輸耗用超過 25% 的延遲預算。"
 
-#: kotonoha/_cli.py:806
+#: kotonoha/_cli.py:781
 msgid "  The link fits within the budget. The remainder is model inference time."
 msgstr "  連線本身在預算內，其餘為模型推論時間。"
 
-#: kotonoha/_cli.py:816
+#: kotonoha/_cli.py:791
 msgid "Match text in the source or the translation"
 msgstr "在原文或譯文中搜尋字串"
 
-#: kotonoha/_cli.py:819
+#: kotonoha/_cli.py:794
 msgid "Filter by detected source language"
 msgstr "依判定的來源語言篩選"
 
-#: kotonoha/_cli.py:823
+#: kotonoha/_cli.py:798
 msgid "Filter by turn outcome, for example ok or llm_timeout"
 msgstr "依輪次結果篩選，例如 ok 或 llm_timeout"
 
-#: kotonoha/_cli.py:839
+#: kotonoha/_cli.py:814
 msgid "Print past turns to standard output"
 msgstr "將過往紀錄輸出到標準輸出"
 
-#: kotonoha/_cli.py:848 kotonoha/_cli.py:898
+#: kotonoha/_cli.py:823 kotonoha/_cli.py:873
 msgid "Maximum turns to return"
 msgstr "回傳輪次的上限"
 
-#: kotonoha/_cli.py:850
+#: kotonoha/_cli.py:825
 msgid "Print complete text instead of an excerpt"
 msgstr "顯示全文而非摘要"
 
-#: kotonoha/_cli.py:868 kotonoha/_cli.py:912
+#: kotonoha/_cli.py:843 kotonoha/_cli.py:887
 msgid "No turns match"
 msgstr "沒有符合條件的輪次"
 
-#: kotonoha/_cli.py:882
+#: kotonoha/_cli.py:857
 #, python-brace-format
 msgid "{shown} of {total} turns"
 msgstr "共 {total} 筆，顯示 {shown} 筆"
 
-#: kotonoha/_cli.py:888
+#: kotonoha/_cli.py:863
 msgid "Export past turns as JSONL"
 msgstr "將過往紀錄匯出為 JSONL"
 
-#: kotonoha/_cli.py:894
+#: kotonoha/_cli.py:869
 msgid "Destination JSONL file"
 msgstr "輸出的 JSONL 檔案"
 
-#: kotonoha/_cli.py:915
+#: kotonoha/_cli.py:890
 #, python-brace-format
 msgid "Exported {count} turns to {path}"
 msgstr "已將 {count} 筆匯出至 {path}"
 
-#: kotonoha/_cli.py:921
+#: kotonoha/_cli.py:896
 msgid "Delete recorded turns"
 msgstr "刪除已記錄的回合"
 
-#: kotonoha/_cli.py:929
+#: kotonoha/_cli.py:904
 msgid "Clear only this session identifier"
 msgstr "僅清除此工作階段識別碼"
 
-#: kotonoha/_cli.py:933
+#: kotonoha/_cli.py:908
 msgid "Do not ask for confirmation"
 msgstr "不詢問確認"
 
-#: kotonoha/_cli.py:941
+#: kotonoha/_cli.py:916
 msgid "No turns to clear"
 msgstr "沒有可清除的回合"
 
-#: kotonoha/_cli.py:945
+#: kotonoha/_cli.py:920
 #, python-brace-format
 msgid "Delete {count} recorded turns?"
 msgstr "要刪除 {count} 筆已記錄的回合嗎"
 
-#: kotonoha/_cli.py:949
+#: kotonoha/_cli.py:924
 #, python-brace-format
 msgid "Cleared {count} turns"
 msgstr "已刪除 {count} 筆"
 
-#: kotonoha/_configuration_fields.py:69
+#: kotonoha/_configuration_fields.py:67
 msgid "Primary ASR"
 msgstr "主要 ASR"
 
-#: kotonoha/_configuration_fields.py:70
+#: kotonoha/_configuration_fields.py:68
 msgid "Verification ASR"
 msgstr "驗證 ASR"
 
-#: kotonoha/_configuration_fields.py:71
+#: kotonoha/_configuration_fields.py:69
 msgid "Audio devices"
 msgstr "音訊裝置"
 
-#: kotonoha/_configuration_fields.py:72
+#: kotonoha/_configuration_fields.py:70
 msgid "Context and storage"
 msgstr "上下文與儲存"
 
-#: kotonoha/_configuration_fields.py:73
+#: kotonoha/_configuration_fields.py:71
 msgid "Audio frontend"
 msgstr "音訊前處理"
 
-#: kotonoha/_configuration_fields.py:74
+#: kotonoha/_configuration_fields.py:72 kotonoha/web/_messages.py:25
+msgid "Hardware profile"
+msgstr "硬體設定檔"
+
+#: kotonoha/_configuration_fields.py:73
 msgid "Interface"
 msgstr "介面"
 
-#: kotonoha/_configuration_fields.py:75
+#: kotonoha/_configuration_fields.py:74
 msgid "Language processing"
 msgstr "語言處理"
 
-#: kotonoha/_configuration_fields.py:76
+#: kotonoha/_configuration_fields.py:75
 msgid "Translation LLM"
 msgstr "翻譯 LLM"
 
-#: kotonoha/_configuration_fields.py:77
+#: kotonoha/_configuration_fields.py:76
 msgid "Logging and latency budgets"
 msgstr "記錄與延遲預算"
 
-#: kotonoha/_configuration_fields.py:78
-msgid "External server"
-msgstr "外部伺服器"
-
-#: kotonoha/_configuration_fields.py:79
+#: kotonoha/_configuration_fields.py:77
 msgid "Runtime services"
 msgstr "執行階段服務"
 
-#: kotonoha/_configuration_fields.py:80
+#: kotonoha/_configuration_fields.py:78
 msgid "Session"
 msgstr "工作階段"
 
-#: kotonoha/_configuration_fields.py:81
+#: kotonoha/_configuration_fields.py:79
 msgid "Speech synthesis"
 msgstr "語音合成"
 
-#: kotonoha/_configuration_fields.py:85
+#: kotonoha/_configuration_fields.py:83
 #, python-brace-format
 msgid "YAML list or mapping for {path}."
 msgstr "{path} 的 YAML 清單或對應表。"
 
-#: kotonoha/_configuration_fields.py:86
+#: kotonoha/_configuration_fields.py:84
 #, python-brace-format
 msgid "Numeric value for {path}."
 msgstr "{path} 的數值。"
 
-#: kotonoha/_configuration_fields.py:87
+#: kotonoha/_configuration_fields.py:85
 #, python-brace-format
 msgid "Filesystem path for {path}."
 msgstr "{path} 的檔案系統路徑。"
 
-#: kotonoha/_configuration_fields.py:88
+#: kotonoha/_configuration_fields.py:86
 #, python-brace-format
 msgid "Text value for {path}."
 msgstr "{path} 的文字值。"
 
-#: kotonoha/_configuration_fields.py:92
+#: kotonoha/_configuration_fields.py:91
+msgid "Selects hardware-specific model, memory, and runtime defaults."
+msgstr "選取硬體專用的模型、記憶體與執行階段預設值。"
+
+#: kotonoha/_configuration_fields.py:93
 msgid "vLLM is the default; Transformers is the fallback."
 msgstr "vLLM 是預設值，Transformers 是備援方案。"
 
-#: kotonoha/_configuration_fields.py:93
+#: kotonoha/_configuration_fields.py:94
 msgid "Hypotheses returned per utterance. The correction pass consumes all."
 msgstr "每句回傳的假設數量，修正流程會全部使用。"
 
-#: kotonoha/_configuration_fields.py:95
+#: kotonoha/_configuration_fields.py:96
 msgid "conditional verifies only low-confidence turns; always verifies every turn."
 msgstr "conditional 僅驗證低信心輪次，always 則驗證每個輪次。"
 
-#: kotonoha/_configuration_fields.py:98
+#: kotonoha/_configuration_fields.py:99
 msgid ""
 "Host audio input used by command-line replay and diagnostics. Browser audio devices "
 "are selected on the Interpreter page."
 msgstr "供命令列重播與診斷使用的主機音訊輸入。瀏覽器音訊裝置請在口譯頁面選取。"
 
-#: kotonoha/_configuration_fields.py:102
+#: kotonoha/_configuration_fields.py:103
 msgid ""
 "Host audio output used by command-line diagnostics. Browser audio devices are "
 "selected on the Interpreter page."
 msgstr "供命令列診斷使用的主機音訊輸出。瀏覽器音訊裝置請在口譯頁面選取。"
 
-#: kotonoha/_configuration_fields.py:105
+#: kotonoha/_configuration_fields.py:106
 msgid "DeepFilterNet3 noise suppression."
 msgstr "DeepFilterNet3 雜訊抑制。"
 
-#: kotonoha/_configuration_fields.py:106
+#: kotonoha/_configuration_fields.py:107
 msgid "silero_onnx on the device; energy is a workstation fallback."
 msgstr "裝置上使用 silero_onnx，energy 僅供開發機替代。"
 
-#: kotonoha/_configuration_fields.py:108
+#: kotonoha/_configuration_fields.py:109
 msgid "Audio retained before speech onset. Below 200 ms the first syllable is clipped."
 msgstr "語音開始前保留的音訊。低於 200ms 會截掉第一個音節。"
 
-#: kotonoha/_configuration_fields.py:110
+#: kotonoha/_configuration_fields.py:111
 msgid "Silence required before end-of-utterance."
 msgstr "判定語句結束所需的靜音長度。"
 
-#: kotonoha/_configuration_fields.py:111
+#: kotonoha/_configuration_fields.py:112
 msgid "Speech onset probability, 0 to 1."
 msgstr "判定語音開始的機率，0 到 1。"
 
-#: kotonoha/_configuration_fields.py:112
+#: kotonoha/_configuration_fields.py:113
 msgid "Selects the target-specific TranslateGemma translation model."
 msgstr "依目標裝置選用對應的 TranslateGemma 翻譯模型。"
 
-#: kotonoha/_configuration_fields.py:114
+#: kotonoha/_configuration_fields.py:115
 msgid ""
 "Publish structured application logs to the Web log panel. Model services emit JSON to"
 " their console."
 msgstr "在 Web 記錄面板顯示結構化應用程式記錄。模型服務會將 JSON 輸出至主控台。"
 
-#: kotonoha/_configuration_fields.py:118
+#: kotonoha/_configuration_fields.py:119
 msgid "Optional localhost port for Prometheus turn metrics. Empty disables the exporter."
 msgstr "Prometheus 回合指標的選用本機連接埠。留白會停用匯出器。"
 
 #: kotonoha/_configuration_fields.py:121
-msgid ""
-"onboard runs everything locally. hybrid moves only the LLM and keeps audio on the "
-"device. remote moves every model. custom selects each role independently."
-msgstr "onboard 將所有角色在本機執行。hybrid 僅將 LLM 移至遠端，音訊處理留在裝置上。remote 將所有模型移至遠端。custom 可個別選擇各角色。"
+msgid "s16le halves audio transport bytes against f32le."
+msgstr "s16le 可將音訊傳輸位元組數降至 f32le 的一半。"
 
-#: kotonoha/_configuration_fields.py:125
-msgid "Custom mode placement for ASR, verification ASR, translation LLM, and TTS."
-msgstr "自訂模式中 ASR、驗證 ASR、翻譯 LLM 與 TTS 的配置。"
-
-#: kotonoha/_configuration_fields.py:127
-msgid "s16le halves the bytes on the wire against f32le."
-msgstr "s16le 的傳輸位元組數為 f32le 的一半。"
-
-#: kotonoha/_configuration_fields.py:128
-msgid "When false, every role runs locally regardless of perf_mode."
-msgstr "設為 false 時，無論 perf_mode 為何，所有角色都在本機執行。"
-
-#: kotonoha/_configuration_fields.py:129
-msgid "Consecutive transport failures before a role falls back."
-msgstr "角色退回本機前容許的連續傳輸失敗次數。"
-
-#: kotonoha/_configuration_fields.py:130
-msgid "ASR service URL on the external server."
-msgstr "外部伺服器的 ASR 服務 URL。"
-
-#: kotonoha/_configuration_fields.py:131
-msgid "Verification service URL on the external server."
-msgstr "外部伺服器的驗證服務 URL。"
-
-#: kotonoha/_configuration_fields.py:132
-msgid "Translation service URL on the external server."
-msgstr "外部伺服器的翻譯服務 URL。"
-
-#: kotonoha/_configuration_fields.py:133
-msgid "Speech synthesis service URL on the external server."
-msgstr "外部伺服器的語音合成服務 URL。"
-
-#: kotonoha/_configuration_fields.py:135
+#: kotonoha/_configuration_fields.py:123
 msgid ""
 "push_to_talk requires a key press, auto segments on the VAD, and text closes the "
 "microphone and takes utterances from the keyboard."
 msgstr "push_to_talk 需按鍵，auto 由 VAD 切分語句，text 則關閉麥克風並從鍵盤接收語句。"
 
-#: kotonoha/_configuration_fields.py:139
+#: kotonoha/_configuration_fields.py:127
 msgid "pair alternates between two languages; fixed always uses one target language."
 msgstr "pair 交替使用兩種語言，fixed 一律使用同一個目標語言。"
 
-#: kotonoha/_configuration_fields.py:142
+#: kotonoha/_configuration_fields.py:130
 msgid "Source language for typed input. auto reads it from the script."
 msgstr "文字輸入的來源語言。auto 依文字系統判定。"
 
-#: kotonoha/_configuration_fields.py:144
+#: kotonoha/_configuration_fields.py:132
 msgid "vllm_omni requires successful vLLM-Omni Spike 2 validation."
 msgstr "vllm_omni 必須通過 vLLM-Omni Spike 2 驗證。"
 
-#: kotonoha/_configuration_fields.py:145
+#: kotonoha/_configuration_fields.py:133
 msgid "Interface language. auto follows the system locale."
 msgstr "介面語言。auto 依系統地區設定。"
 
@@ -529,8 +486,8 @@ msgid "Print available audio devices and system defaults."
 msgstr "輸出可用的音訊裝置與系統預設值。"
 
 #: kotonoha/_operation_catalog.py:52
-msgid "Inspect dependencies, placement, models, and service health."
-msgstr "檢查相依套件、配置、模型與服務狀態。"
+msgid "Inspect dependencies, hardware profile, models, and service health."
+msgstr "檢查相依套件、硬體設定檔、模型及服務狀態。"
 
 #: kotonoha/_operation_catalog.py:53
 msgid "Load glossary terms and Chinese conversion rules."
@@ -541,8 +498,8 @@ msgid "Print every term stored in the local glossary."
 msgstr "輸出本機詞彙表中的所有詞彙。"
 
 #: kotonoha/_operation_catalog.py:55
-msgid "Measure remote service latency and audio upload throughput."
-msgstr "量測遠端服務延遲與音訊上傳處理量。"
+msgid "Measure configured service latency and audio upload throughput."
+msgstr "測量已設定服務的延遲與音訊上傳輸送量。"
 
 #: kotonoha/_operation_catalog.py:56
 msgid "Run the full pipeline from a 16-bit PCM WAV file."
@@ -673,28 +630,28 @@ msgid "All outcomes"
 msgstr "所有結果"
 
 #: kotonoha/web/_messages.py:14
-msgid "Audio sent remotely"
-msgstr "音訊傳送至遠端"
-
-#: kotonoha/web/_messages.py:15
 msgid "Clear"
 msgstr "清除"
 
-#: kotonoha/web/_messages.py:16
+#: kotonoha/web/_messages.py:15
 msgid "Clear history"
 msgstr "清除歷程"
 
-#: kotonoha/web/_messages.py:17
+#: kotonoha/web/_messages.py:16
 msgid "Connect"
 msgstr "連線"
 
-#: kotonoha/web/_messages.py:18
+#: kotonoha/web/_messages.py:17
 msgid "Configuration"
 msgstr "設定"
 
-#: kotonoha/web/_messages.py:19
+#: kotonoha/web/_messages.py:18
 msgid "Dark"
 msgstr "深色"
+
+#: kotonoha/web/_messages.py:19
+msgid "Default"
+msgstr "預設值"
 
 #: kotonoha/web/_messages.py:20
 msgid "Disconnect"
@@ -716,170 +673,187 @@ msgstr "匯出 JSONL"
 msgid "History"
 msgstr "歷程"
 
-#: kotonoha/web/_messages.py:25
+#: kotonoha/web/_messages.py:26
 msgid "Input"
 msgstr "輸入"
 
-#: kotonoha/web/_messages.py:26
+#: kotonoha/web/_messages.py:27
 msgid "Installed dependencies"
 msgstr "已安裝的相依套件"
 
-#: kotonoha/web/_messages.py:27
+#: kotonoha/web/_messages.py:28
 msgid "Interpretation history"
 msgstr "口譯歷程"
 
-#: kotonoha/web/_messages.py:28
+#: kotonoha/web/_messages.py:29
 msgid "Interpreter"
 msgstr "口譯"
 
-#: kotonoha/web/_messages.py:29
+#: kotonoha/web/_messages.py:30
 msgid "Latency"
 msgstr "延遲"
 
-#: kotonoha/web/_messages.py:30
+#: kotonoha/web/_messages.py:31
 msgid "License"
 msgstr "授權"
 
-#: kotonoha/web/_messages.py:31
+#: kotonoha/web/_messages.py:32
 msgid "License information"
 msgstr "授權資訊"
 
-#: kotonoha/web/_messages.py:32
+#: kotonoha/web/_messages.py:33
 msgid "Light"
 msgstr "淺色"
 
-#: kotonoha/web/_messages.py:33
+#: kotonoha/web/_messages.py:34
 msgid "LLM first clause"
 msgstr "LLM 第一個子句"
 
-#: kotonoha/web/_messages.py:34
+#: kotonoha/web/_messages.py:35
 msgid "Monitoring"
 msgstr "監控"
 
-#: kotonoha/web/_messages.py:35
+#: kotonoha/web/_messages.py:36
 msgid "Mode (a)"
 msgstr "模式 (a)"
 
-#: kotonoha/web/_messages.py:36
+#: kotonoha/web/_messages.py:37
 msgid "Next"
 msgstr "下一頁"
 
-#: kotonoha/web/_messages.py:37
+#: kotonoha/web/_messages.py:38
 msgid "Next page"
 msgstr "下一頁"
 
-#: kotonoha/web/_messages.py:38
+#: kotonoha/web/_messages.py:39
 msgid "Operations"
 msgstr "操作"
 
-#: kotonoha/web/_messages.py:39
+#: kotonoha/web/_messages.py:40
 msgid "Output"
 msgstr "輸出"
 
-#: kotonoha/web/_messages.py:40
+#: kotonoha/web/_messages.py:41
 msgid "Previous page"
 msgstr "上一頁"
 
-#: kotonoha/web/_messages.py:41
+#: kotonoha/web/_messages.py:42
 msgid "Previous"
 msgstr "上一頁"
 
-#: kotonoha/web/_messages.py:42
+#: kotonoha/web/_messages.py:43
 msgid "Project license"
 msgstr "專案授權"
 
-#: kotonoha/web/_messages.py:43
+#: kotonoha/web/_messages.py:44
 msgid "Recent turns"
 msgstr "最近回合"
 
-#: kotonoha/web/_messages.py:44
+#: kotonoha/web/_messages.py:45
 msgid "Refresh devices"
 msgstr "重新整理裝置"
 
-#: kotonoha/web/_messages.py:45
+#: kotonoha/web/_messages.py:46
 msgid "Reload"
 msgstr "重新載入"
 
-#: kotonoha/web/_messages.py:46
-msgid "Remote model server"
-msgstr "遠端模型伺服器"
-
 #: kotonoha/web/_messages.py:47
+msgid "Reset"
+msgstr "重設"
+
+#: kotonoha/web/_messages.py:48
+msgid "Reset all"
+msgstr "全部重設"
+
+#: kotonoha/web/_messages.py:49
+msgid "Reset every setting to the selected hardware profile defaults?"
+msgstr "要將所有設定重設為所選硬體設定檔的預設值嗎？"
+
+#: kotonoha/web/_messages.py:50
+msgid "All settings reset"
+msgstr "已重設所有設定"
+
+#: kotonoha/web/_messages.py:51
+#, python-brace-format
+msgid "Reset {count} settings"
+msgstr "已重設 {count} 項設定"
+
+#: kotonoha/web/_messages.py:52
 msgid "Run"
 msgstr "執行"
 
-#: kotonoha/web/_messages.py:48
+#: kotonoha/web/_messages.py:53
 msgid "Save and apply"
 msgstr "儲存並套用"
 
-#: kotonoha/web/_messages.py:49
+#: kotonoha/web/_messages.py:54
 msgid "Search source or translation"
 msgstr "搜尋原文或譯文"
 
-#: kotonoha/web/_messages.py:50
+#: kotonoha/web/_messages.py:55
 msgid "Send"
 msgstr "傳送"
 
-#: kotonoha/web/_messages.py:51
+#: kotonoha/web/_messages.py:56
 msgid "Services"
 msgstr "服務"
 
-#: kotonoha/web/_messages.py:52
+#: kotonoha/web/_messages.py:57
 msgid "Source"
 msgstr "原文"
 
-#: kotonoha/web/_messages.py:53
+#: kotonoha/web/_messages.py:58
 msgid "Stop"
 msgstr "停止"
 
-#: kotonoha/web/_messages.py:54
+#: kotonoha/web/_messages.py:59
 msgid "Stop (space)"
 msgstr "停止 (space)"
 
-#: kotonoha/web/_messages.py:55
+#: kotonoha/web/_messages.py:60
 msgid "System"
 msgstr "系統"
 
-#: kotonoha/web/_messages.py:56
+#: kotonoha/web/_messages.py:61
 msgid "System default"
 msgstr "系統預設值"
 
-#: kotonoha/web/_messages.py:57
+#: kotonoha/web/_messages.py:62
 msgid "System monitoring"
 msgstr "系統監控"
 
-#: kotonoha/web/_messages.py:58
+#: kotonoha/web/_messages.py:63
 msgid "Talk (space)"
 msgstr "說話 (space)"
 
-#: kotonoha/web/_messages.py:59
+#: kotonoha/web/_messages.py:64
 msgid "Target"
 msgstr "目標"
 
-#: kotonoha/web/_messages.py:60
+#: kotonoha/web/_messages.py:65
 msgid "Test audio"
 msgstr "測試音訊"
 
-#: kotonoha/web/_messages.py:61
+#: kotonoha/web/_messages.py:66
 msgid "Theme"
 msgstr "主題"
 
-#: kotonoha/web/_messages.py:62
+#: kotonoha/web/_messages.py:67
 msgid "Translation"
 msgstr "譯文"
 
-#: kotonoha/web/_messages.py:63
+#: kotonoha/web/_messages.py:68
 msgid "TTS first packet"
 msgstr "TTS 第一個封包"
 
-#: kotonoha/web/_messages.py:64
+#: kotonoha/web/_messages.py:69
 msgid "Type an utterance"
 msgstr "輸入發話"
 
-#: kotonoha/web/_messages.py:65
+#: kotonoha/web/_messages.py:70
 msgid "Turn details"
 msgstr "回合詳細資料"
 
-#: kotonoha/web/_messages.py:66
+#: kotonoha/web/_messages.py:71
 msgid "Turn stages"
 msgstr "回合階段"

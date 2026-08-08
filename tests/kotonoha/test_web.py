@@ -8,16 +8,13 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 import numpy as np
-import pytest
 from fastapi.testclient import TestClient
 
-from kotonoha._config import load_settings
+from kotonoha._config import configuration_database_path, load_settings
 from kotonoha._configuration_fields import FIELDS
 from kotonoha._i18n import set_locale
 from kotonoha._shmring import _owned_shared_memory_names
-from kotonoha.clients._config_admin import RemoteConfigSnapshot
 from kotonoha.store._db import Store
-from kotonoha.web import _server as web_server
 from kotonoha.web._audio import FRAME_SAMPLES, BrowserCapture, BrowserPlayback
 from kotonoha.web._logs import LogBroadcaster
 from kotonoha.web._server import _changed_model_roles, create_app
@@ -257,7 +254,7 @@ def test_web_exposes_every_control_center_page() -> None:
     ):
         assert f'id="{page}"' in document
     assert 'id="theme-select"' in document
-    assert 'id="config-target"' in document
+    assert 'id="config-reset"' in document
     assert 'id="config-reload"' in document
     assert 'id="history-export"' in document
     assert 'id="history-previous"' in document
@@ -273,6 +270,11 @@ def test_web_exposes_every_control_center_page() -> None:
         field.path for field in FIELDS
     }
     assert all(field["description"] for field in configuration["fields"])
+    by_path = {field["path"]: field for field in configuration["fields"]}
+    assert by_path["session.fixed_target"]["default_value"] == "en"
+    assert by_path["session.fixed_target"]["modified"] is False
+    assert by_path["accelerator.profile"]["value"] == "nvidia.jetson.agx-orin"
+    assert by_path["accelerator.profile"]["modified"] is False
 
 
 def test_web_interface_catalog_uses_the_active_locale() -> None:
@@ -324,12 +326,7 @@ def test_web_always_exposes_unified_metrics_and_monitoring_api() -> None:
 def test_web_configuration_save_is_validated_and_applied_without_process_restart(
     _positional_only: object | None = None,
     /,
-    *,
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
 ) -> None:
-    local_path = tmp_path / "web.local.yaml"
-    monkeypatch.setenv("KOTONOHA_LOCAL_CONFIG", str(local_path))
     application = create_app()
     client = TestClient(application)
 
@@ -342,7 +339,15 @@ def test_web_configuration_save_is_validated_and_applied_without_process_restart
     assert response.json()["changed"] == ["session.fixed_target"]
     assert response.json()["retired_sessions"] == 0
     assert application.state.kotonoha.settings.session.fixed_target == "ja"
-    assert "fixed_target: ja" in local_path.read_text(encoding="utf-8")
+    assert configuration_database_path().is_file()
+
+    reset = client.request(
+        "DELETE",
+        "/api/config",
+        json={"paths": ["session.fixed_target"]},
+    )
+    assert reset.status_code == 200
+    assert application.state.kotonoha.settings.session.fixed_target == "en"
 
     invalid = client.put(
         "/api/config",
@@ -406,81 +411,6 @@ def test_web_operation_upload_is_bounded_and_removed_on_shutdown() -> None:
     assert not path.exists()
 
 
-def test_web_configuration_supports_the_remote_model_server(
-    _positional_only: object | None = None,
-    /,
-    *,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    snapshots = [
-        RemoteConfigSnapshot(
-            config={"logging": {"prometheus_port": 9091}},
-            editable_paths=["logging.prometheus_port"],
-            overrides={},
-            path="/app/config/remote-server.local.yaml",
-            restart_required=False,
-        ),
-        RemoteConfigSnapshot(
-            config={"logging": {"prometheus_port": 9191}},
-            editable_paths=["logging.prometheus_port"],
-            overrides={"logging": {"prometheus_port": 9191}},
-            path="/app/config/remote-server.local.yaml",
-            restart_required=False,
-        ),
-    ]
-
-    class RemoteClient:
-        __slots__: ClassVar[tuple[str, ...]] = ("index",)
-
-        def __init__(
-            self,
-            /,
-            base_url: str,
-            remote: Any,
-        ) -> None:
-            del base_url, remote
-            self.index = 0
-
-        async def read(
-            self,
-            /,
-        ) -> RemoteConfigSnapshot:
-            return snapshots[self.index]
-
-        async def update(
-            self,
-            /,
-            changes: dict[str, Any],
-        ) -> RemoteConfigSnapshot:
-            assert changes == {"logging.prometheus_port": 9191}
-            self.index = 1
-            return snapshots[1]
-
-        async def aclose(
-            self,
-            /,
-        ) -> None:
-            return None
-
-    monkeypatch.setattr(web_server, "RemoteConfigClient", RemoteClient)
-    client = TestClient(create_app())
-
-    before = client.get("/api/config/remote")
-    after = client.put(
-        "/api/config",
-        json={
-            "target": "remote",
-            "changes": {"logging.prometheus_port": 9191},
-        },
-    )
-
-    assert before.status_code == 200
-    assert before.json()["target"] == "remote"
-    assert before.json()["fields"][0]["value"] == 9091
-    assert after.status_code == 200
-    assert after.json()["changed"] == ["logging.prometheus_port"]
-
-
 def test_model_setting_changes_reload_only_the_affected_services() -> None:
     assert _changed_model_roles(["llm.max_model_len"]) == ["llm"]
     assert _changed_model_roles(["session.fixed_target"]) == []
@@ -503,8 +433,7 @@ def test_session_socket_announces_the_audio_contract() -> None:
     assert hello["capture_rate"] == 16000
     assert hello["playback_rate"] == 24000
     assert hello["routing"] == "pair"
-    assert hello["perf_mode"] == "onboard"
-    assert hello["audio_leaves_device"] is False
+    assert hello["hardware_profile"] == "nvidia.jetson.agx-orin"
     assert hello["budget_ms"]["total"] == 2900
     assert hello["session"]
 

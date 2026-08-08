@@ -267,7 +267,7 @@ async def test_speaker_failure_cancels_a_blocked_language_model() -> None:
     orchestrator.playback.start(asyncio.get_running_loop())
     orchestrator.language_model = ContinuousLanguageModel()
     orchestrator.text_to_speech = SingleChunkTextToSpeech()
-    orchestrator.services = SimpleNamespace(placement={})
+    orchestrator.services = SimpleNamespace(all=lambda: [])
     orchestrator.event_bus = EventBus()
     orchestrator.machine = Machine()
     orchestrator._turn_children = set()
@@ -362,7 +362,7 @@ async def test_turn_log_rotates_at_the_configured_size(
 async def test_turn_finish_survives_metrics_and_history_storage_failures() -> None:
     orchestrator = object.__new__(Orchestrator)
     orchestrator.settings = load_settings()
-    orchestrator.services = SimpleNamespace(placement={}, all=lambda: [])
+    orchestrator.services = SimpleNamespace(all=lambda: [])
     orchestrator.session_id = "session"
     events: list[tuple[str, dict[str, Any]]] = []
     orchestrator.event_bus = SimpleNamespace(
