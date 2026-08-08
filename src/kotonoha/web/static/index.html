@@ -2,7 +2,7 @@
 <html lang="en" data-theme="system">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Kotonoha Interpreter</title>
     <link rel="stylesheet" href="/static/app.css" />
   </head>
@@ -20,6 +20,7 @@
       </div>
       <nav id="navigation" aria-label="Application">
         <button type="button" data-page="interpreter" data-active="true">Interpreter</button>
+        <button type="button" data-page="monitoring">Monitoring</button>
         <button type="button" data-page="configuration">Configuration</button>
         <button type="button" data-page="history-page">History</button>
         <button type="button" data-page="operations">Operations</button>
@@ -80,6 +81,72 @@
           </h2>
           <div id="logs"></div>
         </article>
+      </section>
+
+      <section id="monitoring" class="page" hidden>
+        <div class="page-heading">
+          <div>
+            <h2>System monitoring</h2>
+            <p id="monitor-status" class="muted" role="status">Waiting for metrics</p>
+          </div>
+          <div class="monitor-controls">
+            <label>Window
+              <select id="monitor-window">
+                <option value="300">5 minutes</option>
+                <option value="900" selected>15 minutes</option>
+                <option value="3600">60 minutes</option>
+              </select>
+            </label>
+            <button id="monitor-refresh" type="button">Refresh</button>
+          </div>
+        </div>
+
+        <div class="monitor-summary" aria-label="Monitoring summary">
+          <article class="monitor-summary-card">
+            <h2>Services ready</h2>
+            <strong id="monitor-services-ready">—</strong>
+          </article>
+          <article class="monitor-summary-card">
+            <h2>Completed turns</h2>
+            <strong id="monitor-turns">—</strong>
+          </article>
+          <article class="monitor-summary-card">
+            <h2>First audio p95</h2>
+            <strong id="monitor-first-audio">—</strong>
+          </article>
+          <article class="monitor-summary-card">
+            <h2>Over budget</h2>
+            <strong id="monitor-over-budget">—</strong>
+          </article>
+          <article class="monitor-summary-card">
+            <h2>Failovers</h2>
+            <strong id="monitor-failovers">—</strong>
+          </article>
+        </div>
+
+        <section aria-labelledby="monitor-services-heading">
+          <h2 id="monitor-services-heading">Services and hosts</h2>
+          <div id="monitor-service-grid" class="monitor-service-grid"></div>
+        </section>
+
+        <div class="monitor-chart-grid">
+          <article class="monitor-chart-panel">
+            <h2>Service availability</h2>
+            <canvas id="monitor-availability-chart" role="img" aria-label="Service availability over time"></canvas>
+          </article>
+          <article class="monitor-chart-panel">
+            <h2>Memory utilization</h2>
+            <canvas id="monitor-memory-chart" role="img" aria-label="Memory utilization by service over time"></canvas>
+          </article>
+          <article class="monitor-chart-panel">
+            <h2>First audio latency</h2>
+            <canvas id="monitor-latency-chart" role="img" aria-label="First audio p95 latency over time"></canvas>
+          </article>
+          <article class="monitor-chart-panel">
+            <h2>HTTP request rate</h2>
+            <canvas id="monitor-traffic-chart" role="img" aria-label="HTTP request rate over time"></canvas>
+          </article>
+        </div>
       </section>
 
       <section id="configuration" class="page" hidden>

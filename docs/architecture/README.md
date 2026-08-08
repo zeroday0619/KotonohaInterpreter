@@ -55,6 +55,19 @@ Browser sessions replace PortAudio with Web Audio adapters. Each connection owns
 orchestrator and unique shared-memory name. Browser playback acknowledges consumed
 samples before the state machine reopens capture.
 
+## Monitoring Path
+
+Every resident model service exposes Prometheus metrics on its service port. The Web
+process continuously polls the active service endpoints and any distinct onboard
+fallback endpoints. It merges those samples with Web and turn metrics, then exposes one
+deployment-independent `/metrics` endpoint and a bounded JSON history at
+`/api/monitoring`.
+
+Metrics collection does not depend on `perf_mode`. Onboard, hybrid, remote, and custom
+placements use the same collector. Placement labels distinguish local and remote
+samples. A separate port `9091` receiver remains available for headless deployments that
+do not run the Web process.
+
 ## Audio Transport
 
 Local ASR services receive an `AudioRef` containing `{name, slot, seq, frames}` and read

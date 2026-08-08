@@ -244,7 +244,14 @@ def test_web_exposes_every_control_center_page() -> None:
     client = TestClient(create_app())
     document = client.get("/").text
 
-    for page in ("interpreter", "configuration", "history-page", "operations", "license"):
+    for page in (
+        "interpreter",
+        "monitoring",
+        "configuration",
+        "history-page",
+        "operations",
+        "license",
+    ):
         assert f'id="{page}"' in document
     assert 'id="theme-select"' in document
     assert 'data-theme="system"' in document
@@ -252,6 +259,40 @@ def test_web_exposes_every_control_center_page() -> None:
     assert {field["path"] for field in configuration["fields"]} == {
         field.path for field in FIELDS
     }
+
+
+def test_web_client_supports_mobile_layout_and_configuration_navigation() -> None:
+    client = TestClient(create_app())
+
+    document = client.get("/").text
+    stylesheet = client.get("/static/app.css").text
+    script = client.get("/static/app.js").text
+
+    assert "viewport-fit=cover" in document
+    assert "@media (max-width: 720px)" in stylesheet
+    assert "[hidden]" in stylesheet
+    assert ".settings-section[hidden]" in stylesheet
+    assert "min-height: 2.75rem" in stylesheet
+    assert 'button.setAttribute("aria-controls"' in script
+    assert "panel.scrollIntoView" in script
+    assert 'window.matchMedia("(prefers-reduced-motion: reduce)")' in script
+    assert 'id="monitor-service-grid"' in document
+    assert 'id="monitor-memory-chart"' in document
+    assert "renderMonitoringCharts" in script
+
+
+def test_web_always_exposes_unified_metrics_and_monitoring_api() -> None:
+    client = TestClient(create_app())
+
+    metrics = client.get("/metrics")
+    monitoring = client.get("/api/monitoring?window_seconds=300")
+
+    assert metrics.status_code == 200
+    assert "kotonoha_http_requests_total" in metrics.text
+    assert monitoring.status_code == 200
+    assert monitoring.json()["window_seconds"] == 300
+    assert monitoring.json()["summary"]["services_total"] == 4
+    assert monitoring.json()["sample_interval_seconds"] == 5.0
 
 
 def test_web_configuration_save_is_validated_and_applied_without_process_restart(

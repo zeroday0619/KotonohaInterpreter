@@ -42,8 +42,8 @@ analysis.
 
 ## Prometheus Metrics
 
-Every A6000 resident FastAPI service exposes Prometheus text metrics at its existing
-service port:
+Every resident FastAPI model service exposes Prometheus text metrics at its existing
+service port on Jetson, A6000, and other supported accelerator profiles:
 
 | Service | Endpoint |
 |---|---|
@@ -52,42 +52,56 @@ service port:
 | Translation LLM | `http://127.0.0.1:8003/metrics` |
 | TTS | `http://127.0.0.1:8004/metrics` |
 
-The endpoint uses the official `prometheus-client` library. It reports HTTP request
-counts and durations, service readiness, accelerator backend and memory architecture,
-system and accelerator memory, configured engine limits, turn stage durations, output
-tokens, generation rate, ASR log probability, conditional cross-verification, failovers,
-and latency-budget violations.
+The endpoint reports HTTP request counts and durations, service readiness, operating
+system and kernel identity, accelerator backend and memory architecture, CPU load,
+system and accelerator memory, root-filesystem use, configured engine limits, turn stage
+durations, output tokens, generation rate, ASR log probability, conditional
+cross-verification, failovers, and latency-budget violations.
 
 The `/metrics` endpoint follows the same bearer-token middleware as other service routes.
 When `KOTONOHA_SERVICE_TOKEN` is set, configure the Prometheus scrape job with the same
 token. The `/health` endpoint remains unauthenticated for deployment probes.
 
-The A6000 Compose deployment starts a dedicated metrics receiver on port `9091` when
-`logging.prometheus_port` is set to a valid port. The receiver polls all four resident
-service endpoints over the Docker network, caches the latest successful payload, and
-exposes the service families through one unified endpoint. Aggregated samples include
-bounded `role` and `source` labels, where `source` is `a6000`. A failed scrape removes the
-stale payload and sets `kotonoha_remote_metrics_scrape_up` to `0`.
+The Web process always runs a unified metrics collector. It polls the active endpoint for
+each model role and any distinct onboard fallback endpoint, refreshes service health and
+resource gauges every ten seconds, caches successful metrics payloads, and merges them
+with Web and turn metrics. Aggregated samples include bounded `role` and `source` labels.
+A failed scrape removes the stale payload and sets
+`kotonoha_remote_metrics_scrape_up` to `0`.
 
-The receiver binds to `0.0.0.0` inside its container and publishes the configured port on
-the A6000 host. `logging.prometheus_port` is required for the receiver process. Configure
-Prometheus on the A6000 host or on an allowed monitoring network to scrape
-`<a6000-host>:9091/metrics`.
+Use these endpoints on every placement mode:
+
+| Endpoint | Function |
+|---|---|
+| `<web-host>:8080/metrics` | Unified Prometheus exposition |
+| `<web-host>:8080/api/monitoring` | Chart-ready monitoring summary and bounded history |
+
+The Web dashboard samples every five seconds and retains 720 samples in memory. The API
+accepts `window_seconds` from 60 through 3600. Restarting the Web process clears this
+history. Resident service counters remain available from their service endpoints.
+
+The Web routes do not implement bearer authentication. Bind the Web service to loopback,
+or place an authenticated TLS reverse proxy in front of it before exposing the dashboard,
+JSON API, or unified metrics endpoint to a network.
+
+The A6000 Compose deployment can additionally start a dedicated receiver on port `9091`
+for headless operation without the Web service. `logging.prometheus_port` is required
+only for that receiver. It binds to `0.0.0.0` inside its container and publishes the
+configured port on the host.
 
 ```yaml
 logging:
   prometheus_port: 9091
 ```
 
-The receiver is the unified endpoint for A6000 service metrics. The Jetson orchestrator
-continues to write turn metrics to `data/logs/turns.jsonl`; it does not bind port `9091`.
-Direct service endpoints remain available for debugging and per-service scrape policies.
+The Web endpoint is the primary unified endpoint. The headless receiver remains an
+optional A6000 deployment component. Direct service endpoints remain available for
+debugging and per-service scrape policies.
 
 Example scrape:
 
 ```bash
-curl -fsS -H "Authorization: Bearer ${KOTONOHA_SERVICE_TOKEN}" \
-  http://127.0.0.1:9091/metrics
+curl -fsS http://127.0.0.1:8080/metrics
 ```
 
 Metrics do not contain source speech, translated text, turn identifiers, or model prompt

@@ -37,9 +37,8 @@ message-style conversation timeline below the live panes.
 
 ## Web UI
 
-The Web UI exposes the same five control-center areas as the TUI: interpreter,
-configuration, history, operations, and license information. It also streams structured
-application logs into the interpreter page.
+The Web UI exposes interpreter, monitoring, configuration, history, operations, and
+license areas. It also streams structured application logs into the interpreter page.
 
 The browser owns microphone capture and audio playback. Each browser connection owns an
 isolated orchestrator session and shared-memory ring. The resident ASR, verification ASR,
@@ -50,6 +49,13 @@ mode. The browser stores the preference locally and sends no theme data to the s
 Input and output selectors use the browser media-device inventory. The audio test opens
 the selected microphone, updates the level meter, and plays a low-volume tone through the
 selected output when the browser implements `AudioContext.setSinkId`.
+
+The monitoring page polls the Web metrics API every five seconds. It displays resident
+service readiness, host and accelerator identity, CPU load, system and accelerator
+memory, root-filesystem use, turn counters, latency-budget violations, failovers, and
+first-audio p95 latency. Charts retain up to 60 minutes of in-process samples. Restarting
+the Web process clears chart history but does not reset Prometheus counters in resident
+services.
 
 ## Text Input
 

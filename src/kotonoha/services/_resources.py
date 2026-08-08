@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import platform
+import shutil
 
 # macOS memory discovery requires the fixed system sysctl command and never invokes a shell.
 import subprocess  # nosec B404
@@ -156,6 +157,51 @@ def _system_memory() -> dict[str, float | None]:
     return values
 
 
+def _system_load() -> dict[str, float | int | None]:
+    logical_processors = os.cpu_count() or 1
+    values: dict[str, float | int | None] = {
+        "logical_processors": logical_processors,
+        "load_1m": None,
+        "load_5m": None,
+        "load_15m": None,
+        "load_1m_ratio": None,
+    }
+    try:
+        load_1m, load_5m, load_15m = os.getloadavg()
+    except OSError:
+        return values
+    values.update(
+        {
+            "load_1m": round(load_1m, 3),
+            "load_5m": round(load_5m, 3),
+            "load_15m": round(load_15m, 3),
+            "load_1m_ratio": round(load_1m / logical_processors, 4),
+        }
+    )
+    return values
+
+
+def _system_disk() -> dict[str, float | str | None]:
+    values: dict[str, float | str | None] = {
+        "path": "/",
+        "total_mib": None,
+        "used_mib": None,
+        "free_mib": None,
+    }
+    try:
+        usage = shutil.disk_usage("/")
+    except OSError:
+        return values
+    values.update(
+        {
+            "total_mib": round(usage.total / 1024**2, 1),
+            "used_mib": round(usage.used / 1024**2, 1),
+            "free_mib": round(usage.free / 1024**2, 1),
+        }
+    )
+    return values
+
+
 def _accelerator_memory_snapshot(
     accelerator: dict[str, Any],
     /,
@@ -232,7 +278,12 @@ def system_snapshot() -> dict[str, Any]:
     # These values always come from system RAM. Discrete accelerator memory is
     # reported separately by `_accelerator_memory_snapshot`.
     memory["scope"] = "system"
-    return {**stable, "memory": memory}
+    return {
+        **stable,
+        "memory": memory,
+        "cpu": _system_load(),
+        "disk": _system_disk(),
+    }
 
 
 def resource_report(

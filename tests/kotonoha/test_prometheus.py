@@ -11,6 +11,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from prometheus_client import REGISTRY, generate_latest
+from prometheus_client.core import Metric
 from prometheus_client.parser import text_string_to_metric_families
 
 from kotonoha._config import load_settings
@@ -25,6 +26,7 @@ from kotonoha._prometheus import (
     observe_turn,
 )
 from kotonoha._typing import override
+from kotonoha.web._monitoring import _monitoring_point
 
 
 class MetricsResponse:
@@ -56,6 +58,7 @@ class MetricsResponse:
 
 class MetricsClient:
     __slots__: ClassVar[tuple[str, ...]] = ()
+    requested_urls: ClassVar[list[str]] = []
 
     def __init__(
         self,
@@ -87,7 +90,8 @@ class MetricsClient:
         /,
         **_: object,
     ) -> AsyncIterator[MetricsResponse]:
-        del method, url
+        del method
+        self.requested_urls.append(url)
         yield MetricsResponse(
             "# HELP kotonoha_remote_test A remote test metric.\n"
             "# TYPE kotonoha_remote_test gauge\n"
@@ -166,6 +170,10 @@ def test_service_health_exports_accelerator_and_memory_samples() -> None:
             "prefix_caching": False,
             "allocated_mib": 128.0,
             "system": {
+                "os": {"name": "Test OS"},
+                "kernel": {"release": "test-kernel", "machine": "test-machine"},
+                "cpu": {"load_1m_ratio": 0.25},
+                "disk": {"total_mib": 4096.0, "used_mib": 1024.0, "free_mib": 3072.0},
                 "accelerator": {
                     "backend": "cpu",
                     "device_count": 0,
@@ -179,6 +187,9 @@ def test_service_health_exports_accelerator_and_memory_samples() -> None:
 
     assert 'kotonoha_service_up{service="test-resources"} 1.0' in output
     assert 'backend="cpu"' in output
+    assert 'kernel="test-kernel"' in output
+    assert 'kotonoha_service_system_cpu_load_ratio{service="test-resources"} 0.25' in output
+    assert 'kotonoha_service_disk_bytes{service="test-resources",state="used"}' in output
     assert 'state="allocated"' in output
     assert 'state="total"' in output
 
@@ -231,6 +242,124 @@ async def test_remote_service_metrics_are_merged_into_one_registry(
     assert 'kotonoha_remote_test{role="asr",source="remote"}' not in output
 
 
+def test_monitoring_targets_include_onboard_fallbacks_for_remote_roles() -> None:
+    settings = load_settings()
+    settings.perf_mode = "remote"
+    settings.remote.enabled = True
+    placement = settings.resolved_placement()
+    aggregator = MetricsAggregator(settings, placement, include_fallbacks=True)
+
+    targets = aggregator.targets(placement)
+
+    assert len(targets) == 8
+    for role in placement:
+        assert (role, "remote") in {(target_role, source) for target_role, source, _ in targets}
+        assert (role, "local") in {(target_role, source) for target_role, source, _ in targets}
+
+
+def test_monitoring_targets_remain_bounded_for_onboard_mode() -> None:
+    settings = load_settings()
+    settings.perf_mode = "onboard"
+    placement = settings.resolved_placement()
+    aggregator = MetricsAggregator(settings, placement, include_fallbacks=True)
+
+    targets = aggregator.targets(placement)
+
+    assert len(targets) == 4
+    assert {source for _role, source, _url in targets} == {"local"}
+
+
+def test_monitoring_point_combines_host_service_and_turn_metrics() -> None:
+    scrape = Metric("kotonoha_remote_metrics_scrape_up", "scrape", "gauge")
+    scrape.add_sample(
+        "kotonoha_remote_metrics_scrape_up",
+        {"service": "asr", "source": "local"},
+        1,
+    )
+    service = Metric("kotonoha_service_up", "service", "gauge")
+    service.add_sample(
+        "kotonoha_service_up",
+        {"service": "asr", "role": "asr", "source": "local"},
+        1,
+    )
+    accelerator = Metric("kotonoha_service_accelerator_info", "accelerator", "gauge")
+    accelerator.add_sample(
+        "kotonoha_service_accelerator_info",
+        {
+            "service": "asr",
+            "role": "asr",
+            "source": "local",
+            "backend": "cuda",
+            "memory_architecture": "unified",
+        },
+        1,
+    )
+    system = Metric("kotonoha_service_system_info", "system", "gauge")
+    system.add_sample(
+        "kotonoha_service_system_info",
+        {
+            "service": "asr",
+            "role": "asr",
+            "source": "local",
+            "os": "Linux",
+            "kernel": "6.8.12-tegra",
+            "machine": "aarch64",
+        },
+        1,
+    )
+    cpu = Metric("kotonoha_service_system_cpu_load_ratio", "cpu", "gauge")
+    cpu.add_sample(
+        "kotonoha_service_system_cpu_load_ratio",
+        {"service": "asr", "role": "asr", "source": "local"},
+        0.5,
+    )
+    memory = Metric("kotonoha_service_memory_bytes", "memory", "gauge")
+    for state, value in (("total", 64 * 1024**3), ("available", 16 * 1024**3)):
+        memory.add_sample(
+            "kotonoha_service_memory_bytes",
+            {
+                "service": "asr",
+                "role": "asr",
+                "source": "local",
+                "scope": "system",
+                "state": state,
+            },
+            value,
+        )
+    for state, value in (("total", 64 * 1024**3), ("reserved", 8 * 1024**3)):
+        memory.add_sample(
+            "kotonoha_service_memory_bytes",
+            {
+                "service": "asr",
+                "role": "asr",
+                "source": "local",
+                "scope": "accelerator",
+                "state": state,
+            },
+            value,
+        )
+    turns = Metric("kotonoha_turns", "turns", "counter")
+    turns.add_sample(
+        "kotonoha_turns_total",
+        {"outcome": "ok", "input_mode": "voice", "perf_mode": "onboard"},
+        7,
+    )
+
+    point = _monitoring_point(
+        (scrape, service, accelerator, system, cpu, memory, turns),
+        (("asr", "local"),),
+        load_settings(),
+        100.0,
+    )
+
+    assert point["summary"]["services_ready"] == 1
+    assert point["summary"]["turns_total"] == 7
+    assert point["services"][0]["accelerator_backend"] == "cuda"
+    assert point["services"][0]["kernel"] == "6.8.12-tegra"
+    assert point["services"][0]["cpu_load_ratio"] == 0.5
+    assert point["services"][0]["memory_percent"] == 75.0
+
+
 @pytest.mark.asyncio
 async def test_remote_metrics_payload_is_bounded() -> None:
     settings = load_settings()
@@ -245,6 +374,30 @@ async def test_remote_metrics_payload_is_bounded() -> None:
     )
 
     assert (role, source, payload) == ("asr", "remote", None)
+
+
+@pytest.mark.asyncio
+async def test_monitoring_refreshes_service_health_before_scraping_metrics() -> None:
+    settings = load_settings()
+    aggregator = MetricsAggregator(settings, settings.resolved_placement())
+    client = MetricsClient()
+    MetricsClient.requested_urls.clear()
+
+    role, source, payload = await aggregator._fetch(
+        client,
+        "asr",
+        "local",
+        "http://service.test:8001",
+        {},
+        probe_health=True,
+    )
+
+    assert (role, source) == ("asr", "local")
+    assert payload is not None
+    assert MetricsClient.requested_urls == [
+        "http://service.test:8001/health",
+        "http://service.test:8001/metrics",
+    ]
 
 
 def test_unified_registry_emits_metric_metadata_once() -> None:

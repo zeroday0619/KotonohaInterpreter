@@ -28,6 +28,8 @@ def test_resource_report_contains_system_kernel_and_accelerator_information() ->
         "unknown",
     }
     assert report["system"]["memory"]["scope"] == "system"
+    assert report["system"]["cpu"]["logical_processors"] >= 1
+    assert report["system"]["disk"]["total_mib"] > 0
 
 
 def test_jetson_device_tree_is_reported_as_unified_memory() -> None:

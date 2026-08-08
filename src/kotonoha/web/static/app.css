@@ -44,9 +44,14 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
-  padding: 0 1rem 2rem;
+  padding: 0 max(1rem, env(safe-area-inset-right))
+    max(2rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
   background: var(--surface);
   color: var(--ink);
   font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -69,6 +74,11 @@ body {
   gap: 1rem;
 }
 
+.page-heading > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
 .header-title label {
   display: flex;
   align-items: center;
@@ -81,6 +91,9 @@ body {
   gap: 0.4rem;
   margin: 0.5rem 0;
   overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
 }
 
 h1 {
@@ -174,6 +187,11 @@ textarea {
   color: var(--ink);
 }
 
+button,
+select {
+  min-height: 2.25rem;
+}
+
 textarea {
   width: 100%;
   resize: vertical;
@@ -197,12 +215,16 @@ button[data-active="true"] {
 
 main {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
+  min-width: 0;
 }
 
 .page {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
+  min-width: 0;
 }
 
 .page[hidden] {
@@ -217,6 +239,10 @@ main {
   color: var(--muted);
 }
 
+#config-path {
+  overflow-wrap: anywhere;
+}
+
 .danger {
   border-color: var(--error);
   color: var(--error);
@@ -226,12 +252,15 @@ main {
   display: grid;
   grid-template-columns: minmax(11rem, 16rem) minmax(0, 1fr);
   gap: 1rem;
+  min-width: 0;
 }
 
 #config-sections {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 #config-sections button {
@@ -240,7 +269,23 @@ main {
 
 .settings-section {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.75rem;
+  min-width: 0;
+  scroll-margin-top: 1rem;
+}
+
+.settings-section[hidden] {
+  display: none;
+}
+
+.settings-section > h2:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+#config-fields {
+  min-width: 0;
 }
 
 .configuration-field,
@@ -267,6 +312,156 @@ main {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
   gap: 0.75rem;
+}
+
+.monitor-controls {
+  display: flex;
+  align-items: end;
+  gap: 0.5rem;
+}
+
+.monitor-controls label {
+  display: grid;
+  gap: 0.2rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+#monitor-status[data-kind="ok"] {
+  color: var(--ok);
+}
+
+#monitor-status[data-kind="error"] {
+  color: var(--error);
+}
+
+.monitor-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.75rem;
+}
+
+.monitor-summary-card {
+  background: var(--surface-raised);
+}
+
+.monitor-summary-card strong {
+  display: block;
+  font-size: clamp(1.35rem, 3vw, 2rem);
+  font-variant-numeric: tabular-nums;
+}
+
+.monitor-service-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
+  gap: 0.75rem;
+}
+
+.monitor-service-card {
+  display: grid;
+  align-content: start;
+  gap: 0.7rem;
+}
+
+.monitor-service-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.monitor-service-heading h3 {
+  margin: 0;
+  font-size: 1rem;
+  text-transform: uppercase;
+}
+
+.monitor-service-status {
+  flex: 0 0 auto;
+  padding: 0.15rem 0.5rem;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.monitor-service-status[data-status="ready"] {
+  color: var(--ok);
+}
+
+.monitor-service-status[data-status="failed"] {
+  color: var(--warn);
+}
+
+.monitor-service-status[data-status="unreachable"] {
+  color: var(--error);
+}
+
+.monitor-service-details {
+  display: grid;
+  grid-template-columns: minmax(7rem, auto) minmax(0, 1fr);
+  gap: 0.25rem 0.75rem;
+  margin: 0;
+  font-size: 0.82rem;
+}
+
+.monitor-service-details dt {
+  color: var(--muted);
+}
+
+.monitor-service-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.monitor-memory-meter {
+  display: grid;
+  gap: 0.3rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.monitor-memory-meter progress {
+  width: 100%;
+  height: 0.6rem;
+  accent-color: var(--accent);
+}
+
+.monitor-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.monitor-chart-panel {
+  min-height: 18rem;
+}
+
+.monitor-chart-panel canvas {
+  display: block;
+  width: 100%;
+  height: 15rem;
+}
+
+.monitor-chart-legend {
+  display: flex;
+  min-height: 1.5rem;
+  gap: 0.25rem 0.75rem;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.monitor-chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.monitor-chart-legend i {
+  width: 0.75rem;
+  height: 0.2rem;
 }
 
 .table-container {
@@ -412,20 +607,201 @@ article {
 
 @media (max-width: 720px) {
   body {
-    padding-inline: 0.6rem;
+    padding-right: max(0.65rem, env(safe-area-inset-right));
+    padding-bottom: max(1.25rem, env(safe-area-inset-bottom));
+    padding-left: max(0.65rem, env(safe-area-inset-left));
   }
 
   .application-header {
     position: static;
   }
 
+  .header-title {
+    align-items: flex-start;
+  }
+
+  .header-title label {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  #navigation {
+    margin-inline: -0.65rem;
+    padding: 0.15rem 0.65rem 0.35rem;
+    scroll-snap-type: inline proximity;
+  }
+
+  #navigation button,
+  #config-sections button {
+    flex: 0 0 auto;
+    min-height: 2.75rem;
+    scroll-snap-align: start;
+  }
+
+  .bar {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.4rem 0.75rem;
+  }
+
+  .bar meter,
+  .bar #status {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .page-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .page-heading > button {
+    width: 100%;
+  }
+
+  .controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .controls > label {
+    display: grid;
+    gap: 0.2rem;
+  }
+
+  .controls > button,
+  .controls > input,
+  .controls > label,
+  .controls select,
+  #text-row input {
+    width: 100%;
+    min-width: 0;
+    min-height: 2.75rem;
+  }
+
   .settings-layout,
   .configuration-field {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .monitor-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .monitor-controls select,
+  .monitor-controls button {
+    width: 100%;
+    min-height: 2.75rem;
+  }
+
+  .monitor-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .monitor-chart-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .monitor-chart-panel {
+    min-height: 16rem;
+  }
+
+  .monitor-chart-panel canvas {
+    height: 13rem;
   }
 
   #config-sections {
+    position: sticky;
+    top: 0;
+    z-index: 5;
     flex-direction: row;
+    margin-inline: -0.65rem;
+    padding: 0.15rem 0.65rem 0.45rem;
     overflow-x: auto;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+    overscroll-behavior-inline: contain;
+    scroll-snap-type: inline proximity;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .settings-section {
+    scroll-margin-top: 4rem;
+  }
+
+  .configuration-field input,
+  .configuration-field select,
+  .configuration-field textarea {
+    width: 100%;
+    min-width: 0;
+    min-height: 2.75rem;
+  }
+
+  .stage {
+    grid-template-columns: 1.25rem minmax(5.5rem, auto) minmax(0, 1fr);
+  }
+
+  .stage-detail {
+    grid-column: 2 / -1;
+  }
+
+  .log-controls {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .log-controls input[type="search"] {
+    flex: 1 1 10rem;
+    min-width: 0;
+  }
+
+  .log-line {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  #logs {
+    height: min(16rem, 45vh);
+  }
+
+  article {
+    padding: 0.65rem;
+  }
+}
+
+@media (max-width: 420px) {
+  .bar {
+    grid-template-columns: 1fr;
+  }
+
+  .bar meter,
+  .bar #status {
+    grid-column: 1;
+  }
+
+  .stage {
+    grid-template-columns: 1.25rem minmax(0, 1fr);
+  }
+
+  .stage-status,
+  .stage-detail {
+    grid-column: 2;
+  }
+
+  .monitor-summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .monitor-service-details {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .monitor-service-details dd {
+    text-align: left;
   }
 }

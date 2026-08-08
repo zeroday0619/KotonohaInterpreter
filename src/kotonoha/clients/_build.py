@@ -113,12 +113,17 @@ def build_service_group(
         side = placement[role]
         factory = _FACTORY[role]
         transport = remote_options if side == "remote" else {}
-        preferred = factory(settings, settings.url_for(role, side), side, transport)
+        preferred_url = settings.url_for(role, side)
+        local_url = settings.url_for(role, "local")
+        preferred = factory(settings, preferred_url, side, transport)
         # A remote role keeps its on-board twin ready so a link failure costs a
-        # retry rather than the turn (§10).
+        # retry rather than the turn (§10). A deployment can intentionally map
+        # both sides to one authenticated service, as the A6000 Web stack does.
+        # Retrying that endpoint as a local shared-memory service cannot recover
+        # the request and drops the bearer token, so it must not be registered.
         fallback = (
-            factory(settings, settings.url_for(role, "local"), "local", {})
-            if side == "remote"
+            factory(settings, local_url, "local", {})
+            if side == "remote" and preferred_url.rstrip("/") != local_url.rstrip("/")
             else None
         )
         built[role] = FailoverClient(role, preferred, fallback, settings.remote, on_change)

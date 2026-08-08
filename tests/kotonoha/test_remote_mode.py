@@ -24,6 +24,7 @@ from kotonoha.clients._base import (
     ServiceTimeout,
     remote_transport_kwargs,
 )
+from kotonoha.clients._build import build_service_group
 from kotonoha.clients._llm import LanguageModelClient, _decode_websocket_event
 from kotonoha.clients._router import AllEndpointsFailed, FailoverClient
 from kotonoha.clients._tts import TextToSpeechClient
@@ -162,6 +163,32 @@ def test_url_selection_follows_the_side() -> None:
     s.remote.services.llm = "http://a6000.lan:8003"
     assert s.url_for("llm", "local").startswith("http://127.0.0.1")
     assert s.url_for("llm", "remote") == "http://a6000.lan:8003"
+
+
+@pytest.mark.parametrize("role", ("asr", "asr_verify", "llm", "tts"))
+async def test_same_remote_and_local_endpoint_has_no_invalid_fallback(
+    _positional_only: object | None = None,
+    /,
+    *,
+    role: str,
+) -> None:
+    settings = _settings(perf_mode="remote")
+    settings.remote.enabled = True
+    setattr(settings.remote.services, role, getattr(settings.services, role))
+
+    services = build_service_group(settings)
+    try:
+        routed_service = getattr(services, role)
+        assert routed_service.preferred.side == "remote"
+        assert routed_service.fallback is None
+    finally:
+        await services.aclose()
+
+
+def test_a6000_asr_client_deadline_keeps_the_accuracy_first_baseline() -> None:
+    settings = load_settings("config/remote-server.yaml")
+
+    assert settings.asr.timeout_s == 15.0
 
 
 # -- transport --------------------------------------------------------------

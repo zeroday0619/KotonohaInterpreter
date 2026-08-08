@@ -29,7 +29,9 @@ asr:
   vllm_enforce_eager: true
   n_best: 5
   num_beams: 5
-  timeout_s: 6.0 # includes the upload; the client also has its own timeout
+  # Keep the accuracy-first client deadline used by the baseline. A six-second
+  # override terminated five-beam remote transcription before completion.
+  timeout_s: 15.0
 
 asr_verify:
   enabled: true

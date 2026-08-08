@@ -29,6 +29,7 @@ from kotonoha._call_compatibility import keyword_compatible
 from kotonoha._config import Settings, load_settings, local_config_path, read_yaml
 from kotonoha._config_store import apply_changes, get_path
 from kotonoha._logging_setup import get_logger, setup_logging
+from kotonoha._prometheus import install_metrics
 from kotonoha.store._db import Store
 from kotonoha.tui._config_app import FIELDS, SECTION_LABELS, SECTIONS, effective_value
 from kotonoha.tui._history_app import OUTCOMES
@@ -39,6 +40,7 @@ from kotonoha.tui._license_app import (
 )
 from kotonoha.tui._tools_app import OPERATION_DESCRIPTIONS, OPERATION_FIELDS, OPERATIONS
 from kotonoha.web._logs import LogBroadcaster
+from kotonoha.web._monitoring import MonitoringService
 from kotonoha.web._operations import OperationManager
 from kotonoha.web._session import DEFAULT_MAXIMUM_SESSIONS, Session, SessionManager
 
@@ -73,6 +75,7 @@ class WebState:
     __slots__: ClassVar[tuple[str, ...]] = (
         "configuration_lock",
         "logs",
+        "monitoring",
         "operations",
         "reload_tasks",
         "sessions",
@@ -85,6 +88,7 @@ class WebState:
     sessions: SessionManager
     logs: LogBroadcaster
     operations: OperationManager
+    monitoring: MonitoringService
     config_path: Path | None
     local_path: Path
     configuration_lock: asyncio.Lock
@@ -104,6 +108,7 @@ class WebState:
         self.reload_tasks = set()
         self.sessions = SessionManager(settings, maximum_sessions)
         self.logs = LogBroadcaster()
+        self.monitoring = MonitoringService(settings)
         self.operations = OperationManager(config_path)
 
 
@@ -122,6 +127,7 @@ def create_app(
     ) -> Any:
         del application
         state.logs.start()
+        state.monitoring.start()
         try:
             yield
         finally:
@@ -129,12 +135,14 @@ def create_app(
                 task.cancel()
             if state.reload_tasks:
                 await asyncio.gather(*state.reload_tasks, return_exceptions=True)
+            await state.monitoring.stop()
             await state.logs.stop()
             await state.operations.close()
             await state.sessions.close_all()
 
     application = FastAPI(title="kotonoha-web", lifespan=lifespan)
     application.state.kotonoha = state
+    install_metrics(application, "web", registry=state.monitoring.registry)
 
     @application.get("/health")
     @keyword_compatible
@@ -144,6 +152,7 @@ def create_app(
             "service": "web",
             "sessions": state.sessions.count,
             "maximum_sessions": state.sessions.maximum_sessions,
+            "monitoring": True,
         }
 
     @application.get("/api/sessions")
@@ -162,6 +171,14 @@ def create_app(
     ) -> dict[str, Any]:
         """Recent records for a client that wants a snapshot rather than a stream."""
         return {"lines": state.logs.history(max(0, min(limit, 400)))}
+
+    @application.get("/api/monitoring")
+    @keyword_compatible
+    async def monitoring(
+        window_seconds: int = 900,
+        /,
+    ) -> dict[str, Any]:
+        return state.monitoring.snapshot(max(60, min(window_seconds, 3600)))
 
     @application.get("/api/config")
     @keyword_compatible
@@ -375,6 +392,7 @@ async def _apply_configuration_update(
         raise HTTPException(422, result.error or "invalid configuration")
     settings = await asyncio.to_thread(load_settings, state.config_path)
     state.settings = settings
+    await state.monitoring.reconfigure(settings)
     if any(path.startswith("logging.") for path in result.changed):
         _apply_runtime_logging(settings)
     retired_sessions = await state.sessions.replace_settings(settings)

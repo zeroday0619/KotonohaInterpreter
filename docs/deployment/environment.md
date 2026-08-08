@@ -120,7 +120,7 @@ authenticate Web UI users. Bind to loopback unless a reverse proxy provides both
 | `TTS_DEPLOY_CONFIG` | vLLM-Omni stage configuration path |
 | `TTS_SERVED_MODEL_NAME` | Speech API model name |
 | `TTS_STARTUP_TIMEOUT_SECONDS` | Speech engine startup timeout |
-| `PROMETHEUS_PORT` | Host and container metrics receiver port |
+| `PROMETHEUS_PORT` | Optional headless metrics receiver port; the Web `/metrics` endpoint does not require it |
 | `TRANSFORMERS_OFFLINE`, `HF_HUB_OFFLINE` | Disable Hugging Face network access after staging |
 | `HF_HOME` | Hugging Face cache root inside a container |
 
