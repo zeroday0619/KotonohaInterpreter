@@ -450,8 +450,7 @@ class UserInterfaceConfig(BaseModel):
     # auto follows KOTONOHA_LANG, then the system locale, then English.
     __slots__: ClassVar[tuple[str, ...]] = ()
     language: Literal["auto", "en", "ko", "ja", "zh-TW"] = "auto"
-    refresh_hz: int = Field(60, ge=15, le=60)
-    # Completed turns appear as messages below the live panes. 0 hides the panel.
+    # Completed turns appear below the live Web interpreter. 0 hides the panel.
     history_turns: int = Field(20, ge=0, le=200)
 
 
@@ -606,7 +605,7 @@ class Settings(BaseSettings):
         self,
         /,
     ) -> bool:
-        """True when utterance audio is sent off the box. Surfaced in the TUI."""
+        """Return whether utterance audio leaves the application host."""
         placement = self.resolved_placement()
         return placement["asr"] == "remote" or placement["asr_verify"] == "remote"
 

@@ -76,7 +76,7 @@ def write_local(
     """Atomically replace an override file after its candidate has validated."""
     path.parent.mkdir(parents=True, exist_ok=True)
     header = (
-        "# Written by `kotonoha config`. Host-specific overrides.\n"
+        "# Written by the Web configuration editor. Host-specific overrides.\n"
         "# This layer overrides config/default.yaml and the selected overlay.\n\n"
     )
     content = header + yaml.safe_dump(local, allow_unicode=True, sort_keys=False)

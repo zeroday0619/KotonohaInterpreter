@@ -1,4 +1,4 @@
-"""Event-loop selection for command and TUI entry points."""
+"""Event-loop selection for command and Web entry points."""
 
 from __future__ import annotations
 

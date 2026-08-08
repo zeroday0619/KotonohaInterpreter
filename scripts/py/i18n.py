@@ -229,6 +229,8 @@ def cmd_update(
             with target.open("rb") as handle:
                 catalog = read_po(handle, locale=GETTEXT_NAMES[locale], domain=DOMAIN)
             catalog.update(template, no_fuzzy_matching=False)
+            # Obsolete interface strings must not survive after their source feature is removed.
+            catalog.obsolete.clear()
         else:
             catalog = Catalog(locale=GETTEXT_NAMES[locale], domain=DOMAIN)
             catalog.update(template)
@@ -278,7 +280,11 @@ def cmd_check(
 
         catalog_ids = {(entry.context, entry.id) for entry in catalog if entry.id}
         missing = sorted(text for _context, text in template_ids - catalog_ids)
-        obsolete = sorted(text for _context, text in catalog_ids - template_ids)
+        obsolete = sorted(
+            entry.id
+            for entry in catalog.obsolete.values()
+            if isinstance(entry.id, str)
+        )
         untranslated = sorted(entry.id for entry in catalog if entry.id and not entry.string)
         fuzzy = sorted(entry.id for entry in catalog if entry.id and entry.fuzzy)
         safety_violations = [

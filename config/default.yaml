@@ -188,10 +188,8 @@ zh:
 ui:
   # auto follows KOTONOHA_LANG, then the system locale, then English.
   language: auto # auto | en | ko | ja | zh-TW
-  # Past turns shown as messages below the live panes. 0 hides the panel; `h`
-  # toggles it at runtime.
+  # Past turns shown below the live Web interpreter. 0 hides the panel.
   history_turns: 20
-  refresh_hz: 60 # idle frames do not trigger terminal repaint
 
 context:
   history_turns: 6 # §3
@@ -208,7 +206,7 @@ logging:
   turn_log_path: ./data/logs/turns.jsonl # §11 turn metrics, one line per turn
   max_bytes: 67108864 # rotate each JSONL file at 64 MiB
   backup_count: 5 # retain five prior JSONL generations
-  console: true # rendered as kernel-style records in the TUI and in service consoles
+  console: true # rendered in the Web log panel and in service consoles
   console_format: dmesg # dmesg | json; the JSONL files stay structured either way
   debug: false # DEBUG level plus per-stage detail in the interface; -d overrides
   # Optional port for the headless metrics receiver. The Web service always exposes

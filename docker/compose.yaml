@@ -98,18 +98,36 @@ services:
       - TTS_ENFORCE_EAGER=${TTS_ENFORCE_EAGER:-1}
     command: uvicorn kotonoha.services._tts_server:app --host 127.0.0.1 --port 8004 --loop uvloop --ws-max-size 4194304 --timeout-graceful-shutdown 30
 
-  orchestrator:
-    <<: *jetson
+  web:
+    image: kotonohainterpreter-web
     build:
       context: ..
-      dockerfile: docker/Dockerfile.orchestrator
-      args:
-        BASE_IMAGE: ${ORCH_BASE:-${ACCELERATOR_VLLM_IMAGE:-nvcr.io/nvidia/vllm:26.07-py3}}
+      dockerfile: docker/Dockerfile.web
+    ipc: host
+    network_mode: host
+    restart: unless-stopped
+    stop_grace_period: 45s
     depends_on: [asr, asr-verify, llm, tts]
-    devices:
-      - /dev/snd:/dev/snd # no browser microphone (§12); open the device directly
-    group_add:
-      - audio
-    stdin_open: true
-    tty: true
-    command: python3 -m kotonoha._cli tui
+    environment:
+      - KOTONOHA_ENV_FILE=
+      - KOTONOHA_CONFIG=${KOTONOHA_WEB_CONFIG:-/app/config/default.yaml}
+      - KOTONOHA_LOCAL_CONFIG=${KOTONOHA_WEB_LOCAL_CONFIG:-/app/config/local.yaml}
+      - KOTONOHA__ACCELERATOR__PROFILE=${ACCELERATOR_PROFILE:-nvidia.jetson.agx-orin}
+      - HF_HOME=/models/hf
+      - TRANSFORMERS_OFFLINE=1
+      - HF_HUB_OFFLINE=1
+    volumes:
+      - ../config:/app/config
+      - ${MODELS_DIR:-../models}:/models
+      - ../data:/app/data
+    command:
+      - python3
+      - -m
+      - kotonoha
+      - web
+      - --host
+      - ${KOTONOHA_WEB_HOST:-127.0.0.1}
+      - --port
+      - ${KOTONOHA_WEB_PORT:-8080}
+      - --sessions
+      - ${KOTONOHA_WEB_SESSIONS:-4}

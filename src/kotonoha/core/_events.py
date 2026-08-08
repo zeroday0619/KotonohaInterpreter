@@ -16,7 +16,7 @@ class UiEvent:
 
 
 class EventBus:
-    """Assumes a single consumer (the TUI). Drops silently when nobody listens."""
+    """Assumes one consumer per Web session and drops events when none listens."""
     __slots__: ClassVar[tuple[str, ...]] = (
         "queue",
     )

@@ -1,1 +1,0 @@
-"""Textual operator interfaces."""

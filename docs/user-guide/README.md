@@ -10,11 +10,7 @@ uv sync
 
 | Command | Function |
 |---|---|
-| `uv run kotonoha tui` | Open the integrated control center |
 | `uv run kotonoha web` | Open the multi-session browser control center |
-| `uv run kotonoha run` | Open the interpreter directly |
-| `uv run kotonoha config` | Edit local or remote configuration |
-| `uv run kotonoha history browse` | Browse completed turns |
 | `uv run kotonoha text "<utterance>"` | Interpret typed text |
 | `uv run kotonoha replay <wav> --seconds 12` | Replay a WAV through the voice pipeline |
 | `uv run kotonoha devices` | List audio devices |
@@ -26,19 +22,31 @@ uv sync
 feeds a bounded frame queue, so an oversized recording cannot allocate an unbounded
 replay backlog.
 
-## Integrated TUI
-
-The integrated TUI provides interpreter, configuration, history, operations, and license
-views. Structured JSON logs render as bounded, human-readable records in the interpreter
-footer without writing terminal control output to the application log.
-
-Live ASR and translation panes clear when a new turn starts. Completed turns remain in a
-message-style conversation timeline below the live panes.
-
 ## Web UI
 
 The Web UI exposes interpreter, monitoring, configuration, history, operations, and
 license areas. It also streams structured application logs into the interpreter page.
+Live ASR and translation panes clear when a new turn starts. Completed turns remain in a
+message-style conversation timeline below the live panes.
+
+The interpreter page preserves the former keyboard workflow:
+
+| Key | Action |
+|---|---|
+| `Space` | Toggle push-to-talk |
+| `a` | Cycle push-to-talk, automatic, and text modes |
+| `r` | Select the next target language |
+| `c` | Clear the active source and translation |
+| `h` | Show or hide recent turns |
+| `t` | Enter or leave text mode |
+| `Escape` | Leave text mode while an input has focus |
+| `q` | Connect or disconnect the browser session |
+
+The active-turn diagnostics show the four latency-budget comparisons, service readiness,
+role placement, fallback status, and whether audio leaves the application host. The
+operations page runs replay, device, service, diagnostic, network, glossary, and shell
+completion commands. It supports bounded file uploads, live output, cancellation, and
+output clearing.
 
 The browser owns microphone capture and audio playback. Each browser connection owns an
 isolated orchestrator session and shared-memory ring. The resident ASR, verification ASR,
@@ -72,9 +80,9 @@ Source-language selection follows this order:
 ## History
 
 SQLite stores source text, translation, language decision provenance, ASR confidence,
-verification status, timing data, placement, failovers, and outcome. The TUI separates
-the current turn from completed history. Each history entry renders the source and
-translation as distinct messages in chronological order.
+verification status, timing data, placement, failovers, and outcome. The Web interface
+separates the current turn from completed history and provides filtering, pagination,
+diagnostic details, JSONL export, and deletion.
 
 ## Configuration
 
@@ -112,10 +120,10 @@ placement:
 Set `remote.enabled: true` when any role uses the remote placement. Unspecified roles
 inherit the local placement.
 
-`kotonoha config` exposes every local `Settings` leaf. Local changes are validated and
-written atomically to `config/local.yaml`. Remote changes use the authenticated
+The Web configuration page exposes every local `Settings` leaf. Local changes are
+validated and written atomically to `config/local.yaml`. Remote changes use the authenticated
 `/admin/config` endpoint and only accept settings consumed by resident model services.
-The TUI remote editor persists model-service settings but does not reload a service. The
+The Web remote editor persists model-service settings and requests an affected service reload. The
 Web editor applies local runtime settings immediately and invokes `/admin/reload` for each
 affected resident model service.
 

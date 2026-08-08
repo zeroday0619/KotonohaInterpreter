@@ -4,7 +4,7 @@
 
 Kotonoha processes completed utterances. It does not implement simultaneous
 interpretation. The audio frontend and orchestrator run in the selected client process,
-and model services remain resident across turns. The client can be a Jetson TUI, a Jetson
+and model services remain resident across turns. The client can be a Jetson-hosted Web UI or an
 browser session, or a browser session hosted with the model stack on an A6000 server.
 
 ```text
@@ -25,7 +25,7 @@ Orchestrator (asyncio and uvloop)
     `-- :8004 TTS               vLLM-Omni, Qwen3-TTS 0.6B
     |
     v
-[speaker, terminal UI, or browser Web Audio]
+[speaker or browser Web Audio]
 ```
 
 ## Turn Workflow
@@ -134,7 +134,7 @@ runtime profiles to add measured settings without changing the translation servi
 
 Profile selection uses `accelerator.profile` or the
 `KOTONOHA__ACCELERATOR__PROFILE` environment variable. The profile metadata is exposed in
-the configuration TUI and is editable through the authenticated remote configuration API.
+the Web configuration editor and is editable through the authenticated remote API.
 
 On a multi-GPU A6000 host, `scripts/py/allocate_gpus.py` reads GPU UUID, model name, total
 memory, and free memory from `nvidia-smi`. It applies per-role memory reservations and

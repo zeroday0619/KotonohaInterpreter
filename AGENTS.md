@@ -46,13 +46,10 @@ does not verify Jetson behavior.
 | Lint | `uv run ruff check .` |
 | Autofix | `uv run ruff check --fix .` |
 | Environment report | `uv run kotonoha doctor` |
-| Integrated TUI | `uv run kotonoha tui` |
-| Configuration editor | `uv run kotonoha config` |
-| History browser | `uv run kotonoha history browse` |
 | History reset | `uv run kotonoha history clear [--session ID] [-y]` |
 | Web interface | `uv run kotonoha web [--host H] [--port P] [--sessions N]` |
 | Web interface in Docker | `bash scripts/manage.sh web <jetson|a6000>` |
-| Debug run | `uv run kotonoha --debug tui` |
+| Debug run | `uv run kotonoha --debug web` |
 | Translation catalog check | `uv run python scripts/py/i18n.py check` |
 | Translation catalog compile | `uv run python scripts/py/i18n.py compile` |
 | Translation catalog management | `bash scripts/manage.sh i18n check` |
@@ -75,7 +72,7 @@ uv run ruff check .
 uv run pytest -q
 ```
 
-Current baseline: 481 tests and zero lint findings.
+Current baseline: 414 tests and zero lint findings.
 
 `.github/workflows/ci.yml` runs these gates plus lock consistency, wheel catalog
 compilation, and Python 3.10 import parity. See
@@ -301,7 +298,7 @@ When adding a setting:
 1. Add the typed field to `src/kotonoha/_config.py`.
 2. Add the baseline value and rationale to `config/default.yaml`.
 3. Keep overlay files limited to differences from the baseline.
-4. Confirm that the local configuration TUI exposes the new leaf.
+4. Confirm that the Web configuration editor exposes the new leaf.
 5. Add a specific field description only when the generic type description is
    insufficient.
 
@@ -321,7 +318,7 @@ service `/admin/reload` endpoint after a validated save.
 
 ## Localization
 
-Operator-facing CLI and TUI text uses gettext with English source strings as message ids.
+Operator-facing CLI and Web text uses gettext with English source strings as message ids.
 Supported locales are `en`, `ko`, `ja`, and `zh-TW`.
 `docs/development/localization.md` defines English source style, locale tone, terminology,
 protected content, and the catalog review workflow.
@@ -415,14 +412,11 @@ tokens from `config/local.yaml` never enter tests.
 | `test_gpu_allocator.py` | GPU inventory parsing, reservations, stable UUID placement |
 | `test_i18n.py` | Catalog completeness, placeholders, locale resolution |
 | `test_python_style.py` | Module privacy, declarations, type hints, imports, and class slots |
-| `test_history.py` | History filters, escaping, panel, browser |
+| `test_history.py` | History filters, escaping, export, and retention |
 | `test_text_mode.py` | Script detection, typed routing, text input |
-| `test_tui.py` | Composition, bindings, localized labels |
-| `test_tui_logging.py` | JSON buffering, formatting, file preservation |
-| `test_tui_license.py` | Project and dependency license discovery |
-| `test_tui_rendering.py` | Frame coalescing and level interpolation |
-| `test_tui_tools.py` | Operations command construction and validation |
-| `test_tui_workflow.py` | Control-center sequencing and settings reload |
+| `test_web.py` | Web sessions, configuration, history, operations, and static assets |
+| `test_licenses.py` | Project and dependency license discovery |
+| `test_operation_catalog.py` | Operations command construction and validation |
 
 ## Target verification
 
@@ -459,15 +453,12 @@ Do not mix application logs and turn metrics in one file.
 | Push-to-talk | The key owns both edges; buffer with `append`, never `feed`, or a quiet VAD discards the utterance |
 | Replay | Force automatic mode because files have no PTT key event |
 | Client fallback | Bind loop values passed through retryable lambdas |
-| Textual bindings | Replace `BindingsMap`; do not mutate the shared class map with `bind()` |
-| Hidden input | Remove focusability when hidden or it consumes global bindings |
-| Text input | Keep the exit binding at priority because focused inputs consume keys |
 | Typer localization | Help is rendered at import time; use `KOTONOHA_LANG` for localized help |
 | gettext catalogs | Compile after `.po` changes; stale `.mo` files serve old text |
 | History search | Escape `%` and `_` before SQL LIKE matching |
 | Test isolation | Keep `KOTONOHA_SKIP_LOCAL_CONFIG`; local config contains device secrets |
 | Privileged Compose | Pass the interpolation allowlist through `sudo env`; sudo removes exported variables |
-| Web overlay | `docker/compose.web.yaml` needs `-f docker/compose.yaml` too; its `depends_on` targets live there |
+| Web Compose | A6000 combines base, remote-service, and A6000 Web overlay files |
 | Web sessions | Give each session its own `shm.name`; one ring shared between sessions hands their audio to each other |
 | Browser capture rate | Trust the rate the client reports, not the one requested; a refused AudioContext rate shifts pitch |
 | Accelerator profiles | Use `config/profiles/accelerators/<vendor>/<family>/<model>.yaml`; select profiles with `<vendor>.<family>.<model>` identifiers and keep engine argument generation data-driven |

@@ -36,6 +36,11 @@ docker_environment_names=(
   CONTAINER_RUNTIME
   GPU_DRIVER
   KOTONOHA_DISABLE_NVML
+  KOTONOHA_WEB_CONFIG
+  KOTONOHA_WEB_HOST
+  KOTONOHA_WEB_LOCAL_CONFIG
+  KOTONOHA_WEB_PORT
+  KOTONOHA_WEB_SESSIONS
   VLLM_NVML_PATCH
   LLM_GPU_DEVICE
   LLM_GPU_MEMORY_UTILIZATION
@@ -46,7 +51,6 @@ docker_environment_names=(
   LLM_IMAGE
   LLM_MAX_MODEL_LEN
   MODELS_DIR
-  ORCH_BASE
   PROMETHEUS_PORT
   REMOTE_ASR_BASE
   REMOTE_BASE
@@ -76,8 +80,8 @@ Options:
   --remove-images       Also remove project-built images during uninstall
   -h, --help            Show this help
 
-The script does not start the interactive orchestrator. It prints the runtime command
-after the resident model services pass their health checks.
+Jetson deployment starts the resident model services and the Web control center after
+the model services pass their health checks.
 
 Uninstall removes project containers and networks. Models, configuration, secrets,
 logs, and SQLite data are always preserved.
@@ -644,7 +648,7 @@ deploy_jetson() {
     return
   fi
   if [ "$build_images" = true ]; then
-    run_docker compose -f "$compose_file" build asr asr-verify llm tts orchestrator
+    run_docker compose -f "$compose_file" build asr asr-verify llm tts web
   fi
   verify_jetson_asr_configuration "$compose_file"
   verify_jetson_asr_verification_runtime "$compose_file"
@@ -659,8 +663,10 @@ deploy_jetson() {
     show_failed_health "$compose_file" "" asr asr-verify llm tts
   fi
 
-  printf '\nJetson model services are ready. Start the interactive interpreter with:\n'
-  printf '%s compose -f docker/compose.yaml run --rm orchestrator\n' "$docker_display_command"
+  run_docker compose -f "$compose_file" up -d web
+  printf '\nJetson model services and Web interface are ready.\n'
+  printf 'Web interface: http://%s:%s\n' \
+    "${KOTONOHA_WEB_HOST:-127.0.0.1}" "${KOTONOHA_WEB_PORT:-8080}"
 }
 
 deploy_a6000() {

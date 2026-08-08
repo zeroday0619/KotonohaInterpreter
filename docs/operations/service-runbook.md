@@ -176,11 +176,11 @@ requests. Treat this as a deployment failure on the A6000.
 | GPU allocation reports insufficient capacity | Inspect `.env` reservations, `config/remote-gpu.env`, and `nvidia-smi` | Stop competing workloads, correct reservations, then run `bash scripts/manage.sh deploy a6000 --reallocate-gpus` |
 | Service starts on the wrong GPU | Source `.env` and `config/remote-gpu.env`, then inspect rendered `device_ids` | Restore the generated UUID mapping and recreate the affected service |
 | Shared-memory errors | Inspect `ipc: host` and `/dev/shm` | Restore host IPC for Jetson services; do not use this path across hosts |
-| No capture device | Run the configuration TUI audio test from the orchestrator container, inspect `/dev/snd`, and check group membership | Select the stable `device name, host API` value and recreate the orchestrator after permission changes |
+| No capture device | Run the Interpreter page audio test and inspect browser media permissions | Select a browser input device and serve the UI through localhost or authenticated HTTPS |
 | Microphone stream opens but STT produces no text | Inspect `mic.started`, the audio-test dBFS value, `asr.transcription_started`, and the turn outcome | Correct a silent or wrong input device first; if audio reaches ASR, inspect inference duration and service availability instead of treating the turn as silence |
 | TTS produces noise or unintelligible audio | Inspect `content-type`, `x-kotonoha-audio-format`, `x-kotonoha-sample-rate`, `tts.audio_received`, and the four Spike 2 WAV files | Reject container or sample-rate mismatches; compare all four saved samples before changing the model or runtime |
 | Remote request returns 401 | Compare A6000 and Jetson token values | Correct the token without logging it; restart affected clients or services |
-| Remote config returns 422 | Read the response detail | Edit only server-owned paths exposed by the remote TUI |
+| Remote config returns 422 | Read the response detail | Edit only server-owned paths exposed by the Web configuration editor |
 | Remote role repeatedly fails over | Inspect `netcheck`, service logs, and turn `failovers` | Correct health or networking; use `hybrid` or `onboard` until stable |
 | A6000 OOM during startup | Inspect `nvidia-smi` and all service logs | Record the failure and revise measured placement |
 | Latency exceeds 2.9 s | Inspect five-point turn timestamps | Identify the stage overrun before assigning a cause |

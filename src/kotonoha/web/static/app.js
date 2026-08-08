@@ -41,7 +41,11 @@ const state = {
   pendingBlocks: [],
   talking: false,
   mode: "push_to_talk",
+  voiceMode: "push_to_talk",
   session: null,
+  budget: {},
+  latestTurn: null,
+  services: {},
   logsPaused: false,
   configuration: null,
   operations: null,
@@ -49,6 +53,11 @@ const state = {
   monitoring: null,
   monitoringTimer: null,
   monitoringResizeTimer: null,
+  historyOffset: 0,
+  historyLimit: 200,
+  historyTotal: 0,
+  recentHistoryLimit: 20,
+  messages: {},
 };
 
 const view = {};
@@ -62,6 +71,30 @@ function setStatus(text, kind) {
   view.status.dataset.kind = kind || "";
 }
 
+function translate(message) {
+  return state.messages[message] || message;
+}
+
+async function loadInterface() {
+  const result = await fetchJson("/api/interface");
+  state.messages = result.messages || {};
+  document.documentElement.lang = result.locale || "en";
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    const source = node.nodeValue.trim();
+    if (source && state.messages[source]) {
+      node.nodeValue = node.nodeValue.replace(source, state.messages[source]);
+    }
+  }
+  document.querySelectorAll("[placeholder], [aria-label], [title]").forEach((node) => {
+    ["placeholder", "aria-label", "title"].forEach((attribute) => {
+      const source = node.getAttribute(attribute);
+      if (source && state.messages[source]) node.setAttribute(attribute, state.messages[source]);
+    });
+  });
+}
+
 // -- transport --------------------------------------------------------------
 
 function send(message) {
@@ -71,15 +104,22 @@ function send(message) {
 }
 
 function connect() {
+  if (state.socket && [WebSocket.CONNECTING, WebSocket.OPEN].includes(state.socket.readyState)) {
+    return;
+  }
   const scheme = window.location.protocol === "https:" ? "wss" : "ws";
   const socket = new WebSocket(`${scheme}://${window.location.host}/ws`);
   socket.binaryType = "arraybuffer";
   state.socket = socket;
 
-  socket.onopen = () => setStatus("connected", "ok");
+  socket.onopen = () => {
+    setStatus("connected", "ok");
+    view.connection.textContent = translate("Disconnect");
+  };
   socket.onclose = () => {
     setStatus("disconnected", "error");
     stopCapture();
+    view.connection.textContent = translate("Connect");
   };
   socket.onerror = () => setStatus("connection error", "error");
   socket.onmessage = (message) => {
@@ -97,8 +137,15 @@ function handleControl(message) {
       state.session = message.session;
       state.playbackRate = message.playback_rate;
       state.mode = message.mode;
+      if (state.mode !== "text") state.voiceMode = state.mode;
+      state.budget = message.budget_ms || {};
+      state.recentHistoryLimit = message.history_turns ?? 20;
       view.session.textContent = message.session;
+      view.routing.textContent = message.routing || "—";
+      view.performanceMode.textContent = message.perf_mode || "—";
+      view.privacyWarning.hidden = !message.audio_leaves_device;
       fillLanguages(message.languages, message.target);
+      updateRecentTurnsVisibility();
       updateModeView();
       setStatus("session ready", "ok");
       break;
@@ -143,6 +190,12 @@ function handleEvent(kind, payload) {
       if (payload.state === "IDLE") {
         state.talking = false;
         updateTalkButton();
+      }
+      if (payload.state === "LISTENING") {
+        view.source.textContent = "";
+        view.translation.textContent = "";
+        resetStages();
+        setStage("capture", "running");
       }
       break;
     case "level":
@@ -204,6 +257,29 @@ function handleEvent(kind, payload) {
       break;
     case "turn":
       finishStages();
+      state.latestTurn = payload;
+      renderTurnDiagnostics(payload);
+      break;
+    case "budget":
+      if (state.latestTurn) {
+        state.latestTurn.over_budget_ms = payload.over || {};
+        renderTurnDiagnostics(state.latestTurn);
+      }
+      break;
+    case "service":
+      state.services[payload.name] = payload;
+      renderServiceStatus();
+      break;
+    case "placement":
+      if (state.services[payload.role]) {
+        state.services[payload.role].side = payload.side;
+        state.services[payload.role].degraded = true;
+        renderServiceStatus();
+      }
+      setStatus(`${payload.role} to ${payload.side}: ${payload.reason}`, "error");
+      break;
+    case "privacy":
+      view.privacyWarning.hidden = !payload.audio_leaves_device;
       break;
     case "error":
       setStage(payload.where, "failed", payload.message || "");
@@ -298,8 +374,9 @@ async function startCapture() {
 }
 
 function setCaptureEnabled(enabled) {
-  view.mic.textContent = enabled ? "OPEN" : "SHUT";
-  view.mic.dataset.open = String(enabled);
+  const active = Boolean(state.captureNode) && enabled;
+  view.mic.textContent = active ? "OPEN" : "SHUT";
+  view.mic.dataset.open = String(active);
   if (state.captureNode) {
     state.captureNode.port.postMessage({ enabled });
   }
@@ -422,7 +499,7 @@ function playChunk(samples) {
 // -- controls ---------------------------------------------------------------
 
 function updateTalkButton() {
-  view.talk.textContent = state.talking ? "Stop (space)" : "Talk (space)";
+  view.talk.textContent = state.talking ? translate("Stop (space)") : translate("Talk (space)");
   view.talk.dataset.active = String(state.talking);
 }
 
@@ -444,8 +521,42 @@ function toggleTalk() {
 function cycleMode() {
   const order = ["push_to_talk", "auto", "text"];
   state.mode = order[(order.indexOf(state.mode) + 1) % order.length];
+  if (state.mode !== "text") state.voiceMode = state.mode;
   send({ type: "mode", mode: state.mode });
   updateModeView();
+}
+
+function toggleTextMode() {
+  state.mode = state.mode === "text" ? state.voiceMode : "text";
+  send({ type: "mode", mode: state.mode });
+  updateModeView();
+  if (state.mode === "text") view.textInput.focus();
+  else view.textInput.value = "";
+}
+
+function cycleTargetLanguage() {
+  if (view.target.options.length === 0) return;
+  view.target.selectedIndex = (view.target.selectedIndex + 1) % view.target.options.length;
+  send({ type: "target", language: view.target.value });
+}
+
+function clearCurrentTurn() {
+  view.source.textContent = "";
+  view.translation.textContent = "";
+}
+
+function updateRecentTurnsVisibility() {
+  const visible = element("recent-turns-visible").checked && state.recentHistoryLimit > 0;
+  element("recent-turns").hidden = !visible;
+  element("recent-turns-visible").disabled = state.recentHistoryLimit === 0;
+}
+
+function toggleConnection() {
+  if (state.socket && [WebSocket.CONNECTING, WebSocket.OPEN].includes(state.socket.readyState)) {
+    state.socket.close(1000, "operator disconnected");
+  } else {
+    connect();
+  }
 }
 
 function fillLanguages(languages, target) {
@@ -466,9 +577,66 @@ function appendHistory(payload) {
     payload.source_text || ""
   }  ⇒  ${payload.translation || ""}`;
   view.history.prepend(row);
-  while (view.history.childElementCount > 50) {
+  while (view.history.childElementCount > state.recentHistoryLimit) {
     view.history.lastElementChild.remove();
   }
+  view.history.hidden = state.recentHistoryLimit === 0;
+}
+
+function renderTurnDiagnostics(record) {
+  const stages = record.stages_ms || {};
+  const limits = state.budget;
+  const rows = [
+    [translate("ASR (+verify)"), stages.asr, (limits.asr || 0) + (limits.verify || 0)],
+    [translate("LLM first clause"), stages.llm_first_clause, limits.llm_first_clause],
+    [translate("TTS first packet"), stages.tts_first_packet, limits.tts_first_packet],
+    [translate("EOU to audio"), stages.total_to_first_audio, (limits.total || 0) - (limits.silence || 0)],
+  ];
+  const container = element("turn-latency");
+  container.replaceChildren();
+  rows.forEach(([label, measured, limit]) => {
+    const name = document.createElement("span");
+    name.textContent = label;
+    const value = document.createElement("strong");
+    value.textContent = Number.isFinite(measured) ? `${Math.round(measured)} / ${limit} ms` : "—";
+    value.dataset.overBudget = String(Number.isFinite(measured) && measured > limit);
+    container.append(name, value);
+  });
+  Object.entries(record.over_budget_ms || {}).forEach(([stage, duration]) => {
+    const name = document.createElement("span");
+    name.textContent = stage;
+    const value = document.createElement("strong");
+    value.textContent = `+${Math.round(duration)} ms`;
+    value.dataset.overBudget = "true";
+    container.append(name, value);
+  });
+}
+
+function renderServiceStatus() {
+  const container = element("service-status");
+  const roles = ["asr", "asr-verify", "llm", "tts"];
+  const rows = roles.map((role) => {
+    const service = state.services[role];
+    const row = document.createElement("div");
+    row.className = "service-status-row";
+    const name = document.createElement("strong");
+    name.textContent = role;
+    const status = document.createElement("span");
+    if (!service) {
+      status.textContent = "?";
+      status.dataset.status = "unknown";
+    } else {
+      const detail = service.detail || {};
+      const tag = detail.backend || detail.error || "";
+      status.textContent = `${service.ok ? "UP" : "DOWN"} · ${service.side || "local"}${
+        service.degraded ? " · degraded" : ""
+      }${tag ? ` · ${String(tag).slice(0, 40)}` : ""}`;
+      status.dataset.status = service.ok ? "ready" : "failed";
+    }
+    row.append(name, status);
+    return row;
+  });
+  container.replaceChildren(...rows);
 }
 
 // -- logs -------------------------------------------------------------------
@@ -828,7 +996,9 @@ function renderChartLegend(canvas, datasets) {
 
 async function loadConfiguration() {
   try {
-    state.configuration = await fetchJson("/api/config");
+    const target = element("config-target").value;
+    const path = target === "remote" ? "/api/config/remote" : "/api/config";
+    state.configuration = await fetchJson(path);
     renderConfiguration(state.configuration);
     element("config-status").textContent = "Configuration loaded";
   } catch (error) {
@@ -844,6 +1014,16 @@ function renderConfiguration(configuration) {
   fieldContainer.replaceChildren();
 
   configuration.sections.forEach((section, sectionIndex) => {
+    const panel = document.createElement("section");
+    panel.className = "settings-section";
+    panel.id = `config-section-${section.name}`;
+    panel.dataset.section = section.name;
+    panel.hidden = sectionIndex !== 0;
+    const heading = document.createElement("h2");
+    heading.textContent = section.label;
+    heading.tabIndex = -1;
+    panel.appendChild(heading);
+
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = section.label;
@@ -872,15 +1052,6 @@ function renderConfiguration(configuration) {
     });
     sectionNavigation.appendChild(button);
 
-    const panel = document.createElement("section");
-    panel.className = "settings-section";
-    panel.id = `config-section-${section.name}`;
-    panel.dataset.section = section.name;
-    panel.hidden = sectionIndex !== 0;
-    const heading = document.createElement("h2");
-    heading.textContent = section.label;
-    heading.tabIndex = -1;
-    panel.appendChild(heading);
     configuration.fields
       .filter((field) => field.section === section.name)
       .forEach((field) => panel.appendChild(configurationField(field)));
@@ -927,6 +1098,10 @@ function configurationField(field) {
   input.dataset.secret = String(field.secret);
   input.dataset.original = JSON.stringify(field.value);
   row.appendChild(input);
+  const description = document.createElement("p");
+  description.className = "configuration-description";
+  description.textContent = field.description || "";
+  row.appendChild(description);
   return row;
 }
 
@@ -970,7 +1145,7 @@ async function saveConfiguration() {
     element("config-save").disabled = true;
     const result = await fetchJson("/api/config", {
       method: "PUT",
-      body: JSON.stringify({ changes }),
+      body: JSON.stringify({ target: element("config-target").value, changes }),
     });
     const roles = result.reloading_roles.length ? `; reloading ${result.reloading_roles.join(", ")}` : "";
     element("config-status").textContent = `Applied ${result.changed.length} settings${roles}`;
@@ -993,25 +1168,102 @@ async function loadHistoryArchive() {
   if (search) parameters.set("query", search);
   if (language) parameters.set("source_language", language);
   if (outcome) parameters.set("outcome", outcome);
+  parameters.set("offset", String(state.historyOffset));
+  parameters.set("limit", String(state.historyLimit));
   try {
     const result = await fetchJson(`/api/history?${parameters}`);
+    state.historyTotal = result.total;
     fillFilter(element("history-language"), result.languages, language, "All languages");
     fillFilter(element("history-outcome"), result.outcomes, outcome, "All outcomes");
-    renderTable(
-      element("history-results"),
-      ["Time", "Direction", "Source", "Translation", "Outcome"],
-      result.entries.map((entry) => [
-        entry.time,
-        `${entry.src_lang || "?"}→${entry.tgt_lang || "?"}`,
-        entry.source_text || "",
-        entry.translation || "",
-        entry.outcome,
-      ]),
-    );
-    element("history-status").textContent = `${result.total} turns`;
+    renderHistoryArchive(result.entries);
+    const first = result.total ? state.historyOffset + 1 : 0;
+    const last = Math.min(state.historyOffset + result.entries.length, result.total);
+    element("history-status").textContent = `${first}-${last} of ${result.total} turns`;
+    element("history-previous").disabled = state.historyOffset === 0;
+    element("history-next").disabled = state.historyOffset + state.historyLimit >= result.total;
   } catch (error) {
     element("history-status").textContent = error.message;
   }
+}
+
+function renderHistoryArchive(entries) {
+  const table = document.createElement("table");
+  const head = document.createElement("thead");
+  const heading = document.createElement("tr");
+  ["Time", "Direction", "Source", "Translation", "Outcome"].forEach((label) => {
+    const cell = document.createElement("th");
+    cell.textContent = label;
+    heading.appendChild(cell);
+  });
+  head.appendChild(heading);
+  table.appendChild(head);
+  const body = document.createElement("tbody");
+  entries.forEach((entry) => {
+    const row = document.createElement("tr");
+    row.tabIndex = 0;
+    [
+      entry.time,
+      `${entry.src_lang || "?"}→${entry.tgt_lang || "?"}`,
+      entry.source_text || "",
+      entry.translation || "",
+      entry.outcome,
+    ].forEach((value) => {
+      const cell = document.createElement("td");
+      cell.textContent = value;
+      row.appendChild(cell);
+    });
+    const show = () => showHistoryDetail(entry);
+    row.addEventListener("click", show);
+    row.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        show();
+      }
+    });
+    body.appendChild(row);
+  });
+  table.appendChild(body);
+  element("history-results").replaceChildren(table);
+  element("history-detail").hidden = true;
+}
+
+function showHistoryDetail(entry) {
+  const diagnostics = [
+    ["lang_source", entry.lang_source],
+    ["lid_confidence", entry.lid_confidence],
+    ["asr_avg_logprob", entry.asr_avg_logprob],
+    ["cross_verified", entry.cross_verified],
+    ["audio_seconds", entry.audio_seconds],
+    ["session", entry.session_id],
+    ["turn_id", entry.turn_id],
+  ].filter((item) => item[1] !== null && item[1] !== undefined);
+  element("history-detail-content").textContent = [
+    `${entry.time}  ${entry.src_lang || "?"} → ${entry.tgt_lang || "?"}  [${entry.outcome}]`,
+    "",
+    "Source",
+    entry.source_text || "",
+    "",
+    "Translation",
+    entry.translation || "",
+    "",
+    diagnostics.map(([key, value]) => `${key}=${value}`).join("  "),
+  ].join("\n");
+  element("history-detail").hidden = false;
+}
+
+function historyParameters() {
+  const parameters = new URLSearchParams();
+  const search = element("history-search").value.trim();
+  const language = element("history-language").value;
+  const outcome = element("history-outcome").value;
+  if (search) parameters.set("query", search);
+  if (language) parameters.set("source_language", language);
+  if (outcome) parameters.set("outcome", outcome);
+  return parameters;
+}
+
+function exportHistoryArchive() {
+  window.location.assign(`/api/history/export?${historyParameters()}`);
 }
 
 function fillFilter(select, values, selected, allLabel) {
@@ -1045,7 +1297,7 @@ async function loadOperations() {
   result.operations.forEach((operation) => {
     const option = document.createElement("option");
     option.value = operation.name;
-    option.textContent = operation.name;
+    option.textContent = operation.label || operation.name;
     option.selected = operation.name === current;
     select.appendChild(option);
   });
@@ -1064,9 +1316,9 @@ function renderOperation() {
     const label = document.createElement("label");
     label.textContent = name;
     const input = document.createElement("input");
-    input.type = "text";
+    input.type = ["wav", "glossary-path"].includes(name) ? "file" : "text";
     input.dataset.operationField = name;
-    input.value = defaults[name] || "";
+    if (input.type !== "file") input.value = defaults[name] || "";
     label.appendChild(input);
     fields.appendChild(label);
   });
@@ -1074,10 +1326,23 @@ function renderOperation() {
 
 async function runOperation() {
   const values = {};
-  document.querySelectorAll("[data-operation-field]").forEach((input) => {
-    values[input.dataset.operationField] = input.value;
-  });
   try {
+    for (const input of document.querySelectorAll("[data-operation-field]")) {
+      if (input.type === "file") {
+        if (!input.files.length) {
+          values[input.dataset.operationField] = "";
+          continue;
+        }
+        const form = new FormData();
+        form.append("upload", input.files[0]);
+        const response = await fetch("/api/operations/upload", { method: "POST", body: form });
+        const uploaded = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(uploaded.detail || "file upload failed");
+        values[input.dataset.operationField] = uploaded.path;
+      } else {
+        values[input.dataset.operationField] = input.value;
+      }
+    }
     const job = await fetchJson("/api/operations", {
       method: "POST",
       body: JSON.stringify({ operation: element("operation-select").value, values }),
@@ -1143,7 +1408,7 @@ function renderTable(container, headers, rows) {
 
 // -- wiring -----------------------------------------------------------------
 
-function main() {
+async function main() {
   view.status = element("status");
   view.state = element("turn-state");
   view.session = element("session-id");
@@ -1152,7 +1417,11 @@ function main() {
   view.level = element("level");
   view.language = element("language");
   view.mode = element("mode");
+  view.routing = element("routing");
+  view.performanceMode = element("performance-mode");
+  view.privacyWarning = element("privacy-warning");
   view.talk = element("talk");
+  view.connection = element("connection");
   view.target = element("target");
   view.source = element("source");
   view.translation = element("translation");
@@ -1169,6 +1438,9 @@ function main() {
 
   view.talk.addEventListener("click", toggleTalk);
   element("mode-button").addEventListener("click", cycleMode);
+  element("clear-turn").addEventListener("click", clearCurrentTurn);
+  element("recent-turns-visible").addEventListener("change", updateRecentTurnsVisibility);
+  view.connection.addEventListener("click", toggleConnection);
   element("enable-audio").addEventListener("click", async () => {
     try {
       await startCapture();
@@ -1229,19 +1501,51 @@ function main() {
     }, 100);
   });
   element("config-save").addEventListener("click", saveConfiguration);
+  element("config-reload").addEventListener("click", loadConfiguration);
+  element("config-target").addEventListener("change", loadConfiguration);
   element("history-reload").addEventListener("click", loadHistoryArchive);
   element("history-search").addEventListener("keydown", (event) => {
-    if (event.key === "Enter") loadHistoryArchive();
+    if (event.key === "Enter") {
+      state.historyOffset = 0;
+      loadHistoryArchive();
+    }
   });
+  element("history-language").addEventListener("change", () => {
+    state.historyOffset = 0;
+    loadHistoryArchive();
+  });
+  element("history-outcome").addEventListener("change", () => {
+    state.historyOffset = 0;
+    loadHistoryArchive();
+  });
+  element("history-previous").addEventListener("click", () => {
+    state.historyOffset = Math.max(0, state.historyOffset - state.historyLimit);
+    loadHistoryArchive();
+  });
+  element("history-next").addEventListener("click", () => {
+    if (state.historyOffset + state.historyLimit < state.historyTotal) {
+      state.historyOffset += state.historyLimit;
+      loadHistoryArchive();
+    }
+  });
+  element("history-export").addEventListener("click", exportHistoryArchive);
   element("history-clear").addEventListener("click", clearHistoryArchive);
   element("operation-select").addEventListener("change", renderOperation);
   element("operation-run").addEventListener("click", runOperation);
   element("operation-stop").addEventListener("click", async () => {
     renderOperationJob(await fetchJson("/api/operations", { method: "DELETE" }));
   });
+  element("operation-clear").addEventListener("click", () => {
+    element("operation-output").textContent = "";
+  });
 
   document.addEventListener("keydown", (event) => {
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (event.target.closest("input, select, textarea, button")) {
+      if (event.key === "Escape" && state.mode === "text") {
+        event.target.blur();
+        toggleTextMode();
+      }
       return;
     }
     if (event.code === "Space") {
@@ -1249,12 +1553,30 @@ function main() {
       toggleTalk();
     } else if (event.key === "a") {
       cycleMode();
+    } else if (event.key === "r") {
+      cycleTargetLanguage();
+    } else if (event.key === "c") {
+      clearCurrentTurn();
+    } else if (event.key === "h") {
+      element("recent-turns-visible").checked = !element("recent-turns-visible").checked;
+      updateRecentTurnsVisibility();
+    } else if (event.key === "t") {
+      toggleTextMode();
+    } else if (event.key === "q") {
+      toggleConnection();
     }
   });
 
   resetStages();
+  renderTurnDiagnostics({});
+  renderServiceStatus();
   updateTalkButton();
   setTheme(localStorage.getItem("kotonoha-theme") || "system");
+  try {
+    await loadInterface();
+  } catch (error) {
+    setStatus(`localization unavailable: ${error.message}`, "error");
+  }
   refreshAudioDevices().catch(() => {});
   connect();
 }

@@ -1,9 +1,4 @@
-"""structlog setup for files, service consoles, and the terminal interface.
-
-The terminal interface replaces raw console JSON with an in-process bounded buffer.
-The Textual application parses that JSON and renders human-readable records without
-interfering with terminal control sequences.
-"""
+"""structlog setup for files, service consoles, and the Web log stream."""
 
 from __future__ import annotations
 
@@ -22,9 +17,9 @@ import structlog
 from kotonoha._secure_files import open_append_text
 from kotonoha._typing import override
 
-_TERMINAL_LOG_CAPACITY = 500
-_terminal_log_messages: deque[str] = deque(maxlen=_TERMINAL_LOG_CAPACITY)
-_terminal_log_lock = threading.Lock()
+_WEB_LOG_CAPACITY = 500
+_web_log_messages: deque[str] = deque(maxlen=_WEB_LOG_CAPACITY)
+_web_log_lock = threading.Lock()
 
 # Uptime is measured from import so that every record in one process shares a
 # monotonic origin, the way the kernel ring buffer counts from boot.
@@ -63,8 +58,7 @@ def dmesg_parts(
 ) -> tuple[str, str, str, str, str]:
     """Split one structured record into its dmesg columns.
 
-    Returned as parts rather than a finished line because the terminal interface
-    styles each column separately while a service console prints them plainly.
+    Returning parts keeps the formatting reusable across browser and console output.
     """
     uptime = record.get("uptime")
     stamp = (
@@ -114,8 +108,8 @@ class DmesgFormatter(logging.Formatter):
         return render_dmesg(record.getMessage())
 
 
-class TerminalInterfaceLogHandler(logging.Handler):
-    """Retain JSON log lines until the Textual event loop consumes them."""
+class WebLogHandler(logging.Handler):
+    """Retain JSON log lines until the Web broadcaster consumes them."""
     __slots__: ClassVar[tuple[str, ...]] = ()
 
     @override
@@ -129,8 +123,8 @@ class TerminalInterfaceLogHandler(logging.Handler):
         except Exception:  # noqa: BLE001
             self.handleError(record)
             return
-        with _terminal_log_lock:
-            _terminal_log_messages.append(message)
+        with _web_log_lock:
+            _web_log_messages.append(message)
 
 
 class SecureFileHandler(RotatingFileHandler):
@@ -146,23 +140,23 @@ class SecureFileHandler(RotatingFileHandler):
         return open_append_text(Path(self.baseFilename))
 
 
-def reset_terminal_interface_logs() -> None:
-    """Discard records from a previous terminal-interface session."""
-    with _terminal_log_lock:
-        _terminal_log_messages.clear()
+def reset_web_logs() -> None:
+    """Discard records from a previous Web application session."""
+    with _web_log_lock:
+        _web_log_messages.clear()
 
 
-def drain_terminal_interface_logs(
+def drain_web_logs(
     maximum: int | None = None,
     /,
 ) -> list[str]:
     """Remove a bounded group of buffered JSON lines in arrival order."""
-    with _terminal_log_lock:
-        if maximum is None or maximum >= len(_terminal_log_messages):
-            messages = list(_terminal_log_messages)
-            _terminal_log_messages.clear()
+    with _web_log_lock:
+        if maximum is None or maximum >= len(_web_log_messages):
+            messages = list(_web_log_messages)
+            _web_log_messages.clear()
         else:
-            messages = [_terminal_log_messages.popleft() for _message_index in range(maximum)]
+            messages = [_web_log_messages.popleft() for _message_index in range(maximum)]
     return messages
 
 
@@ -172,7 +166,7 @@ def setup_logging(
     json_path: Path | None = None,
     console: bool = False,
     service: str = "orchestrator",
-    terminal_interface: bool = False,
+    web_interface: bool = False,
     maximum_bytes: int = 64 * 1024 * 1024,
     backup_count: int = 5,
     console_format: str = "dmesg",
@@ -190,11 +184,11 @@ def setup_logging(
         file_handler.setFormatter(logging.Formatter("%(message)s"))
         handlers.append(file_handler)
 
-    if console and terminal_interface:
-        reset_terminal_interface_logs()
-        terminal_handler = TerminalInterfaceLogHandler()
-        terminal_handler.setFormatter(logging.Formatter("%(message)s"))
-        handlers.append(terminal_handler)
+    if console and web_interface:
+        reset_web_logs()
+        web_handler = WebLogHandler()
+        web_handler.setFormatter(logging.Formatter("%(message)s"))
+        handlers.append(web_handler)
     elif console:
         stream_handler = logging.StreamHandler(sys.stderr)
         # The file handler above keeps the structured form. Only what a person

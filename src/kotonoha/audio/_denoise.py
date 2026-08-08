@@ -4,7 +4,7 @@ DFN3 is 48 kHz only. Capture has to arrive at 48k, get cleaned here, and only
 then be resampled down to 16k. Downsample first and DFN3 is off the table.
 
 On the device (aarch64), the DeepFilterNet installation requires verification.
-A failure activates `NoopDenoiser` and records the fallback in the log and TUI.
+A failure activates `NoopDenoiser` and records the fallback in the log and Web UI.
 """
 
 from __future__ import annotations

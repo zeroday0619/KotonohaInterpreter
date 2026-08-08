@@ -86,6 +86,6 @@ def looks_simplified(
     text: str,
     /,
 ) -> bool:
-    """Rough check for leaked Simplified characters. For logs and TUI warnings,
+    """Rough check for leaked Simplified characters. For logs and Web warnings,
     not for making decisions."""
     return any(character in text for character in _SIMPLIFIED_HINTS)

@@ -65,7 +65,6 @@ bash scripts/manage.sh deploy jetson
 | Allocate A6000 GPUs | `bash scripts/manage.sh gpu allocate` |
 | Deploy Jetson services | `bash scripts/manage.sh deploy jetson` |
 | Deploy A6000 services | `bash scripts/manage.sh deploy a6000` |
-| Start the integrated TUI | `bash scripts/manage.sh tui` |
 | Start the Jetson Web stack | `bash scripts/manage.sh web jetson` |
 | Start the A6000 Web stack | `bash scripts/manage.sh web a6000` |
 | Remove Jetson containers | `bash scripts/manage.sh uninstall jetson` |
@@ -129,9 +128,9 @@ Docker workflows that require sudo forward an explicit Compose-variable allowlis
 the standard sudo policy removes exported shell variables.
 
 The `web` workflow passes the repository-root `.env` to Compose explicitly. Jetson uses
-`docker/compose.yaml`; A6000 uses `docker/compose.remote.yaml`. Both use the
-accelerator-neutral `docker/compose.web.yaml` browser image. The A6000 overlay routes the
-Web orchestrator to the four local resident services through binary PCM upload.
+the Web service in `docker/compose.yaml`. A6000 combines `docker/compose.yaml`,
+`docker/compose.remote.yaml`, and `docker/compose.web.a6000.yaml`. The A6000 overlay routes
+the Web orchestrator to the four local resident services through binary PCM upload.
 
 | Variable | Purpose |
 |---|---|

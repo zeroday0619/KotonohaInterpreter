@@ -11,10 +11,9 @@
 | `py/i18n.py` | Python entry point for gettext catalog maintenance |
 | `../docker/profiles/accelerators/` | Container runtime, device-driver, and image profiles |
 
-Run `bash scripts/manage.sh tui` after the resident model services are healthy to start
-the interactive orchestrator in the `orchestrator` container. The command uses direct
-Docker access when available and falls back to `sudo docker` when the daemon requires
-elevation.
+Run `bash scripts/manage.sh web <jetson|a6000>` after the resident model services are
+healthy. The command starts the Web control center with direct Docker access when
+available and falls back to `sudo docker` when the daemon requires elevation.
 
 Use `bash scripts/manage.sh i18n <extract|update|compile|check>` to run catalog
 maintenance through the confirmed management entry point.

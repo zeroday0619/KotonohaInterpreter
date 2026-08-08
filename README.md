@@ -17,7 +17,7 @@ interpretation. ASR, translation, and TTS operate without cloud APIs.
 | Source language | Automatic identification with previous-language fallback |
 | Target routing | Language pair, fixed target, or broadcast |
 | Interaction | Push-to-talk, automatic VAD, or typed input |
-| Interface | Localized Textual TUI and multi-session Web UI |
+| Interface | Localized multi-session Web UI |
 | Latency objective | 2.9 seconds from end-of-utterance to first audio |
 | Design priority | Accuracy before latency |
 
@@ -54,10 +54,10 @@ Install the development environment:
 bash scripts/manage.sh setup workstation
 ```
 
-Open the integrated terminal interface:
+Open the Web control center:
 
 ```bash
-uv run kotonoha tui
+uv run kotonoha web
 ```
 
 Run the workstation quality gates:
@@ -113,7 +113,7 @@ The [documentation index](docs/README.md) organizes project documentation by cat
 - Default A6000 GPU memory reservations remain provisional until peak resident memory is
   measured with the complete remote stack.
 - Complete model inference cannot be validated on the macOS development workstation.
-- Push-to-talk is a terminal toggle because terminals do not expose key-release events.
+- Push-to-talk uses a toggle control in the Web interface and the Space keyboard shortcut.
 - A resident model is temporarily unavailable while its in-process backend reloads.
 - TLS termination and a production supervisor outside Docker Compose are not included.
 

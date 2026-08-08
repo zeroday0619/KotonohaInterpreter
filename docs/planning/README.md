@@ -178,7 +178,7 @@ translation directions and routing modes.
 - Apply a Traditional Chinese ASR prompt and OpenCC `s2twp` to ASR and translation output.
 - Enforce Taiwanese glossary terms such as `軟體`, `影片`, `資訊`, and `滑鼠`.
 - Validate pair, fixed-target, and broadcast routing.
-- Display the resolved source and target languages in the TUI.
+- Display the resolved source and target languages in the Web UI.
 
 ### Deliverables
 

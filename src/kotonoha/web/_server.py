@@ -16,30 +16,45 @@ import asyncio
 import contextlib
 import json
 from pathlib import Path
-from typing import Any, ClassVar, Final
+from typing import Any, ClassVar, Final, Literal
 
 import httpx2
 import numpy as np
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from kotonoha._call_compatibility import keyword_compatible
 from kotonoha._config import Settings, load_settings, local_config_path, read_yaml
 from kotonoha._config_store import apply_changes, get_path
-from kotonoha._logging_setup import get_logger, setup_logging
-from kotonoha._prometheus import install_metrics
-from kotonoha.store._db import Store
-from kotonoha.tui._config_app import FIELDS, SECTION_LABELS, SECTIONS, effective_value
-from kotonoha.tui._history_app import OUTCOMES
-from kotonoha.tui._license_app import (
+from kotonoha._configuration_fields import (
+    FIELDS,
+    SECTION_LABELS,
+    SECTIONS,
+    effective_value,
+    field_description,
+)
+from kotonoha._history_support import OUTCOMES
+from kotonoha._i18n import _, current_locale
+from kotonoha._licenses import (
     installed_direct_dependencies,
     project_license_text,
     project_version,
 )
-from kotonoha.tui._tools_app import OPERATION_DESCRIPTIONS, OPERATION_FIELDS, OPERATIONS
+from kotonoha._logging_setup import get_logger, setup_logging
+from kotonoha._operation_catalog import (
+    OPERATION_DESCRIPTIONS,
+    OPERATION_FIELDS,
+    OPERATION_LABELS,
+    OPERATIONS,
+)
+from kotonoha._prometheus import install_metrics
+from kotonoha.clients._base import ServiceError
+from kotonoha.clients._config_admin import RemoteConfigClient, RemoteConfigSnapshot
+from kotonoha.store._db import Store
 from kotonoha.web._logs import LogBroadcaster
+from kotonoha.web._messages import MESSAGES
 from kotonoha.web._monitoring import MonitoringService
 from kotonoha.web._operations import OperationManager
 from kotonoha.web._session import DEFAULT_MAXIMUM_SESSIONS, Session, SessionManager
@@ -50,6 +65,7 @@ STATIC_ROOT: Final = Path(__file__).resolve().parent / "static"
 # A browser block is 128 samples per channel; anything far above one utterance is
 # a client that is not speaking the protocol.
 MAXIMUM_AUDIO_BYTES: Final = 4 * 16000 * 60
+MAXIMUM_OPERATION_UPLOAD_BYTES: Final = 64 * 1024 * 1024
 MODEL_ROLE_PREFIXES: Final[dict[str, tuple[str, ...]]] = {
     "asr": ("accelerator.", "asr."),
     "asr_verify": ("accelerator.", "asr_verify."),
@@ -60,6 +76,7 @@ MODEL_ROLE_PREFIXES: Final[dict[str, tuple[str, ...]]] = {
 
 class ConfigurationUpdate(BaseModel):
     __slots__: ClassVar[tuple[str, ...]] = ()
+    target: Literal["local", "remote"] = "local"
     changes: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -163,6 +180,14 @@ def create_app(
             "maximum_sessions": state.sessions.maximum_sessions,
         }
 
+    @application.get("/api/interface")
+    @keyword_compatible
+    async def interface() -> dict[str, Any]:
+        return {
+            "locale": current_locale(),
+            "messages": {message: _(message) for message in MESSAGES},
+        }
+
     @application.get("/api/logs")
     @keyword_compatible
     async def logs(
@@ -185,6 +210,14 @@ def create_app(
     async def configuration() -> dict[str, Any]:
         return _configuration_snapshot(state)
 
+    @application.get("/api/config/remote")
+    @keyword_compatible
+    async def remote_configuration() -> dict[str, Any]:
+        try:
+            return await _remote_configuration_snapshot(state)
+        except ServiceError as error:
+            raise HTTPException(502, str(error)) from error
+
     @application.put("/api/config")
     @keyword_compatible
     async def update_configuration(
@@ -192,6 +225,11 @@ def create_app(
         /,
     ) -> dict[str, Any]:
         async with state.configuration_lock:
+            if update.target == "remote":
+                try:
+                    return await _apply_remote_configuration_update(state, update)
+                except ServiceError as error:
+                    raise HTTPException(502, str(error)) from error
             return await _apply_configuration_update(state, update)
 
     @application.get("/api/history")
@@ -225,6 +263,29 @@ def create_app(
         removed = await asyncio.to_thread(_clear_history, state.settings, session)
         return {"removed": removed}
 
+    @application.get("/api/history/export")
+    @keyword_compatible
+    async def export_history(
+        query: str | None = None,
+        source_language: str | None = None,
+        outcome: str | None = None,
+        /,
+    ) -> StreamingResponse:
+        if outcome is not None and outcome not in OUTCOMES:
+            raise HTTPException(422, f"unsupported history outcome: {outcome}")
+        lines = await asyncio.to_thread(
+            _history_export_lines,
+            state.settings,
+            query,
+            source_language,
+            outcome,
+        )
+        return StreamingResponse(
+            iter(lines),
+            media_type="application/x-ndjson",
+            headers={"Content-Disposition": 'attachment; filename="kotonoha-history.jsonl"'},
+        )
+
     @application.get("/api/license")
     @keyword_compatible
     async def license_information() -> dict[str, Any]:
@@ -253,8 +314,9 @@ def create_app(
             "operations": [
                 {
                     "name": operation,
+                    "label": _(OPERATION_LABELS[operation]),
                     "fields": list(OPERATION_FIELDS[operation]),
-                    "description": OPERATION_DESCRIPTIONS[operation],
+                    "description": _(OPERATION_DESCRIPTIONS[operation]),
                 }
                 for operation in OPERATIONS
             ],
@@ -271,6 +333,19 @@ def create_app(
             return await state.operations.start(request.operation, request.values)
         except (OSError, RuntimeError, ValueError) as error:
             raise HTTPException(422, str(error)) from error
+
+    @application.post("/api/operations/upload")
+    @keyword_compatible
+    async def upload_operation_file(
+        upload: UploadFile = File(...),
+        /,
+    ) -> dict[str, str]:
+        content = await upload.read(MAXIMUM_OPERATION_UPLOAD_BYTES + 1)
+        await upload.close()
+        if len(content) > MAXIMUM_OPERATION_UPLOAD_BYTES:
+            raise HTTPException(413, "operation upload exceeds 64 MiB")
+        path = await state.operations.save_upload(upload.filename or "upload", content)
+        return {"path": str(path)}
 
     @application.delete("/api/operations")
     @keyword_compatible
@@ -306,8 +381,13 @@ def create_app(
                     "capture_rate": session.settings.audio.work_sample_rate,
                     "playback_rate": session.playback.sample_rate,
                     "mode": session.settings.session.mode,
+                    "routing": session.settings.session.routing,
+                    "perf_mode": session.settings.perf_mode,
+                    "audio_leaves_device": session.settings.audio_leaves_device,
                     "languages": list(session.settings.session.languages),
                     "target": session.settings.session.fixed_target,
+                    "history_turns": session.settings.ui.history_turns,
+                    "budget_ms": session.settings.budget_ms.model_dump(),
                 }
             )
         )
@@ -354,20 +434,108 @@ def _configuration_snapshot(
                 "optional": specification.optional,
                 "value_kind": specification.value_kind,
                 "value": "" if secret else _json_value(value),
+                "description": field_description(specification),
                 "modified": get_path(overrides, specification.path) is not None,
                 "secret": secret,
             }
         )
     return {
+        "target": "local",
         "path": str(state.local_path),
         "sections": [
-            {"name": section, "label": SECTION_LABELS[section]} for section in SECTIONS
+            {"name": section, "label": _(SECTION_LABELS[section])} for section in SECTIONS
         ],
         "fields": fields,
         "reloading_roles": sorted(
             task.get_name().removeprefix("reload-") for task in state.reload_tasks
         ),
     }
+
+
+async def _remote_configuration_snapshot(
+    state: WebState,
+    /,
+) -> dict[str, Any]:
+    client = RemoteConfigClient(state.settings.remote.services.asr, state.settings.remote)
+    try:
+        snapshot = await client.read()
+    finally:
+        await client.aclose()
+    return _render_remote_configuration(snapshot)
+
+
+def _render_remote_configuration(
+    snapshot: RemoteConfigSnapshot,
+    /,
+    changed: list[str] | None = None,
+    reloading_roles: list[str] | None = None,
+) -> dict[str, Any]:
+    editable_paths = set(snapshot.editable_paths)
+    specifications = [
+        specification for specification in FIELDS if specification.path in editable_paths
+    ]
+    active_sections = {
+        specification.section for specification in specifications
+    }
+    fields = []
+    for specification in specifications:
+        fields.append(
+            {
+                "path": specification.path,
+                "section": specification.section,
+                "kind": specification.kind,
+                "choices": list(specification.choices),
+                "optional": specification.optional,
+                "value_kind": specification.value_kind,
+                "value": _json_value(get_path(snapshot.config, specification.path)),
+                "description": field_description(specification),
+                "modified": get_path(snapshot.overrides, specification.path) is not None,
+                "secret": False,
+            }
+        )
+    return {
+        "target": "remote",
+        "path": snapshot.path,
+        "sections": [
+            {"name": section, "label": _(SECTION_LABELS[section])}
+            for section in SECTIONS
+            if section in active_sections
+        ],
+        "fields": fields,
+        "changed": changed or [],
+        "retired_sessions": [],
+        "reloading_roles": reloading_roles or [],
+        "restart_required": snapshot.restart_required,
+    }
+
+
+async def _apply_remote_configuration_update(
+    state: WebState,
+    update: ConfigurationUpdate,
+    /,
+) -> dict[str, Any]:
+    client = RemoteConfigClient(state.settings.remote.services.asr, state.settings.remote)
+    try:
+        current = await client.read()
+        rejected = sorted(set(update.changes) - set(current.editable_paths))
+        if rejected:
+            raise HTTPException(
+                422,
+                f"unknown or non-editable remote settings: {', '.join(rejected)}",
+            )
+        snapshot = await client.update(update.changes)
+    finally:
+        await client.aclose()
+    changed = sorted(update.changes)
+    reloading_roles = _changed_model_roles(changed)
+    for role in reloading_roles:
+        task = asyncio.create_task(
+            _reload_model_role(state.settings, role, side="remote"),
+            name=f"reload-{role}",
+        )
+        state.reload_tasks.add(task)
+        task.add_done_callback(state.reload_tasks.discard)
+    return _render_remote_configuration(snapshot, changed, reloading_roles)
 
 
 async def _apply_configuration_update(
@@ -432,7 +600,7 @@ def _apply_runtime_logging(
         settings.resolve(logging.log_path),
         logging.console,
         "web",
-        terminal_interface=True,
+        web_interface=True,
         maximum_bytes=logging.max_bytes,
         backup_count=logging.backup_count,
         console_format=logging.console_format,
@@ -486,6 +654,26 @@ def _clear_history(
         store.close()
 
 
+def _history_export_lines(
+    settings: Settings,
+    query: str | None,
+    source_language: str | None,
+    outcome: str | None,
+    /,
+) -> list[str]:
+    store = Store(settings.resolve(settings.store.path))
+    try:
+        entries = store.search_turns(
+            query=query or None,
+            src_lang=source_language or None,
+            outcome=outcome or None,
+            limit=10_000,
+        )
+        return [f"{json.dumps(entry.as_dict(), ensure_ascii=False)}\n" for entry in entries]
+    finally:
+        store.close()
+
+
 def _changed_model_roles(
     changed_paths: list[str],
     /,
@@ -501,8 +689,9 @@ async def _reload_model_role(
     settings: Settings,
     role: str,
     /,
+    side: str | None = None,
 ) -> None:
-    side = settings.resolved_placement().get(role, "local")
+    side = side or settings.resolved_placement().get(role, "local")
     url = settings.url_for(role, side).rstrip("/")
     token = (settings.remote.token or "") if side == "remote" else ""
     headers = {"Authorization": f"Bearer {token}"} if token else {}

@@ -47,7 +47,7 @@ python3 -c 'import secrets; print(secrets.token_hex(32))'
 | `KOTONOHA_ENV_FILE` | Selects an alternative environment file. An empty value disables loading. | `.env` |
 | `KOTONOHA_CONFIG` | Selects the primary YAML overlay. | `config/default.yaml` |
 | `KOTONOHA_LOCAL_CONFIG` | Selects the writable host override. | `config/local.yaml` |
-| `KOTONOHA_LANG` | Selects `auto`, `en`, `ko`, `ja`, or `zh-TW` for CLI and TUI text. | `auto` |
+| `KOTONOHA_LANG` | Selects `auto`, `en`, `ko`, `ja`, or `zh-TW` for CLI and Web text. | `auto` |
 | `KOTONOHA_SERVICE_TOKEN` | Protects model service and configuration administration endpoints. | Unset |
 | `KOTONOHA_DISABLE_NVML` | Selects the Jetson NVML bypass when the image profile enables it. | Profile-specific |
 | `KOTONOHA_MEMORY_ARCHITECTURE` | Overrides detected discrete or unified memory architecture for diagnostics. | Auto-detected |
@@ -97,7 +97,7 @@ authenticate Web UI users. Bind to loopback unless a reverse proxy provides both
 | `ACCELERATOR_REMOTE_BASE` | Overrides the profile base image for remote Python services. |
 | `CONTAINER_RUNTIME` | Selects the Compose accelerator runtime. |
 | `GPU_DRIVER` | Selects the Compose device reservation driver. |
-| `ASR_BASE`, `VERIFY_BASE`, `ORCH_BASE`, `REMOTE_BASE`, `REMOTE_ASR_BASE` | Override role-specific build images. |
+| `ASR_BASE`, `VERIFY_BASE`, `REMOTE_BASE`, `REMOTE_ASR_BASE` | Override role-specific build images. |
 | `LLM_IMAGE`, `TTS_IMAGE` | Override translation and speech build images. |
 | `VLLM_NVML_PATCH` | Controls application of the pinned Jetson vLLM NVML patch. |
 | `ASR_GPU_DEVICE`, `ASR_VERIFY_GPU_DEVICE`, `LLM_GPU_DEVICE`, `TTS_GPU_DEVICE` | Bind A6000 roles to GPU indices or stable UUIDs. |

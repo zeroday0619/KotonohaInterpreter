@@ -296,10 +296,10 @@ def test_deploy_builds_and_validates_the_llm_image_before_start() -> None:
     )[0]
     validation_call = "verify_vllm_translation_runtime"
 
-    assert "build asr asr-verify llm tts orchestrator" in jetson_body
+    assert "build asr asr-verify llm tts web" in jetson_body
     assert "build metrics asr asr-verify llm tts" in a6000_body
     for deploy_body, build_marker in (
-        (jetson_body, "build asr asr-verify llm tts orchestrator"),
+        (jetson_body, "build asr asr-verify llm tts web"),
         (a6000_body, "build metrics asr asr-verify llm tts"),
     ):
         assert validation_call in deploy_body
@@ -533,12 +533,11 @@ def test_jetson_images_use_the_pinned_ngc_vllm_runtime() -> None:
             "Dockerfile.asr",
             "Dockerfile.asr-verify",
             "Dockerfile.llm",
-            "Dockerfile.orchestrator",
         )
     )
 
     assert "Jetson Linux 39.2" in compose_source
-    assert compose_source.count(jetson_image) == 4
+    assert compose_source.count(jetson_image) == 3
     assert "vllm/vllm-omni:v0.26.0" in compose_source
     assert "Jetson Linux 39.2" in deploy_source
     assert "R39.*REVISION: 2" in deploy_source
@@ -642,7 +641,7 @@ def test_editable_container_installs_include_the_custom_build_hook() -> None:
     standalone_dockerfiles = (
         PROJECT_ROOT / "docker" / "Dockerfile.asr",
         PROJECT_ROOT / "docker" / "Dockerfile.asr-verify",
-        PROJECT_ROOT / "docker" / "Dockerfile.orchestrator",
+        PROJECT_ROOT / "docker" / "Dockerfile.web",
     )
     required_copy = "COPY pyproject.toml uv.lock README.md LICENSE hatch_build.py ./"
 
@@ -839,7 +838,7 @@ def test_llm_service_owns_the_engine_without_a_nested_server() -> None:
     assert '"serve"' not in source
 
 
-def test_web_overlay_reaches_the_model_services_without_a_host_audio_device() -> None:
+def test_web_service_reaches_models_without_a_host_audio_device() -> None:
     """Audio belongs to the browser, but the shared ring and services do not.
 
     Bridge networking would resolve 127.0.0.1:800x inside the container instead of
@@ -847,7 +846,7 @@ def test_web_overlay_reaches_the_model_services_without_a_host_audio_device() ->
     to them. A host sound device would be unused: capture happens in the client.
     """
     overlay = yaml.safe_load(
-        (PROJECT_ROOT / "docker" / "compose.web.yaml").read_text(encoding="utf-8")
+        (PROJECT_ROOT / "docker" / "compose.yaml").read_text(encoding="utf-8")
     )
 
     web = overlay["services"]["web"]
@@ -878,10 +877,10 @@ def test_a6000_web_overlay_uses_pcm_transport_to_local_resident_services() -> No
     )
 
 
-def test_web_overlay_binds_loopback_unless_the_operator_opts_out() -> None:
+def test_web_service_binds_loopback_unless_the_operator_opts_out() -> None:
     """The interface drives the microphone and carries no authentication."""
     overlay = yaml.safe_load(
-        (PROJECT_ROOT / "docker" / "compose.web.yaml").read_text(encoding="utf-8")
+        (PROJECT_ROOT / "docker" / "compose.yaml").read_text(encoding="utf-8")
     )
 
     command = overlay["services"]["web"]["command"]
@@ -892,7 +891,7 @@ def test_web_overlay_binds_loopback_unless_the_operator_opts_out() -> None:
 def test_web_compose_variables_survive_sudo() -> None:
     """sudo strips exported variables; Compose interpolation needs them allowlisted."""
     script = (PROJECT_ROOT / "scripts" / "manage.sh").read_text(encoding="utf-8")
-    overlay = (PROJECT_ROOT / "docker" / "compose.web.yaml").read_text(encoding="utf-8")
+    overlay = (PROJECT_ROOT / "docker" / "compose.yaml").read_text(encoding="utf-8")
 
     allowlist = script.split("docker_environment_names=(", 1)[1].split(")", 1)[0].split()
 

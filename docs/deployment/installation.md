@@ -8,7 +8,7 @@ procedures for Kotonoha Interpreter. It covers three environments:
 | Environment | Purpose | Inference support |
 |---|---|---|
 | macOS arm64 workstation | Development, linting, unit tests, evaluation | Control-plane tests only |
-| Jetson AGX Orin 64GB | Audio frontend, orchestrator, and on-board model services | Required target |
+| Jetson AGX Orin 64GB | Web control center and on-board model services | Required target |
 | RTX A6000 server | Optional high-performance model services | Optional target |
 
 The deployment remains a validation deployment until Phase 0 has been executed on the
@@ -20,8 +20,8 @@ No latency or model-compatibility result in this document replaces target measur
 
 ### On-board mode
 
-All processes run on the Jetson. Model services share the Jetson host network and POSIX
-shared memory. The orchestrator accesses the microphone and speaker through `/dev/snd`.
+All server processes run on the Jetson. Model services share the Jetson host network and
+POSIX shared memory. The operator browser captures the microphone and plays speech.
 
 | Process | Port | Container | Data path |
 |---|---:|---|---|
@@ -29,15 +29,14 @@ shared memory. The orchestrator accesses the microphone and speaker through `/de
 | Verification ASR | 8002 | `asr-verify` | Shared-memory reference |
 | Translation LLM | 8003 | `llm` | Text over HTTP |
 | TTS | 8004 | `tts` | Text and PCM over HTTP |
-| Orchestrator and TUI | None | `orchestrator` | `/dev/snd`, host IPC, host network |
+| Web control center | 8080 | `web` | Host IPC and host network |
 
 ### High-performance mode
 
-The audio frontend and orchestrator remain on the Jetson. The A6000 runs resident model
-services. `hybrid` moves only the LLM. `remote` moves ASR, verification ASR, LLM, and
-TTS. `custom` selects local or remote placement for each role through the `placement`
-mapping. Remote ASR traffic uses multipart binary PCM; it does not use shared memory or
-base64 encoding.
+The Web orchestrator runs on the selected application host. The A6000 runs resident model
+services. `hybrid` moves only the LLM. `remote` moves ASR, verification ASR, LLM, and TTS.
+`custom` selects local or remote placement for each role through the `placement` mapping.
+Remote ASR traffic uses multipart binary PCM; it does not use shared memory or base64.
 
 | Source | Destination | Ports | Required direction |
 |---|---|---|---|
@@ -203,9 +202,9 @@ The script does not replace `config/local.yaml`, `config/remote-server.local.yam
 existing `.env`. Routine deployment reuses `config/remote-gpu.env` so GPU enumeration or
 temporary memory usage cannot move a resident model unexpectedly. Use
 `--reallocate-gpus` after adding, removing, or repurposing GPUs. The option stops resident
-services before measuring free memory. The script does not start the interactive
-orchestrator. Continue with the runtime command printed after all resident services become
-healthy.
+services before measuring free memory. Jetson deployment starts the Web control center
+after all resident services become healthy. A6000 deployment keeps the Web control center
+as an explicit `bash scripts/manage.sh web a6000` operation.
 
 The script first attempts Docker access as the current user. When the Docker socket
 requires root privileges, it automatically uses `sudo docker` for Docker and Compose
@@ -275,8 +274,8 @@ uv run kotonoha doctor
 do not represent Jetson compatibility. Unit tests must continue to run without models,
 microphones, or network access.
 
-`kotonoha doctor` must report `uvloop` as available. The orchestrator, both Textual
-applications, CLI network probes, and all Python model services require uvloop. Uvicorn
+`kotonoha doctor` must report `uvloop` as available. The Web orchestrator, CLI network
+probes, and all Python model services require uvloop. Uvicorn
 commands set `--loop uvloop` explicitly, so a missing wheel fails during installation or
 startup instead of changing the event-loop implementation silently.
 
@@ -463,8 +462,8 @@ therefore use the `kotonohainterpreter-<service>:latest` naming pattern regardle
 `docker/` directory name. The expected ASR image is
 `kotonohainterpreter-asr:latest`.
 
-Confirm that the Jetson ASR, verification, translation, and orchestrator roles resolve to
-the pinned NGC image:
+Confirm that the Jetson ASR, verification, and translation roles resolve to the pinned
+NGC image:
 
 - `nvcr.io/nvidia/vllm:26.07-py3`
 
@@ -476,7 +475,7 @@ Linux arm64 and amd64 variants. The manifest does not establish Jetson compatibi
 ### Build Jetson images
 
 ```bash
-docker compose -f docker/compose.yaml build asr asr-verify llm tts orchestrator
+docker compose -f docker/compose.yaml build asr asr-verify llm tts web
 ```
 
 Review the build output for the following conditions:
@@ -487,14 +486,12 @@ Review the build output for the following conditions:
 - `onnxruntime` and DeepFilterNet installation status is explicit.
 - The TTS service build resolves the official vLLM-Omni base to the arm64 manifest.
 
-The orchestrator Dockerfile permits selected target dependencies to fail during image
-construction. Target execution showed that the installed AArch64 CTranslate2 artifact
-was not compiled with CUDA support. The Jetson verification service therefore uses the
-documented faster-whisper CPU INT8 path, while the A6000 overlay retains CUDA FP16. The
-verification service synchronizes the `asr-verify` extra and the application into one
-locked environment, then checks CPU INT8 capability during construction. Jetson model
-loading, transcription latency, and memory use remain target measurements. An image pull
-or successful build also does not prove vLLM-Omni TTS loading.
+The Web image is accelerator-neutral. Target execution showed that the installed AArch64
+CTranslate2 artifact was not compiled with CUDA support. The Jetson verification service
+therefore uses the documented faster-whisper CPU INT8 path, while the A6000 overlay
+retains CUDA FP16. Jetson model loading, transcription latency, and memory use remain
+target measurements. An image pull or successful build does not prove vLLM-Omni TTS
+loading.
 
 The Jetson images patch vLLM CUDA platform detection to skip NVML and use the non-NVML
 platform. Jetson's `nvgpu` runtime can segfault inside `nvmlInit()` instead of returning a
@@ -539,7 +536,7 @@ docker compose -f docker/compose.yaml up -d asr asr-verify llm tts
 docker compose -f docker/compose.yaml ps
 ```
 
-Inspect startup logs before starting the orchestrator:
+Inspect startup logs before starting the Web control center:
 
 ```bash
 docker compose -f docker/compose.yaml logs --tail=200 asr
@@ -563,54 +560,47 @@ failed to load.
 
 ### Configure audio and the interface
 
-List ALSA and PortAudio devices from the same container context used at runtime:
+Start the Web control center and open it from a secure browser context:
 
 ```bash
-docker compose -f docker/compose.yaml run --rm orchestrator \
-  python3 -m kotonoha._cli devices
+bash scripts/manage.sh web jetson
+curl -fsS http://127.0.0.1:8080/health | python3 -m json.tool
 ```
 
-Open the configuration TUI:
+Select the microphone and speaker on the Interpreter page. The device selectors use the
+browser media-device inventory. The audio test opens the selected microphone, displays
+its level, and sends a low-volume tone to the selected speaker. Remote browser clients
+require HTTPS because browsers reject microphone access on an insecure non-loopback
+origin.
 
-```bash
-docker compose -f docker/compose.yaml run --rm orchestrator \
-  python3 -m kotonoha._cli config
-```
-
-Set `audio.input_device` and `audio.output_device` through the configuration TUI. It stores
-the exact `device name, host API` selector because numeric PortAudio indexes can change
-after a reboot or USB reconnect. The audio test reads 750 ms from the selected microphone,
-reports the measured level, and sends a low-volume tone to the selected speaker. The
-runtime first tries the configured sample rate and mono channel layout, then uses the
-device default rate or stereo when ALSA rejects the requested format. The configuration
-TUI writes `config/local.yaml` only after validating the complete configuration.
+Use the Configuration page for validated local settings. Saving writes
+`config/local.yaml`, replaces active Web sessions, and reloads affected model services.
 
 Import the baseline glossary:
 
 ```bash
-docker compose -f docker/compose.yaml run --rm orchestrator \
+docker compose -f docker/compose.yaml exec web \
   python3 -m kotonoha._cli glossary import config/glossary.seed.yaml
 ```
 
 ### Run diagnostics
 
 ```bash
-docker compose -f docker/compose.yaml run --rm orchestrator \
-  python3 -m kotonoha._cli doctor
+docker compose -f docker/compose.yaml exec web python3 -m kotonoha._cli doctor
 ```
 
 Resolve every required-module failure, missing VAD artifact, down service, and CUDA
 failure before an operator session.
 
-### Start the interpreter
+### Open the interpreter
 
 ```bash
-docker compose -f docker/compose.yaml run --rm orchestrator
+docker compose -f docker/compose.yaml up -d web
 ```
 
-The initial session uses push-to-talk. Press `space` to start and stop an utterance. The
-orchestrator container is intentionally interactive and is not started as a detached
-background service.
+Open `http://127.0.0.1:8080` on the host. The initial session uses push-to-talk. Select
+Enable microphone, then use the Talk control or the space key to start and stop an
+utterance.
 
 ## A6000 Installation
 
@@ -950,8 +940,8 @@ curl -fsS http://127.0.0.1:8080/health | python3 -m json.tool
 ```
 
 The command passes `.env` to Compose when the file exists. A6000 deployment combines
-`compose.remote.yaml`, `compose.web.yaml`, and `compose.web.a6000.yaml`. Jetson deployment
-combines `compose.yaml` and `compose.web.yaml`.
+`compose.yaml`, `compose.remote.yaml`, and `compose.web.a6000.yaml`. Jetson deployment uses
+`compose.yaml` directly.
 
 The default listener is loopback. For remote browser clients, place an authenticated TLS
 reverse proxy on the host and set the application listener explicitly:
@@ -976,8 +966,8 @@ receive HTTP 503 and must be retried after `/health` reports `"ok": true`.
 ### Configure service addresses
 
 Copy `config/performance.yaml` to a host-specific overlay or edit the corresponding local
-fields through `kotonoha config`. Replace `a6000.lan` with a resolvable hostname or fixed
-address. Do not commit the bearer token.
+fields on the Web configuration page. Replace `a6000.lan` with a resolvable hostname or
+fixed address. Do not commit the bearer token.
 
 The complete performance overlay is `config/performance.yaml`. It selects remote mode,
 defines all four service URLs, and applies A6000-oriented model policy. Local
@@ -985,9 +975,8 @@ defines all four service URLs, and applies A6000-oriented model policy. Local
 
 ### Pass the bearer token
 
-The Jetson Compose file does not automatically forward arbitrary host environment
-variables into the orchestrator. Pass the token explicitly for each management,
-diagnostic, and runtime command:
+The Web Compose service does not forward arbitrary host environment variables. Store the
+token in `.env` or pass it explicitly for management and diagnostic commands:
 
 ```bash
 export KOTONOHA__REMOTE__TOKEN=<same-token-as-a6000>
@@ -996,9 +985,9 @@ export KOTONOHA__REMOTE__TOKEN=<same-token-as-a6000>
 ### Measure the network path
 
 ```bash
-docker compose -f docker/compose.yaml run --rm \
+docker compose -f docker/compose.yaml exec \
   -e KOTONOHA__REMOTE__TOKEN="$KOTONOHA__REMOTE__TOKEN" \
-  orchestrator python3 -m kotonoha._cli \
+  web python3 -m kotonoha._cli \
   -c config/performance.yaml netcheck
 ```
 
@@ -1006,22 +995,12 @@ docker compose -f docker/compose.yaml run --rm \
 audio transfer is prohibited or when measured network overhead consumes more than 25%
 of the post-silence latency budget.
 
-### Configure the remote server from the Jetson
+### Configure the remote server
 
-```bash
-docker compose -f docker/compose.yaml run --rm \
-  -e KOTONOHA__REMOTE__TOKEN="$KOTONOHA__REMOTE__TOKEN" \
-  orchestrator python3 -m kotonoha._cli \
-  -c config/performance.yaml config
-```
-
-Select `Remote A6000` in the target selector. The remote target exposes only settings
-owned by resident ASR, verification ASR, LLM, and TTS processes. Saving writes
-`config/remote-server.local.yaml` through the authenticated ASR management endpoint.
-The translation service reads the same validated YAML directly when it restarts.
-
-Remote model settings do not reload in the management request. Restart affected services
-after saving:
+Open the Web Configuration page. The remote target exposes only settings owned by
+resident ASR, verification ASR, LLM, and TTS processes. Saving writes the validated
+changes to `config/remote-server.local.yaml` through the authenticated management API.
+Restart an affected service if its runtime reports that live reload is unavailable:
 
 | Changed section | Required A6000 restart |
 |---|---|
@@ -1034,15 +1013,11 @@ after saving:
 ### Start high-performance mode
 
 ```bash
-docker compose -f docker/compose.yaml run --rm \
-  -e KOTONOHA__REMOTE__TOKEN="$KOTONOHA__REMOTE__TOKEN" \
-  orchestrator python3 -m kotonoha._cli \
-  -c config/performance.yaml run
+bash scripts/manage.sh web a6000
 ```
 
-The TUI status bar must show the expected placement. In `remote` mode it must also show
-that utterance audio leaves the Jetson. Review `placement` and `failovers` in
-`data/logs/turns.jsonl` after the first test turn.
+The Web session and monitoring pages must show the expected placement and service health.
+Review `placement` and `failovers` in `data/logs/turns.jsonl` after the first test turn.
 
 ## Hardware Performance Acceptance
 
@@ -1086,7 +1061,7 @@ backup, rollback, security controls, and troubleshooting. Use
 
 - [ ] MAXN and locked clocks are active.
 - [ ] `jtop` shows no throttling during validation.
-- [ ] Input and output audio devices work from the orchestrator container.
+- [ ] Browser input and output device selection and audio tests succeed.
 - [ ] VAD uses the Silero ONNX model on the target, not the workstation energy fallback.
 - [ ] Half-duplex microphone gating is observed during playback.
 
@@ -1095,7 +1070,7 @@ backup, rollback, security controls, and troubleshooting. Use
 - [ ] A6000 ports are restricted to approved source hosts.
 - [ ] Python services reject inference requests without the bearer token.
 - [ ] `netcheck` completes from the Jetson.
-- [ ] TUI placement matches the intended `onboard`, `hybrid`, `remote`, or `custom` mode.
+- [ ] Web placement matches the intended `onboard`, `hybrid`, `remote`, or `custom` mode.
 - [ ] `placement` and `failovers` appear in turn records.
 - [ ] Audio egress in `remote` mode is approved by the deployment owner.
 

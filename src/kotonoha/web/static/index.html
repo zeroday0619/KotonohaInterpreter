@@ -31,8 +31,11 @@
         <span class="field">mic <b id="mic" data-open="false">SHUT</b> <small id="mic-rate">—</small></span>
         <meter id="level" min="0" max="1" value="0"></meter>
         <span class="field">mode <b id="mode">push_to_talk</b></span>
+        <span class="field">route <b id="routing">pair</b></span>
+        <span class="field">perf <b id="performance-mode">onboard</b></span>
         <span class="field">lang <b id="language">—</b></span>
         <span class="field">session <b id="session-id">—</b></span>
+        <span id="privacy-warning" class="privacy-warning" hidden>Audio sent remotely</span>
         <span id="status"></span>
       </div>
     </header>
@@ -47,7 +50,10 @@
           <button id="test-audio" type="button">Test audio</button>
           <button id="talk" type="button">Talk (space)</button>
           <button id="mode-button" type="button">Mode (a)</button>
+          <button id="clear-turn" type="button">Clear</button>
+          <label><input id="recent-turns-visible" type="checkbox" checked /> Recent turns</label>
           <label>Translate to <select id="target"></select></label>
+          <button id="connection" type="button">Disconnect</button>
         </section>
 
         <section id="text-row" class="controls" hidden>
@@ -69,7 +75,12 @@
           <div id="stage-tts" class="stage" data-status="pending"><span class="stage-mark">·</span><span class="stage-name">speak</span><span class="stage-status">pending</span><span class="stage-detail"></span></div>
         </article>
 
-        <article><h2>Recent turns</h2><div id="history"></div></article>
+        <div class="turn-diagnostics">
+          <article><h2>Latency</h2><div id="turn-latency" class="diagnostic-grid"></div></article>
+          <article><h2>Services</h2><div id="service-status" class="service-status"></div></article>
+        </div>
+
+        <article id="recent-turns"><h2>Recent turns</h2><div id="history"></div></article>
         <article class="log-panel">
           <h2>Application logs
             <span class="log-controls">
@@ -151,8 +162,20 @@
 
       <section id="configuration" class="page" hidden>
         <div class="page-heading">
-          <div><h2>Configuration</h2><p id="config-path" class="muted"></p></div>
-          <button id="config-save" type="button">Save and apply</button>
+          <div>
+            <h2>Configuration</h2>
+            <label>Target
+              <select id="config-target">
+                <option value="local">Application host</option>
+                <option value="remote">Remote model server</option>
+              </select>
+            </label>
+            <p id="config-path" class="muted"></p>
+          </div>
+          <div class="history-actions">
+            <button id="config-reload" type="button">Reload</button>
+            <button id="config-save" type="button">Save and apply</button>
+          </div>
         </div>
         <div class="settings-layout">
           <nav id="config-sections" aria-label="Configuration categories"></nav>
@@ -162,7 +185,13 @@
       </section>
 
       <section id="history-page" class="page" hidden>
-        <div class="page-heading"><h2>Interpretation history</h2><button id="history-clear" type="button" class="danger">Clear history</button></div>
+        <div class="page-heading">
+          <h2>Interpretation history</h2>
+          <div class="history-actions">
+            <button id="history-export" type="button">Export JSONL</button>
+            <button id="history-clear" type="button" class="danger">Clear history</button>
+          </div>
+        </div>
         <div class="controls">
           <input id="history-search" type="search" placeholder="Search source or translation" />
           <select id="history-language"><option value="">All languages</option></select>
@@ -170,6 +199,14 @@
           <button id="history-reload" type="button">Reload</button>
         </div>
         <div id="history-results" class="table-container"></div>
+        <article id="history-detail" hidden>
+          <h2>Turn details</h2>
+          <pre id="history-detail-content"></pre>
+        </article>
+        <div class="history-pagination">
+          <button id="history-previous" type="button">Previous</button>
+          <button id="history-next" type="button">Next</button>
+        </div>
         <p id="history-status" class="muted"></p>
       </section>
 
@@ -179,6 +216,7 @@
           <select id="operation-select"></select>
           <button id="operation-run" type="button">Run</button>
           <button id="operation-stop" type="button">Stop</button>
+          <button id="operation-clear" type="button">Clear</button>
         </div>
         <p id="operation-description" class="muted"></p>
         <div id="operation-fields" class="form-grid"></div>
@@ -188,7 +226,12 @@
       <section id="license" class="page" hidden>
         <div class="page-heading"><h2>License information</h2><span id="license-version"></span></div>
         <article><h2>Project license</h2><pre id="license-text"></pre></article>
-        <article><h2>Installed dependencies</h2><div id="dependency-licenses" class="table-container"></div></article>
+        <article>
+          <h2>Installed dependencies</h2>
+          <p class="muted">License identifiers come from installed package metadata. Retain license files required by each distributed package.</p>
+          <div id="dependency-licenses" class="table-container"></div>
+          <p class="muted">Downloaded model artifacts are not covered by the project MIT license. Retain and review each model license.</p>
+        </article>
       </section>
     </main>
 

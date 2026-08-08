@@ -164,6 +164,11 @@ h2 {
   color: var(--error);
 }
 
+.privacy-warning {
+  color: var(--warn);
+  font-weight: 700;
+}
+
 .controls {
   display: flex;
   flex-wrap: wrap;
@@ -306,6 +311,38 @@ main {
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.85rem;
+}
+
+.configuration-description {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.history-actions,
+.history-pagination {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.history-pagination {
+  justify-content: flex-end;
+  margin-top: 0.75rem;
+}
+
+#history-results tbody tr {
+  cursor: pointer;
+}
+
+#history-results tbody tr:hover,
+#history-results tbody tr:focus {
+  background: var(--surface-raised);
+  outline: none;
+}
+
+#history-detail {
+  margin-top: 0.75rem;
 }
 
 .form-grid {
@@ -528,6 +565,57 @@ article {
   overflow-wrap: anywhere;
 }
 
+.turn-diagnostics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.diagnostic-grid {
+  display: grid;
+  grid-template-columns: minmax(8rem, 1fr) auto;
+  gap: 0.3rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.diagnostic-grid span {
+  color: var(--muted);
+}
+
+.diagnostic-grid strong {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.diagnostic-grid strong[data-over-budget="true"] {
+  color: var(--error);
+}
+
+.service-status {
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+}
+
+.service-status-row {
+  display: grid;
+  grid-template-columns: 5rem minmax(0, 1fr);
+  gap: 0.75rem;
+}
+
+.service-status-row span {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+
+.service-status-row span[data-status="ready"] {
+  color: var(--ok);
+}
+
+.service-status-row span[data-status="failed"] {
+  color: var(--error);
+}
+
 #translation {
   font-weight: 600;
 }
@@ -654,6 +742,10 @@ article {
   .page-heading {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .turn-diagnostics {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .page-heading > button {

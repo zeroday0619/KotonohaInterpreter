@@ -274,39 +274,6 @@ def _settings(
 
 
 # -- commands -------------------------------------------------------------
-@app.command(cls=LocalizedTyperCommand, help=_("Start the terminal interface"))
-@keyword_compatible
-def run(
-    context: typer.Context,
-    /,
-) -> None:
-    settings = _settings(context)
-    setup_logging(
-        settings.logging.effective_level(),
-        settings.resolve(settings.logging.log_path),
-        settings.logging.console,
-        "orchestrator",
-        terminal_interface=True,
-        maximum_bytes=settings.logging.max_bytes,
-        backup_count=settings.logging.backup_count,
-        console_format=settings.logging.console_format,
-    )
-    from kotonoha.tui._app import KotonohaApp
-
-    run_async(KotonohaApp(_build(settings)).run_async())
-
-
-@app.command(cls=LocalizedTyperCommand, help=_("Start the integrated terminal interface"))
-@keyword_compatible
-def tui(
-    context: typer.Context,
-    /,
-) -> None:
-    from kotonoha.tui._workflow import run_unified_tui
-
-    run_async(run_unified_tui(context.obj.config, _build))
-
-
 @app.command(
     cls=LocalizedTyperCommand,
     help=_("Run the pipeline from a WAV file, without a microphone"),
@@ -460,14 +427,13 @@ def web(
     settings = _settings(context)
     # Every session owns a ring; start the tracker before the first one is created.
     prepare_shared_memory_tracking()
-    # terminal_interface buffers records in process instead of writing them to
-    # stderr, which is where the browser log panel reads them from.
+    # The Web handler buffers structured records for the browser log broadcaster.
     setup_logging(
         settings.logging.effective_level(),
         settings.resolve(settings.logging.log_path),
         settings.logging.console,
         "web",
-        terminal_interface=True,
+        web_interface=True,
         maximum_bytes=settings.logging.max_bytes,
         backup_count=settings.logging.backup_count,
         console_format=settings.logging.console_format,
@@ -624,7 +590,7 @@ def doctor(
     print()
 
     modules = [
-        ("numpy", True), ("httpx2", True), ("structlog", True), ("textual", True),
+        ("numpy", True), ("httpx2", True), ("structlog", True),
         ("prometheus_client", True),
         ("uvloop", True),
         ("soxr", True), ("sounddevice", False), ("opencc", False),
@@ -845,20 +811,6 @@ def netcheck(
         raise typer.Exit(code=1)
 
 
-@app.command(
-    cls=LocalizedTyperCommand,
-    help=_("Edit the configuration in a terminal interface"),
-)
-@keyword_compatible
-def config(
-    context: typer.Context,
-    /,
-) -> None:
-    from kotonoha.tui._config_app import ConfigApp
-
-    run_async(ConfigApp(config_path=context.obj.config).run_async())
-
-
 # -- history ----------------------------------------------------------------
 SearchOption = Annotated[
     str | None, typer.Option("--search", help=_("Match text in the source or the translation"))
@@ -879,21 +831,6 @@ def _open_store(
     from kotonoha.store._db import Store
 
     return Store(settings.resolve(settings.store.path))
-
-
-@history_app.command(
-    "browse",
-    cls=LocalizedTyperCommand,
-    help=_("Open the history browser"),
-)
-@keyword_compatible
-def history_browse(
-    context: typer.Context,
-    /,
-) -> None:
-    from kotonoha.tui._history_app import HistoryApp
-
-    run_async(HistoryApp(config_path=context.obj.config).run_async())
 
 
 @history_app.command(
@@ -960,7 +897,7 @@ def history_export(
     outcome: OutcomeOption = None,
     limit: Annotated[int, typer.Option("--limit", help=_("Maximum turns to return"))] = 10_000,
 ) -> None:
-    from kotonoha.tui._history_app import export_jsonl
+    from kotonoha._history_support import export_jsonl
 
     settings = _settings(context)
     store = _open_store(settings)

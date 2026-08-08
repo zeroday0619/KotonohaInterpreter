@@ -12,9 +12,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from kotonoha._config import load_settings
+from kotonoha._configuration_fields import FIELDS
+from kotonoha._i18n import set_locale
 from kotonoha._shmring import _owned_shared_memory_names
+from kotonoha.clients._config_admin import RemoteConfigSnapshot
 from kotonoha.store._db import Store
-from kotonoha.tui._config_app import FIELDS
+from kotonoha.web import _server as web_server
 from kotonoha.web._audio import FRAME_SAMPLES, BrowserCapture, BrowserPlayback
 from kotonoha.web._logs import LogBroadcaster
 from kotonoha.web._server import _changed_model_roles, create_app
@@ -254,11 +257,34 @@ def test_web_exposes_every_control_center_page() -> None:
     ):
         assert f'id="{page}"' in document
     assert 'id="theme-select"' in document
+    assert 'id="config-target"' in document
+    assert 'id="config-reload"' in document
+    assert 'id="history-export"' in document
+    assert 'id="history-previous"' in document
+    assert 'id="clear-turn"' in document
+    assert 'id="recent-turns-visible"' in document
+    assert 'id="turn-latency"' in document
+    assert 'id="service-status"' in document
+    assert 'id="operation-clear"' in document
+    assert 'id="connection"' in document
     assert 'data-theme="system"' in document
     configuration = client.get("/api/config").json()
     assert {field["path"] for field in configuration["fields"]} == {
         field.path for field in FIELDS
     }
+    assert all(field["description"] for field in configuration["fields"])
+
+
+def test_web_interface_catalog_uses_the_active_locale() -> None:
+    set_locale("ko")
+    try:
+        payload = TestClient(create_app()).get("/api/interface").json()
+    finally:
+        set_locale(None)
+
+    assert payload["locale"] == "ko"
+    assert payload["messages"]["Configuration"] == "설정"
+    assert payload["messages"]["Interpreter"] == "통역"
 
 
 def test_web_client_supports_mobile_layout_and_configuration_navigation() -> None:
@@ -344,11 +370,15 @@ def test_web_history_and_license_pages_use_the_runtime_store(
     history = client.get("/api/history").json()
     assert history["total"] == 1
     assert history["entries"][0]["source_text"] == "source"
+    exported = client.get("/api/history/export")
+    assert exported.status_code == 200
+    assert json.loads(exported.text)["turn_id"] == "turn"
+    assert "attachment" in exported.headers["content-disposition"]
     assert client.get("/api/license").json()["version"]
     assert client.delete("/api/history").json()["removed"] == 1
 
 
-def test_web_operations_page_reuses_the_validated_tui_catalog() -> None:
+def test_web_operations_page_reuses_the_validated_catalog() -> None:
     client = TestClient(create_app())
 
     payload = client.get("/api/operations").json()
@@ -359,6 +389,96 @@ def test_web_operations_page_reuses_the_validated_tui_catalog() -> None:
         "netcheck",
         "glossary_import",
     }
+    assert all(operation["label"] for operation in payload["operations"])
+
+
+def test_web_operation_upload_is_bounded_and_removed_on_shutdown() -> None:
+    application = create_app()
+    with TestClient(application) as client:
+        response = client.post(
+            "/api/operations/upload",
+            files={"upload": ("probe.wav", b"RIFF-probe", "audio/wav")},
+        )
+        path = Path(response.json()["path"])
+        assert response.status_code == 200
+        assert path.read_bytes() == b"RIFF-probe"
+
+    assert not path.exists()
+
+
+def test_web_configuration_supports_the_remote_model_server(
+    _positional_only: object | None = None,
+    /,
+    *,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    snapshots = [
+        RemoteConfigSnapshot(
+            config={"logging": {"prometheus_port": 9091}},
+            editable_paths=["logging.prometheus_port"],
+            overrides={},
+            path="/app/config/remote-server.local.yaml",
+            restart_required=False,
+        ),
+        RemoteConfigSnapshot(
+            config={"logging": {"prometheus_port": 9191}},
+            editable_paths=["logging.prometheus_port"],
+            overrides={"logging": {"prometheus_port": 9191}},
+            path="/app/config/remote-server.local.yaml",
+            restart_required=False,
+        ),
+    ]
+
+    class RemoteClient:
+        __slots__: ClassVar[tuple[str, ...]] = ("index",)
+
+        def __init__(
+            self,
+            /,
+            base_url: str,
+            remote: Any,
+        ) -> None:
+            del base_url, remote
+            self.index = 0
+
+        async def read(
+            self,
+            /,
+        ) -> RemoteConfigSnapshot:
+            return snapshots[self.index]
+
+        async def update(
+            self,
+            /,
+            changes: dict[str, Any],
+        ) -> RemoteConfigSnapshot:
+            assert changes == {"logging.prometheus_port": 9191}
+            self.index = 1
+            return snapshots[1]
+
+        async def aclose(
+            self,
+            /,
+        ) -> None:
+            return None
+
+    monkeypatch.setattr(web_server, "RemoteConfigClient", RemoteClient)
+    client = TestClient(create_app())
+
+    before = client.get("/api/config/remote")
+    after = client.put(
+        "/api/config",
+        json={
+            "target": "remote",
+            "changes": {"logging.prometheus_port": 9191},
+        },
+    )
+
+    assert before.status_code == 200
+    assert before.json()["target"] == "remote"
+    assert before.json()["fields"][0]["value"] == 9091
+    assert after.status_code == 200
+    assert after.json()["changed"] == ["logging.prometheus_port"]
 
 
 def test_model_setting_changes_reload_only_the_affected_services() -> None:
@@ -382,6 +502,10 @@ def test_session_socket_announces_the_audio_contract() -> None:
     assert hello["type"] == "session"
     assert hello["capture_rate"] == 16000
     assert hello["playback_rate"] == 24000
+    assert hello["routing"] == "pair"
+    assert hello["perf_mode"] == "onboard"
+    assert hello["audio_leaves_device"] is False
+    assert hello["budget_ms"]["total"] == 2900
     assert hello["session"]
 
 

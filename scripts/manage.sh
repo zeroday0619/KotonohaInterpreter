@@ -35,7 +35,6 @@ docker_environment_names=(
   LLM_MAX_MODEL_LEN
   LLM_MAX_NUM_BATCHED_TOKENS
   MODELS_DIR
-  ORCH_BASE
   PROMETHEUS_PORT
   REMOTE_ASR_BASE
   REMOTE_BASE
@@ -79,7 +78,6 @@ Usage:
   bash scripts/manage.sh [--dry-run] [-y|--yes] benchmark [auto|jetson|a6000] [--only 1|2|3|all]
   bash scripts/manage.sh [--dry-run] [-y|--yes] benchmark link [netcheck options]
   bash scripts/manage.sh [--dry-run] [-y|--yes] deploy [auto|jetson|a6000] [deploy options]
-  bash scripts/manage.sh [--dry-run] [-y|--yes] tui
   bash scripts/manage.sh [--dry-run] [-y|--yes] web [auto|jetson|a6000]
   bash scripts/manage.sh [--dry-run] [-y|--yes] uninstall [auto|jetson|a6000] [--remove-images|--keep-images]
   bash scripts/manage.sh [--dry-run] [-y|--yes] gpu allocate [allocator options]
@@ -93,7 +91,6 @@ Commands:
   i18n        Extract, update, compile, or check gettext catalogs.
   benchmark   Run Docker hardware spikes or the Jetson-to-A6000 link benchmark.
   deploy      Build and start resident model services on the detected inference host.
-  tui         Start the interactive orchestrator in Docker.
   web         Serve the browser interface over HTTP. Audio runs in the
               browser. Loopback unless KOTONOHA_WEB_HOST is set, and it
               has no authentication.
@@ -191,16 +188,6 @@ configure_docker_access() {
   printf 'Docker requires elevated access; using sudo docker.\n'
 }
 
-run_tui() {
-  local compose_file="$repository_root/docker/compose.yaml"
-  if [ "$dry_run" = true ]; then
-    run_command docker compose -f "$compose_file" run --rm orchestrator
-    return
-  fi
-  configure_docker_access
-  run_docker compose -f "$compose_file" run --rm orchestrator
-}
-
 load_web_accelerator_environment() {
   local deployment_target=$1
   local profile_file="$repository_root/docker/profiles/accelerators/nvidia/jetson/agx-orin.env"
@@ -240,22 +227,20 @@ load_web_accelerator_environment() {
 
 run_web() {
   local deployment_target=$1
-  local compose_file
-  local web_compose_file="$repository_root/docker/compose.web.yaml"
+  local compose_file="$repository_root/docker/compose.yaml"
   local web_target_compose_file=
   local bind_address=${KOTONOHA_WEB_HOST:-127.0.0.1}
   local compose_arguments=()
   load_web_accelerator_environment "$deployment_target"
   if [ "$deployment_target" = "a6000" ]; then
+    compose_arguments+=(-f "$compose_file")
     compose_file="$repository_root/docker/compose.remote.yaml"
     web_target_compose_file="$repository_root/docker/compose.web.a6000.yaml"
-  else
-    compose_file="$repository_root/docker/compose.yaml"
   fi
   if [ -f "$repository_root/.env" ]; then
     compose_arguments+=(--env-file "$repository_root/.env")
   fi
-  compose_arguments+=(-f "$compose_file" -f "$web_compose_file")
+  compose_arguments+=(-f "$compose_file")
   if [ -n "$web_target_compose_file" ]; then
     compose_arguments+=(-f "$web_target_compose_file")
   fi
@@ -530,11 +515,6 @@ case "$command_name" in
     deployment_target=$(resolve_inference_equipment "$deployment_target")
     confirm "Deploy services on $deployment_target"
     run_command bash scripts/deploy.sh "$deployment_target" "$@"
-    ;;
-  tui)
-    require_no_arguments "$@"
-    confirm "Start the integrated TUI"
-    run_tui
     ;;
   web)
     deployment_target=${1:-auto}

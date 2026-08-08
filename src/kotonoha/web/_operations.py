@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import os
+import tempfile
 from asyncio.subprocess import DEVNULL, PIPE, STDOUT, Process
 from pathlib import Path
 from typing import Any, ClassVar, Final
 
 from kotonoha._i18n import current_locale
-from kotonoha.tui._tools_app import build_tool_command
+from kotonoha._operation_catalog import build_tool_command
 
 MAXIMUM_OUTPUT_LINES: Final[int] = 1000
 
@@ -20,11 +21,13 @@ class OperationManager:
     __slots__: ClassVar[tuple[str, ...]] = (
         "_lock",
         "_reader_task",
+        "_job_uploads",
         "config_path",
         "lines",
         "operation",
         "process",
         "return_code",
+        "uploaded_paths",
     )
 
     config_path: Path | None
@@ -46,6 +49,8 @@ class OperationManager:
         self.lines = []
         self.return_code = None
         self._reader_task = None
+        self._job_uploads: set[Path] = set()
+        self.uploaded_paths: set[Path] = set()
         self._lock = asyncio.Lock()
 
     async def start(
@@ -57,12 +62,19 @@ class OperationManager:
         async with self._lock:
             if self.process is not None and self.process.returncode is None:
                 raise RuntimeError("an operation is already running")
-            command = await asyncio.to_thread(
-                build_tool_command,
-                operation,
-                values,
-                self.config_path,
-            )
+            self._job_uploads = {
+                Path(value) for value in values.values() if Path(value) in self.uploaded_paths
+            }
+            try:
+                command = await asyncio.to_thread(
+                    build_tool_command,
+                    operation,
+                    values,
+                    self.config_path,
+                )
+            except Exception:
+                self._remove_job_uploads()
+                raise
             environment = os.environ.copy()
             environment["KOTONOHA_LANG"] = current_locale()
             environment["PYTHONUNBUFFERED"] = "1"
@@ -92,6 +104,7 @@ class OperationManager:
                 self.lines.append(line.decode(errors="replace").rstrip())
                 del self.lines[:-MAXIMUM_OUTPUT_LINES]
         self.return_code = await process.wait()
+        await asyncio.to_thread(self._remove_job_uploads)
 
     async def stop(
         self,
@@ -115,6 +128,36 @@ class OperationManager:
         /,
     ) -> None:
         await self.stop()
+        await asyncio.to_thread(self._remove_job_uploads)
+        self._job_uploads = set(self.uploaded_paths)
+        await asyncio.to_thread(self._remove_job_uploads)
+
+    def _remove_job_uploads(
+        self,
+        /,
+    ) -> None:
+        for path in self._job_uploads:
+            self.uploaded_paths.discard(path)
+            path.unlink(missing_ok=True)
+            try:
+                path.parent.rmdir()
+            except OSError:
+                pass
+        self._job_uploads.clear()
+
+    async def save_upload(
+        self,
+        filename: str,
+        content: bytes,
+        /,
+    ) -> Path:
+        """Save one bounded browser upload for a validated operation command."""
+        suffix = Path(filename).suffix[:16]
+        directory = Path(tempfile.mkdtemp(prefix="kotonoha-operation-"))
+        path = directory / f"upload{suffix}"
+        await asyncio.to_thread(path.write_bytes, content)
+        self.uploaded_paths.add(path)
+        return path
 
     def snapshot(
         self,

@@ -13,6 +13,15 @@ import yaml
 from kotonoha import _i18n as i18n
 from kotonoha._config import REPO_ROOT, load_settings
 from kotonoha._config_store import apply_changes, get_path, set_path, validate_candidate
+from kotonoha._configuration_fields import (
+    FIELD_DESCRIPTIONS,
+    FIELDS,
+    SECTION_LABELS,
+    SECTIONS,
+    VALUE_KIND_DESCRIPTIONS,
+    effective_value,
+    field_description,
+)
 from kotonoha._i18n import (
     DEFAULT_LOCALE,
     _,
@@ -23,15 +32,6 @@ from kotonoha._i18n import (
     set_locale,
     translate_to,
     translation,
-)
-from kotonoha.tui._config_app import (
-    FIELD_DESCRIPTIONS,
-    FIELDS,
-    SECTION_LABELS,
-    SECTIONS,
-    VALUE_KIND_DESCRIPTIONS,
-    effective_value,
-    field_description,
 )
 
 # Babel is a development dependency, so catalog checks skip where it is absent.

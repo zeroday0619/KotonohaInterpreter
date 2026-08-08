@@ -2,7 +2,7 @@
 
 ## Scope
 
-Kotonoha uses English gettext message identifiers for operator-facing CLI and TUI text.
+Kotonoha uses English gettext message identifiers for operator-facing CLI and Web text.
 Korean, Japanese, and Traditional Chinese for Taiwan are maintained in `.po` catalogs.
 Developer logs, structured log fields, identifiers, configuration paths, commands, and
 model identifiers remain English.
@@ -111,7 +111,7 @@ Preserve leading whitespace, trailing whitespace, tabs, and explicit newlines ex
    uv run pytest -q tests/kotonoha/test_i18n.py
    ```
 
-7. Inspect `--help` and the integrated TUI in all four locales.
+7. Inspect `--help` and the Web control center in all four locales.
 
 ## Typer Help
 

@@ -205,10 +205,10 @@ the input text. Record the listening result in the Phase 0 report. A model chang
 the same four-language comparison against the existing snapshot.
 
 After deploying the resident ASR and TTS services, run the intelligibility gate from the
-orchestrator container:
+Web container:
 
 ```bash
-docker compose -f docker/compose.yaml run --rm orchestrator \
+docker compose -f docker/compose.yaml exec web \
   python3 scripts/py/speech_quality.py \
   --output-directory spikes/out/speech-quality
 ```

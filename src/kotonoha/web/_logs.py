@@ -1,9 +1,7 @@
 """Fan the process-wide log buffer out to every connected browser session.
 
-`drain_terminal_interface_logs` removes what it returns, which suits one terminal
-interface and breaks with several readers: two sessions draining concurrently
-would each receive a different half of the stream. One task owns the drain here
-and every session subscribes to the result, so all of them see the same records.
+`drain_web_logs` removes what it returns. One task owns that drain and fans every
+record out to the connected sessions, so concurrent browsers see the same stream.
 Late joiners receive the recent history first, because a log panel that starts
 empty tells an operator nothing about the failure they opened it to inspect.
 """
@@ -14,7 +12,7 @@ import asyncio
 from collections import deque
 from typing import Any, ClassVar, Final
 
-from kotonoha._logging_setup import drain_terminal_interface_logs, render_dmesg
+from kotonoha._logging_setup import drain_web_logs, render_dmesg
 
 POLL_SECONDS: Final = 0.25
 HISTORY_LIMIT: Final = 400
@@ -106,7 +104,7 @@ class LogBroadcaster:
         /,
     ) -> None:
         while True:
-            for raw_message in drain_terminal_interface_logs():
+            for raw_message in drain_web_logs():
                 self.publish(render_dmesg(raw_message))
             await asyncio.sleep(POLL_SECONDS)
 

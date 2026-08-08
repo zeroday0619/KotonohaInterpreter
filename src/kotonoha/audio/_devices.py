@@ -199,7 +199,7 @@ def probe_audio_devices(
         samples = _probe_input(sounddevice, input_settings)
         input_peak_dbfs, input_rms_dbfs = _signal_levels(samples)
         input_signal_detected = bool(np.max(np.abs(samples), initial=0.0) >= _MINIMUM_INPUT_PEAK)
-    except Exception as error:  # noqa: BLE001 - expose PortAudio diagnostics in the TUI
+    except Exception as error:  # noqa: BLE001 - expose complete PortAudio diagnostics
         input_error = str(error)
 
     try:
@@ -210,7 +210,7 @@ def probe_audio_devices(
             requested_channels=1,
         )
         _probe_output(sounddevice, output_settings)
-    except Exception as error:  # noqa: BLE001 - expose PortAudio diagnostics in the TUI
+    except Exception as error:  # noqa: BLE001 - expose complete PortAudio diagnostics
         output_error = str(error)
 
     return AudioProbeResult(

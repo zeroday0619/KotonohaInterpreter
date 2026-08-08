@@ -166,11 +166,11 @@ def test_netcheck_executes_localized_output_before_measurement_loops(
     assert "Estimated link overhead" in result.stdout
 
 
-def test_integrated_tui_command_is_registered() -> None:
-    result = CliRunner().invoke(app, ["tui", "--help"])
+def test_web_command_is_registered() -> None:
+    result = CliRunner().invoke(app, ["web", "--help"])
 
     assert result.exit_code == 0, result.exception
-    assert "kotonoha tui" in result.stdout
+    assert "kotonoha web" in result.stdout
 
 
 @pytest.mark.parametrize(
