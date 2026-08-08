@@ -39,13 +39,14 @@ async def run_unified_tui(
         selection = await TuiMenuApp(settings).run_async()
         if selection == "interpreter":
             setup_logging(
-                settings.logging.level,
+                settings.logging.effective_level(),
                 settings.resolve(settings.logging.log_path),
                 settings.logging.console,
                 "orchestrator",
                 terminal_interface=True,
                 maximum_bytes=settings.logging.max_bytes,
                 backup_count=settings.logging.backup_count,
+                console_format=settings.logging.console_format,
             )
             orchestrator = await asyncio.to_thread(build_orchestrator, settings)
             await KotonohaApp(orchestrator).run_async()

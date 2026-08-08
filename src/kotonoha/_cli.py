@@ -183,6 +183,7 @@ class AppState:
     """Carry the global configuration path through Typer's context object."""
 
     config: Path | None = None
+    debug: bool = False
 
 
 class ServiceName(str, Enum):
@@ -234,6 +235,14 @@ LangOption = Annotated[
     str | None,
     typer.Option("--lang", help=_("Interface language: auto, en, ko, ja, zh-TW")),
 ]
+DebugOption = Annotated[
+    bool,
+    typer.Option(
+        "-d",
+        "--debug",
+        help=_("Log at DEBUG level and show per-stage detail in the interface"),
+    ),
+]
 
 
 @app.callback()
@@ -243,19 +252,25 @@ def cli(
     /,
     config: ConfigOption = None,
     language: LangOption = None,
+    debug: DebugOption = False,
 ) -> None:
     if language and language != "auto":
         if language not in available_locales():
             raise typer.BadParameter(f"{language} not in {', '.join(available_locales())}")
         set_locale(language)
-    context.obj = AppState(config=config)
+    context.obj = AppState(config=config, debug=debug)
 
 
 def _settings(
     context: typer.Context,
     /,
 ) -> Settings:
-    return load_settings(context.obj.config)
+    settings = load_settings(context.obj.config)
+    # The flag only turns debug on. A configuration file that already enables it
+    # stays enabled without the flag.
+    if context.obj.debug:
+        settings.logging.debug = True
+    return settings
 
 
 # -- commands -------------------------------------------------------------
@@ -267,13 +282,14 @@ def run(
 ) -> None:
     settings = _settings(context)
     setup_logging(
-        settings.logging.level,
+        settings.logging.effective_level(),
         settings.resolve(settings.logging.log_path),
         settings.logging.console,
         "orchestrator",
         terminal_interface=True,
         maximum_bytes=settings.logging.max_bytes,
         backup_count=settings.logging.backup_count,
+        console_format=settings.logging.console_format,
     )
     from kotonoha.tui._app import KotonohaApp
 
@@ -320,12 +336,13 @@ def replay(
     # segmenting, so force automatic mode.
     settings.session.mode = "auto"
     setup_logging(
-        settings.logging.level,
+        settings.logging.effective_level(),
         settings.resolve(settings.logging.log_path),
         True,
         "replay",
         maximum_bytes=settings.logging.max_bytes,
         backup_count=settings.logging.backup_count,
+        console_format=settings.logging.console_format,
     )
     orchestrator = _build(
         settings,
@@ -371,12 +388,13 @@ def text_command(
     settings = _settings(context)
     settings.session.mode = "text"
     setup_logging(
-        settings.logging.level,
+        settings.logging.effective_level(),
         settings.resolve(settings.logging.log_path),
         False,
         "text",
         maximum_bytes=settings.logging.max_bytes,
         backup_count=settings.logging.backup_count,
+        console_format=settings.logging.console_format,
     )
     orchestrator = _build(settings, text_only=True)
     if not speak:
@@ -405,6 +423,66 @@ def text_command(
     print(_("[{lang}] {text}", lang=result.get("src_lang"), text=result.get("source_text") or ""))
     print(
         _("[{lang}] {text}", lang=result.get("tgt_lang"), text=result.get("translation") or "")
+    )
+
+
+@app.command(
+    cls=LocalizedTyperCommand,
+    help=_("Serve the browser interface over HTTP"),
+)
+@keyword_compatible
+def web(
+    context: typer.Context,
+    /,
+    host: Annotated[
+        str,
+        typer.Option("--host", help=_("Address to bind; loopback by default")),
+    ] = "127.0.0.1",
+    port: Annotated[
+        int,
+        typer.Option("--port", min=1024, max=65535, help=_("Port to listen on")),
+    ] = 8080,
+    sessions: Annotated[
+        int,
+        typer.Option(
+            "--sessions",
+            min=1,
+            max=16,
+            help=_("Concurrent browser sessions; they share the model services"),
+        ),
+    ] = 4,
+) -> None:
+    import uvicorn
+
+    from kotonoha._shmring import prepare_shared_memory_tracking
+    from kotonoha.web._server import create_app
+
+    settings = _settings(context)
+    # Every session owns a ring; start the tracker before the first one is created.
+    prepare_shared_memory_tracking()
+    # terminal_interface buffers records in process instead of writing them to
+    # stderr, which is where the browser log panel reads them from.
+    setup_logging(
+        settings.logging.effective_level(),
+        settings.resolve(settings.logging.log_path),
+        settings.logging.console,
+        "web",
+        terminal_interface=True,
+        maximum_bytes=settings.logging.max_bytes,
+        backup_count=settings.logging.backup_count,
+        console_format=settings.logging.console_format,
+    )
+
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        # The interface opens a microphone and drives the model services, and it
+        # carries no authentication of its own.
+        print(_("Warning: {host} exposes the interface with no authentication", host=host))
+
+    uvicorn.run(
+        create_app(settings, maximum_sessions=sessions),
+        host=host,
+        port=port,
+        log_config=None,
     )
 
 
@@ -898,6 +976,40 @@ def history_export(
         raise typer.Exit(code=1)
     export_jsonl(entries, destination)
     print(_("Exported {count} turns to {path}", count=len(entries), path=destination))
+
+
+@history_app.command(
+    "clear",
+    cls=LocalizedTyperCommand,
+    help=_("Delete recorded turns"),
+)
+@keyword_compatible
+def history_clear(
+    context: typer.Context,
+    /,
+    session: Annotated[
+        str | None,
+        typer.Option("--session", help=_("Clear only this session identifier")),
+    ] = None,
+    assume_yes: Annotated[
+        bool,
+        typer.Option("-y", "--yes", help=_("Do not ask for confirmation")),
+    ] = False,
+) -> None:
+    settings = _settings(context)
+    store = _open_store(settings)
+    try:
+        pending = store.count_turns(session_id=session)
+        if not pending:
+            print(_("No turns to clear"))
+            raise typer.Exit(code=1)
+        if not assume_yes:
+            # Deleting interpretation history cannot be undone from the interface.
+            typer.confirm(_("Delete {count} recorded turns?", count=pending), abort=True)
+        removed = store.clear_history(session)
+    finally:
+        store.close()
+    print(_("Cleared {count} turns", count=removed))
 
 
 def _excerpt(

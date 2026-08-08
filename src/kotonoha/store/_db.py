@@ -213,6 +213,32 @@ class Store:
             except FileNotFoundError:
                 continue
 
+    def clear_history(
+        self,
+        /,
+        session_id: str | None = None,
+    ) -> int:
+        """Delete recorded turns and return how many rows were removed.
+
+        The glossary and the Traditional Chinese rules are operator-authored
+        configuration rather than history, so they survive a reset. Passing a
+        session identifier limits the reset to that conversation.
+        """
+        with self._lock, self.connection:
+            if session_id is None:
+                removed = self.connection.execute("DELETE FROM turns").rowcount
+                self.connection.execute("DELETE FROM sessions")
+            else:
+                removed = self.connection.execute(
+                    "DELETE FROM turns WHERE session_id = ?",
+                    (session_id,),
+                ).rowcount
+                self.connection.execute(
+                    "DELETE FROM sessions WHERE session_id = ?",
+                    (session_id,),
+                )
+        return max(0, removed)
+
     def _prune_turns(
         self,
         /,

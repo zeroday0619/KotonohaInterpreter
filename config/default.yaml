@@ -208,7 +208,9 @@ logging:
   turn_log_path: ./data/logs/turns.jsonl # §11 turn metrics, one line per turn
   max_bytes: 67108864 # rotate each JSONL file at 64 MiB
   backup_count: 5 # retain five prior JSONL generations
-  console: true # rendered as structured records in the TUI; raw JSON in service consoles
+  console: true # rendered as kernel-style records in the TUI and in service consoles
+  console_format: dmesg # dmesg | json; the JSONL files stay structured either way
+  debug: false # DEBUG level plus per-stage detail in the interface; -d overrides
   prometheus_port: null # A6000 metrics receiver port; disabled in the Jetson baseline
 
 # §6 latency budget in ms. Stages that exceed it appear in the turn log as over_budget.

@@ -1,4 +1,4 @@
-"""Human-readable rendering for structured JSON application logs."""
+"""Kernel ring buffer rendering for structured JSON application logs."""
 
 from __future__ import annotations
 
@@ -8,7 +8,9 @@ from typing import Any
 
 from rich.text import Text
 
-_RESERVED_FIELDS = {"event", "level", "logger", "service", "timestamp"}
+from kotonoha._logging_setup import dmesg_parts
+
+_RESERVED_FIELDS = {"event", "level", "logger", "service", "timestamp", "uptime"}
 _LEVEL_STYLES = {
     "critical": "bold white on red",
     "error": "bold red",
@@ -51,21 +53,13 @@ def format_json_log(
     if not isinstance(record, dict):
         return Text(_field_value(record), style="dim")
 
-    level = str(record.get("level") or "info").lower()
-    service = str(record.get("service") or record.get("logger") or "application")
-    event = str(record.get("event") or "log")
+    stamp, level, service, event, fields = dmesg_parts(record)
 
     output = Text()
-    output.append(_timestamp(record.get("timestamp")) + " ", style="dim")
-    output.append(f"{level.upper():<8}", style=_LEVEL_STYLES.get(level, "white"))
-    output.append(f"{service:<12}", style="magenta")
+    output.append(stamp + " ", style="dim")
+    output.append(f"{level:<7} ", style=_LEVEL_STYLES.get(level.lower(), "white"))
+    output.append(f"{service}: ", style="magenta")
     output.append(event, style="bold")
-
-    fields = [
-        f"{key}={_field_value(value)}"
-        for key, value in record.items()
-        if key not in _RESERVED_FIELDS
-    ]
     if fields:
-        output.append("  " + "  ".join(fields), style="dim")
+        output.append(" " + fields, style="dim")
     return output

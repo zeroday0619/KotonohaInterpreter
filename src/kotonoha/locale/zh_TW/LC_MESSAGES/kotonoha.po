@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Kotonoha Interpreter 0.1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-08 12:38+0800\n"
+"POT-Creation-Date: 2026-08-08 14:23+0800\n"
 "PO-Revision-Date: 2026-08-05 15:30+0900\n"
 "Last-Translator: Kotonoha Interpreter\n"
 "Language: zh_TW\n"
@@ -18,247 +18,298 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-#: kotonoha/_cli.py:202
+#: kotonoha/_cli.py:203
 msgid "Consecutive four-language offline speech interpreter"
 msgstr "逐步口譯用四語離線語音口譯系統"
 
-#: kotonoha/_cli.py:210
+#: kotonoha/_cli.py:211
 msgid "Manage the glossary"
 msgstr "管理詞彙表"
 
-#: kotonoha/_cli.py:217
+#: kotonoha/_cli.py:218
 msgid "Browse past interpretation turns"
 msgstr "瀏覽過往口譯紀錄"
 
-#: kotonoha/_cli.py:230
+#: kotonoha/_cli.py:231
 msgid "Path to a YAML configuration file"
 msgstr "YAML 設定檔路徑"
 
-#: kotonoha/_cli.py:235
+#: kotonoha/_cli.py:236
 msgid "Interface language: auto, en, ko, ja, zh-TW"
 msgstr "介面語言：auto、en、ko、ja、zh-TW"
 
-#: kotonoha/_cli.py:262
+#: kotonoha/_cli.py:243
+msgid "Log at DEBUG level and show per-stage detail in the interface"
+msgstr "以 DEBUG 層級記錄，並在介面顯示各階段細節"
+
+#: kotonoha/_cli.py:277
 msgid "Start the terminal interface"
 msgstr "啟動終端機介面"
 
-#: kotonoha/_cli.py:283
+#: kotonoha/_cli.py:299
 msgid "Start the integrated terminal interface"
 msgstr "啟動整合式終端機介面"
 
-#: kotonoha/_cli.py:296
+#: kotonoha/_cli.py:312
 msgid "Run the pipeline from a WAV file, without a microphone"
 msgstr "不使用麥克風，以 WAV 檔執行整條流程"
 
-#: kotonoha/_cli.py:303
+#: kotonoha/_cli.py:319
 msgid "16-bit PCM WAV file"
 msgstr "16 位元 PCM WAV 檔"
 
-#: kotonoha/_cli.py:308
+#: kotonoha/_cli.py:324
 msgid "Run duration in seconds"
 msgstr "執行時間（秒）"
 
-#: kotonoha/_cli.py:344
+#: kotonoha/_cli.py:361
 #, python-brace-format
 msgid "Turn log: {path}"
 msgstr "輪次記錄：{path}"
 
-#: kotonoha/_cli.py:350
+#: kotonoha/_cli.py:367
 msgid "Interpret typed text without a microphone"
 msgstr "不使用麥克風，口譯輸入的文字"
 
-#: kotonoha/_cli.py:356
+#: kotonoha/_cli.py:373
 msgid "Text to interpret"
 msgstr "要口譯的文字"
 
-#: kotonoha/_cli.py:361
+#: kotonoha/_cli.py:378
 msgid "Source language; omit to detect it from the writing system"
 msgstr "來源語言。省略時依文字系統判定"
 
-#: kotonoha/_cli.py:365
+#: kotonoha/_cli.py:382
 msgid "Play the synthesized translation"
 msgstr "播放合成的譯文"
 
-#: kotonoha/_cli.py:403
+#: kotonoha/_cli.py:421
 msgid "The turn cannot start because the input is empty or another turn is running"
 msgstr "輸入為空或其他輪次正在執行，因此無法開始新輪次"
 
-#: kotonoha/_cli.py:405 kotonoha/_cli.py:407
+#: kotonoha/_cli.py:423 kotonoha/_cli.py:425
 #, python-brace-format
 msgid "[{lang}] {text}"
 msgstr "[{lang}] {text}"
 
-#: kotonoha/_cli.py:411 kotonoha/tui/_tools_app.py:176
+#: kotonoha/_cli.py:431
+msgid "Serve the browser interface over HTTP"
+msgstr "以 HTTP 提供瀏覽器介面"
+
+#: kotonoha/_cli.py:439
+msgid "Address to bind; loopback by default"
+msgstr "要繫結的位址，預設為回送位址"
+
+#: kotonoha/_cli.py:443
+msgid "Port to listen on"
+msgstr "接聽的連接埠"
+
+#: kotonoha/_cli.py:451
+msgid "Concurrent browser sessions; they share the model services"
+msgstr "同時的瀏覽器工作階段數，各工作階段共用模型服務"
+
+#: kotonoha/_cli.py:479
+#, python-brace-format
+msgid "Warning: {host} exposes the interface with no authentication"
+msgstr "警告：{host} 會在無驗證的情況下公開介面"
+
+#: kotonoha/_cli.py:489 kotonoha/tui/_tools_app.py:176
 msgid "List audio devices"
 msgstr "列出音訊裝置"
 
-#: kotonoha/_cli.py:417
+#: kotonoha/_cli.py:495
 msgid "Default input/output:"
 msgstr "預設輸入/輸出："
 
-#: kotonoha/_cli.py:420 kotonoha/tui/_tools_app.py:182
+#: kotonoha/_cli.py:498 kotonoha/tui/_tools_app.py:182
 msgid "Start a model service"
 msgstr "啟動模型服務"
 
-#: kotonoha/_cli.py:423
+#: kotonoha/_cli.py:501
 msgid "Service to start"
 msgstr "要啟動的服務"
 
-#: kotonoha/_cli.py:425 kotonoha/tui/_tools_app.py:131 kotonoha/tui/_tools_app.py:199
+#: kotonoha/_cli.py:503 kotonoha/tui/_tools_app.py:131 kotonoha/tui/_tools_app.py:199
 msgid "Bind address"
 msgstr "繫結位址"
 
-#: kotonoha/_cli.py:427
+#: kotonoha/_cli.py:505
 msgid "Port; defaults to the port assigned to the service"
 msgstr "連接埠。未指定時使用各服務的預設值"
 
-#: kotonoha/_cli.py:448
+#: kotonoha/_cli.py:526
 msgid "Load glossary and Traditional Chinese rules from YAML"
 msgstr "從 YAML 匯入詞彙表與繁體轉換規則"
 
-#: kotonoha/_cli.py:455 kotonoha/tui/_tools_app.py:158 kotonoha/tui/_tools_app.py:198
+#: kotonoha/_cli.py:533 kotonoha/tui/_tools_app.py:158 kotonoha/tui/_tools_app.py:198
 msgid "Glossary YAML file"
 msgstr "詞彙表 YAML 檔"
 
-#: kotonoha/_cli.py:482
+#: kotonoha/_cli.py:560
 #, python-brace-format
 msgid "{terms} terms and {rules} rules applied to {path}"
 msgstr "已將 {terms} 筆詞彙與 {rules} 筆規則寫入 {path}"
 
-#: kotonoha/_cli.py:493
+#: kotonoha/_cli.py:571
 msgid "List registered terms"
 msgstr "列出已登錄的詞彙"
 
-#: kotonoha/_cli.py:516
+#: kotonoha/_cli.py:594
 msgid "Report environment, role placement and service health"
 msgstr "檢查環境、角色配置與服務狀態"
 
-#: kotonoha/_cli.py:545
+#: kotonoha/_cli.py:623
 msgid "! In this mode utterance audio leaves the device"
 msgstr "！此模式下語音會離開本機"
 
-#: kotonoha/_cli.py:581
+#: kotonoha/_cli.py:659
 #, python-brace-format
 msgid "Translation catalogs not compiled: {locales}"
 msgstr "翻譯目錄尚未編譯：{locales}"
 
-#: kotonoha/_cli.py:582
+#: kotonoha/_cli.py:660
 msgid "Run: uv run python scripts/py/i18n.py compile"
 msgstr "執行：uv run python scripts/py/i18n.py compile"
 
-#: kotonoha/_cli.py:584
+#: kotonoha/_cli.py:662
 #, python-brace-format
 msgid "Translation catalogs compiled: {locales}"
 msgstr "翻譯目錄已編譯：{locales}"
 
-#: kotonoha/_cli.py:593
+#: kotonoha/_cli.py:671
 msgid "Services:"
 msgstr "服務："
 
-#: kotonoha/_cli.py:619
+#: kotonoha/_cli.py:697
 msgid "Measure latency and throughput to the external server"
 msgstr "量測到外部伺服器的延遲與處理量"
 
-#: kotonoha/_cli.py:625 kotonoha/tui/_tools_app.py:145 kotonoha/tui/_tools_app.py:201
+#: kotonoha/_cli.py:703 kotonoha/tui/_tools_app.py:145 kotonoha/tui/_tools_app.py:201
 msgid "Measurements per role"
 msgstr "每個角色的量測次數"
 
-#: kotonoha/_cli.py:626
+#: kotonoha/_cli.py:704
 msgid "Probe utterance length in seconds"
 msgstr "探測語句長度（秒）"
 
-#: kotonoha/_cli.py:640
+#: kotonoha/_cli.py:718
 msgid "remote.enabled is false. Use config/performance.yaml, or enable it and retry."
 msgstr "remote.enabled 為 false。請改用 config/performance.yaml，或啟用後重試。"
 
-#: kotonoha/_cli.py:646
+#: kotonoha/_cli.py:724
 #, python-brace-format
 msgid "No role is routed remotely under perf_mode={mode}."
 msgstr "perf_mode={mode} 下沒有任何角色送往遠端。"
 
-#: kotonoha/_cli.py:660
+#: kotonoha/_cli.py:738
 #, python-brace-format
 msgid "probe       {seconds}s utterance, {encoding}, {size} bytes"
 msgstr "probe       {seconds} 秒語句、{encoding}、{size} 位元組"
 
-#: kotonoha/_cli.py:742
+#: kotonoha/_cli.py:820
 #, python-brace-format
 msgid "Connection failed: {roles}. These roles will use onboard fallback services."
 msgstr "連線失敗：{roles}。這些角色將使用本機備援服務。"
 
-#: kotonoha/_cli.py:757
+#: kotonoha/_cli.py:835
 #, python-brace-format
 msgid "Estimated link overhead per turn  {ms} ms"
 msgstr "每輪連線額外耗時估計  {ms} ms"
 
-#: kotonoha/_cli.py:758
+#: kotonoha/_cli.py:836
 #, python-brace-format
 msgid "Budget, end-of-utterance to first audio  {ms} ms"
 msgstr "語句結束到首次發聲的預算  {ms} ms"
 
-#: kotonoha/_cli.py:760
+#: kotonoha/_cli.py:838
 #, python-format
 msgid "  ! The link consumes more than 25% of the budget. Consider hybrid mode."
 msgstr "  ！連線佔用超過預算的 25%，建議評估 hybrid 模式。"
 
-#: kotonoha/_cli.py:762
+#: kotonoha/_cli.py:840
 msgid "  The link fits within the budget. The remainder is model inference time."
 msgstr "  連線本身在預算內，其餘為模型推論時間。"
 
-#: kotonoha/_cli.py:772
+#: kotonoha/_cli.py:850
 msgid "Edit the configuration in a terminal interface"
 msgstr "在終端機介面中編輯設定"
 
-#: kotonoha/_cli.py:786
+#: kotonoha/_cli.py:864
 msgid "Match text in the source or the translation"
 msgstr "在原文或譯文中搜尋字串"
 
-#: kotonoha/_cli.py:789
+#: kotonoha/_cli.py:867
 msgid "Filter by detected source language"
 msgstr "依判定的來源語言篩選"
 
-#: kotonoha/_cli.py:793
+#: kotonoha/_cli.py:871
 msgid "Filter by turn outcome, for example ok or llm_timeout"
 msgstr "依輪次結果篩選，例如 ok 或 llm_timeout"
 
-#: kotonoha/_cli.py:809
+#: kotonoha/_cli.py:887
 msgid "Open the history browser"
 msgstr "開啟紀錄瀏覽器"
 
-#: kotonoha/_cli.py:824
+#: kotonoha/_cli.py:902
 msgid "Print past turns to standard output"
 msgstr "將過往紀錄輸出到標準輸出"
 
-#: kotonoha/_cli.py:833 kotonoha/_cli.py:883
+#: kotonoha/_cli.py:911 kotonoha/_cli.py:961
 msgid "Maximum turns to return"
 msgstr "回傳輪次的上限"
 
-#: kotonoha/_cli.py:835
+#: kotonoha/_cli.py:913
 msgid "Print complete text instead of an excerpt"
 msgstr "顯示全文而非摘要"
 
-#: kotonoha/_cli.py:853 kotonoha/_cli.py:897 kotonoha/tui/_history_app.py:252
-#: kotonoha/tui/_history_app.py:369
+#: kotonoha/_cli.py:931 kotonoha/_cli.py:975 kotonoha/tui/_history_app.py:255
+#: kotonoha/tui/_history_app.py:373
 msgid "No turns match"
 msgstr "沒有符合條件的輪次"
 
-#: kotonoha/_cli.py:867
+#: kotonoha/_cli.py:945
 #, python-brace-format
 msgid "{shown} of {total} turns"
 msgstr "共 {total} 筆，顯示 {shown} 筆"
 
-#: kotonoha/_cli.py:873
+#: kotonoha/_cli.py:951
 msgid "Export past turns as JSONL"
 msgstr "將過往紀錄匯出為 JSONL"
 
-#: kotonoha/_cli.py:879
+#: kotonoha/_cli.py:957
 msgid "Destination JSONL file"
 msgstr "輸出的 JSONL 檔案"
 
-#: kotonoha/_cli.py:900 kotonoha/tui/_history_app.py:378
+#: kotonoha/_cli.py:978 kotonoha/tui/_history_app.py:382
 #, python-brace-format
 msgid "Exported {count} turns to {path}"
 msgstr "已將 {count} 筆匯出至 {path}"
+
+#: kotonoha/_cli.py:984
+msgid "Delete recorded turns"
+msgstr "刪除已記錄的回合"
+
+#: kotonoha/_cli.py:992
+msgid "Clear only this session identifier"
+msgstr "僅清除此工作階段識別碼"
+
+#: kotonoha/_cli.py:996
+msgid "Do not ask for confirmation"
+msgstr "不詢問確認"
+
+#: kotonoha/_cli.py:1004
+msgid "No turns to clear"
+msgstr "沒有可清除的回合"
+
+#: kotonoha/_cli.py:1008
+#, python-brace-format
+msgid "Delete {count} recorded turns?"
+msgstr "要刪除 {count} 筆已記錄的回合嗎"
+
+#: kotonoha/_cli.py:1012 kotonoha/tui/_history_app.py:404
+#, python-brace-format
+msgid "Cleared {count} turns"
+msgstr "已刪除 {count} 筆"
 
 #: kotonoha/_typer_i18n.py:18
 msgid "(deprecated) "
@@ -376,104 +427,136 @@ msgstr "延遲 (ms)            實測 / 預算"
 msgid "Over: "
 msgstr "超出： "
 
-#: kotonoha/tui/_app.py:482
+#: kotonoha/tui/_app.py:441
+msgid "capture"
+msgstr "收音"
+
+#: kotonoha/tui/_app.py:442
+msgid "transcribe"
+msgstr "轉寫"
+
+#: kotonoha/tui/_app.py:443
+msgid "verify"
+msgstr "驗證"
+
+#: kotonoha/tui/_app.py:444
+msgid "translate"
+msgstr "翻譯"
+
+#: kotonoha/tui/_app.py:445
+msgid "speak"
+msgstr "語音合成"
+
+#: kotonoha/tui/_app.py:513
+msgid "Turn stages"
+msgstr "回合階段"
+
+#: kotonoha/tui/_app.py:569
 msgid "Services"
 msgstr "服務"
 
-#: kotonoha/tui/_app.py:506
+#: kotonoha/tui/_app.py:593
 msgid "Recent errors"
 msgstr "近期錯誤"
 
-#: kotonoha/tui/_app.py:605
+#: kotonoha/tui/_app.py:692
 msgid "Talk (toggle)"
 msgstr "說話（切換）"
 
-#: kotonoha/tui/_app.py:606
+#: kotonoha/tui/_app.py:693
 msgid "PTT/auto"
 msgstr "PTT/自動"
 
-#: kotonoha/tui/_app.py:607
+#: kotonoha/tui/_app.py:694
 msgid "Target language"
 msgstr "翻譯目標語言"
 
-#: kotonoha/tui/_app.py:608
+#: kotonoha/tui/_app.py:695
 msgid "Clear"
 msgstr "清除"
 
-#: kotonoha/tui/_app.py:609 kotonoha/tui/_app.py:649
+#: kotonoha/tui/_app.py:696 kotonoha/tui/_app.py:736
 msgid "History"
 msgstr "紀錄"
 
-#: kotonoha/tui/_app.py:610
+#: kotonoha/tui/_app.py:697
 msgid "Text input"
 msgstr "文字輸入"
 
-#: kotonoha/tui/_app.py:617
+#: kotonoha/tui/_app.py:704
 msgid "Leave text input"
 msgstr "結束文字輸入"
 
-#: kotonoha/tui/_app.py:620 kotonoha/tui/_config_app.py:699
-#: kotonoha/tui/_history_app.py:139
+#: kotonoha/tui/_app.py:707 kotonoha/tui/_config_app.py:699
+#: kotonoha/tui/_history_app.py:142
 msgid "Quit"
 msgstr "結束"
 
-#: kotonoha/tui/_app.py:633
+#: kotonoha/tui/_app.py:720
 msgid "Input language: Automatic detection"
 msgstr "輸入語言：自動偵測"
 
-#: kotonoha/tui/_app.py:634
+#: kotonoha/tui/_app.py:721
 msgid "Translate to"
 msgstr "翻譯目標"
 
-#: kotonoha/tui/_app.py:644
+#: kotonoha/tui/_app.py:731
 msgid "Source (ASR)"
 msgstr "原文 (ASR)"
 
-#: kotonoha/tui/_app.py:645 kotonoha/tui/_history_app.py:188
-#: kotonoha/tui/_history_app.py:277
+#: kotonoha/tui/_app.py:732 kotonoha/tui/_history_app.py:191
+#: kotonoha/tui/_history_app.py:280
 msgid "Translation"
 msgstr "譯文"
 
-#: kotonoha/tui/_app.py:658
+#: kotonoha/tui/_app.py:749
 msgid "Type an utterance and press Enter. Press t to return to voice."
 msgstr "輸入語句後按 Enter。按 t 回到語音。"
 
-#: kotonoha/tui/_app.py:663
+#: kotonoha/tui/_app.py:754
 msgid "Application logs"
 msgstr "應用程式記錄"
 
-#: kotonoha/tui/_app.py:677 kotonoha/tui/_menu_app.py:122
+#: kotonoha/tui/_app.py:768 kotonoha/tui/_menu_app.py:122
 msgid "Kotonoha Interpreter"
 msgstr "Kotonoha 口譯"
 
-#: kotonoha/tui/_app.py:678
+#: kotonoha/tui/_app.py:769
 #, python-brace-format
 msgid "session {session}"
 msgstr "工作階段 {session}"
 
-#: kotonoha/tui/_app.py:686
+#: kotonoha/tui/_app.py:777
 msgid "TUI logging is disabled by logging.console=false"
 msgstr "logging.console=false，TUI 記錄已停用"
 
-#: kotonoha/tui/_app.py:761
+#: kotonoha/tui/_app.py:857
 #, python-brace-format
 msgid "[{seconds}s, preroll {preroll}ms, {reason}]"
 msgstr "[{seconds} 秒、前置 {preroll}ms、{reason}]"
 
-#: kotonoha/tui/_app.py:771
+#: kotonoha/tui/_app.py:867
+msgid "text input"
+msgstr "文字輸入"
+
+#: kotonoha/tui/_app.py:873
 msgid "(silence, returning without playback)"
 msgstr "（靜音，未播放即返回）"
 
-#: kotonoha/tui/_app.py:779
+#: kotonoha/tui/_app.py:891
 #, python-brace-format
 msgid "verifying ({reason})"
 msgstr "交叉驗證中（{reason}）"
 
-#: kotonoha/tui/_app.py:788
+#: kotonoha/tui/_app.py:900
+msgid "timeout"
+msgstr "逾時"
+
+#: kotonoha/tui/_app.py:907
 msgid "(LLM timeout, transcript only, TTS skipped)"
 msgstr "（LLM 逾時，僅顯示原文，略過 TTS）"
 
-#: kotonoha/tui/_app.py:815
+#: kotonoha/tui/_app.py:937
 #, python-brace-format
 msgid "{role} to {side} ({reason})"
 msgstr "{role} → {side}（{reason}）"
@@ -711,7 +794,7 @@ msgstr "遠端"
 msgid "Save"
 msgstr "儲存"
 
-#: kotonoha/tui/_config_app.py:697 kotonoha/tui/_history_app.py:134
+#: kotonoha/tui/_config_app.py:697 kotonoha/tui/_history_app.py:137
 msgid "Reload"
 msgstr "重新載入"
 
@@ -838,64 +921,68 @@ msgstr "已將 {count} 項設定儲存至遠端檔案 {path}"
 msgid "Restart the remote services to apply these values"
 msgstr "請重新啟動遠端服務以套用這些值"
 
-#: kotonoha/tui/_history_app.py:133
+#: kotonoha/tui/_history_app.py:136
 msgid "Search"
 msgstr "搜尋"
 
-#: kotonoha/tui/_history_app.py:135
+#: kotonoha/tui/_history_app.py:138
 msgid "Export"
 msgstr "匯出"
 
-#: kotonoha/tui/_history_app.py:136
+#: kotonoha/tui/_history_app.py:139
 msgid "Next page"
 msgstr "下一頁"
 
-#: kotonoha/tui/_history_app.py:137
+#: kotonoha/tui/_history_app.py:140
 msgid "Previous page"
 msgstr "上一頁"
 
-#: kotonoha/tui/_history_app.py:138 kotonoha/tui/_license_app.py:151
+#: kotonoha/tui/_history_app.py:141 kotonoha/tui/_license_app.py:151
 #: kotonoha/tui/_tools_app.py:265 kotonoha/tui/_tools_app.py:319
 msgid "Back"
 msgstr "返回"
 
-#: kotonoha/tui/_history_app.py:151
+#: kotonoha/tui/_history_app.py:154
 msgid "Search source or translation, then press Enter"
 msgstr "搜尋原文或譯文後按 Enter"
 
-#: kotonoha/tui/_history_app.py:154 kotonoha/tui/_history_app.py:193
+#: kotonoha/tui/_history_app.py:157 kotonoha/tui/_history_app.py:196
 msgid "All languages"
 msgstr "所有語言"
 
-#: kotonoha/tui/_history_app.py:160
+#: kotonoha/tui/_history_app.py:163
 msgid "All outcomes"
 msgstr "所有結果"
 
-#: kotonoha/tui/_history_app.py:182 kotonoha/tui/_menu_app.py:61
+#: kotonoha/tui/_history_app.py:185 kotonoha/tui/_menu_app.py:61
 #: kotonoha/tui/_menu_app.py:103
 msgid "Interpretation history"
 msgstr "口譯紀錄"
 
-#: kotonoha/tui/_history_app.py:185
+#: kotonoha/tui/_history_app.py:188
 msgid "Time"
 msgstr "時間"
 
-#: kotonoha/tui/_history_app.py:186
+#: kotonoha/tui/_history_app.py:189
 msgid "Direction"
 msgstr "方向"
 
-#: kotonoha/tui/_history_app.py:187 kotonoha/tui/_history_app.py:275
+#: kotonoha/tui/_history_app.py:190 kotonoha/tui/_history_app.py:278
 msgid "Source"
 msgstr "原文"
 
-#: kotonoha/tui/_history_app.py:189
+#: kotonoha/tui/_history_app.py:192
 msgid "Outcome"
 msgstr "結果"
 
-#: kotonoha/tui/_history_app.py:258
+#: kotonoha/tui/_history_app.py:261
 #, python-brace-format
 msgid "{first}-{last} of {total}"
 msgstr "共 {total} 筆，第 {first}-{last} 筆"
+
+#: kotonoha/tui/_history_app.py:397
+msgid "Press x again to delete all recorded turns"
+msgstr "再次按 x 以刪除所有記錄"
 
 #: kotonoha/tui/_license_app.py:82
 msgid "See package metadata"
@@ -1216,3 +1303,10 @@ msgstr "正在停止處理程序"
 
 #~ msgid "Routing"
 #~ msgstr "路由"
+
+#~ msgid "The web interface requires the 'web' extra: uv sync --extra web"
+#~ msgstr "網頁介面需要 'web' 額外項目：uv sync --extra web"
+
+#~ msgid "External URL when behind a reverse proxy"
+#~ msgstr "位於反向代理後方時的外部 URL"
+

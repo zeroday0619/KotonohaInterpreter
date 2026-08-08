@@ -391,3 +391,100 @@ async def test_turn_finish_survives_metrics_and_history_storage_failures() -> No
     emitted_events = {event for event, _payload in events}
     assert "turn" in emitted_events
     assert "history" in emitted_events
+
+
+class RecordingSegmenter:
+    """Records which segmentation entry point the frame loop selected."""
+
+    __slots__: ClassVar[tuple[str, ...]] = ("calls",)
+
+    def __init__(
+        self,
+        /,
+    ) -> None:
+        self.calls: list[str] = []
+
+    def prime_preroll(
+        self,
+        /,
+        pcm: np.ndarray,
+    ) -> None:
+        del pcm
+        self.calls.append("prime_preroll")
+
+    def append(
+        self,
+        /,
+        pcm: np.ndarray,
+    ) -> Any:
+        del pcm
+        self.calls.append("append")
+        return SimpleNamespace(kind="none", probability=0.0, utterance=None)
+
+    def feed(
+        self,
+        /,
+        pcm: np.ndarray,
+    ) -> Any:
+        del pcm
+        self.calls.append("feed")
+        return SimpleNamespace(kind="none", probability=0.0, utterance=None)
+
+
+async def _run_frame_loop(
+    _positional_only: object | None = None,
+    /,
+    *,
+    mode: str,
+    state: State,
+    frames: int = 3,
+) -> RecordingSegmenter:
+    orchestrator = object.__new__(Orchestrator)
+    orchestrator._running = True
+    orchestrator.event_bus = EventBus()
+    orchestrator.machine = Machine()
+    if state is not State.IDLE:
+        orchestrator.machine.to(state, "test")
+    orchestrator.settings = SimpleNamespace(session=SimpleNamespace(mode=mode))
+    segmenter = RecordingSegmenter()
+    orchestrator.segmenter = segmenter
+    queue: asyncio.Queue[Any] = asyncio.Queue()
+    orchestrator.capture = SimpleNamespace(frames=queue)
+
+    for _ in range(frames):
+        queue.put_nowait(SimpleNamespace(pcm=np.zeros(512, dtype=np.float32)))
+
+    task = asyncio.create_task(orchestrator._frame_loop())
+    while not queue.empty():
+        await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    return segmenter
+
+
+async def test_push_to_talk_buffers_frames_instead_of_feeding_the_detector() -> None:
+    """A held key owns the boundary: the VAD must not be able to close the turn.
+
+    Feeding the detector here is what discarded microphone audio outright when the
+    detector stayed below its threshold for the whole press.
+    """
+    segmenter = await _run_frame_loop(mode="push_to_talk", state=State.LISTENING)
+
+    assert segmenter.calls == ["append"] * 3
+    assert "feed" not in segmenter.calls
+
+
+async def test_push_to_talk_only_primes_preroll_while_idle() -> None:
+    segmenter = await _run_frame_loop(mode="push_to_talk", state=State.IDLE)
+
+    assert segmenter.calls == ["prime_preroll"] * 3
+
+
+async def test_automatic_mode_still_drives_the_detector() -> None:
+    segmenter = await _run_frame_loop(mode="auto", state=State.IDLE)
+
+    assert segmenter.calls == ["feed"] * 3

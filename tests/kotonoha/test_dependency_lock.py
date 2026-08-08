@@ -62,3 +62,22 @@ def test_the_locked_python_310_onnxruntime_publishes_cp310_wheels() -> None:
             f"onnxruntime {'.'.join(map(str, version))} is locked for Python 3.10 but "
             "publishes no cp310 wheel"
         )
+
+
+def test_the_browser_interface_needs_no_extra() -> None:
+    """`kotonoha web` must work in a deployment image, which installs no extras.
+
+    It is served by the same FastAPI and uvicorn the model services already use, so
+    the browser front end adds no dependency of its own.
+    """
+    manifest = tomllib.loads(PROJECT_PATH.read_text(encoding="utf-8"))
+
+    names = [
+        requirement.split(";")[0].strip().split(">")[0].split("=")[0].split("[")[0].strip()
+        for requirement in manifest["project"]["dependencies"]
+    ]
+
+    assert "fastapi" in names
+    assert "uvicorn" in names
+    # The terminal relay this replaced brought a second HTTP stack with it.
+    assert not any(name.startswith("textual-serve") for name in names)

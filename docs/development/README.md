@@ -60,6 +60,48 @@ English source-string requirements, locale-specific style, terminology, protecte
 content, and the catalog workflow are defined in the
 [Localization Guide](localization.md).
 
+## Console Logging
+
+Console records use the kernel ring buffer layout:
+
+```
+[   12.345678] INFO    asr: asr.started model=Qwen3-ASR-0.6B n_best=5
+```
+
+The stamp is seconds since process start. `logging.console_format` selects `dmesg` or
+`json`; the JSONL files under `data/logs/` stay structured either way, because the metrics
+and evaluation readers parse them.
+
+`--debug` (or `logging.debug`) raises the level to DEBUG and adds the per-stage detail
+column to the interpreter's turn stage panel.
+
+## Browser Interface
+
+`kotonoha web` serves a browser client that captures the microphone with
+`getUserMedia` and plays synthesized speech through Web Audio. The host running the
+server needs no audio device.
+
+```bash
+uv run kotonoha web --host 127.0.0.1 --port 8080 --sessions 4
+bash scripts/manage.sh web
+```
+
+One WebSocket carries a session both ways. Binary frames are 32-bit float PCM and
+text frames are control messages, which keeps microphone blocks off the JSON path.
+
+| Concern | Contract |
+|---|---|
+| Capture rate | The client reports the rate its AudioContext actually used; the server resamples |
+| Half-duplex | The client reports played samples, and the microphone reopens only once playback drains |
+| Sessions | One orchestrator, shared-memory ring and session identifier per browser |
+| Model services | Shared by every session, so `--sessions` trades latency for simultaneous speakers |
+| Logs | One reader drains the process buffer and fans records out to every session |
+
+The interface has no authentication and drives the model services, so it binds
+loopback unless `--host` says otherwise. Browsers refuse `getUserMedia` on an
+insecure origin other than `localhost`, so a remote listener needs HTTPS in front
+of it.
+
 ## Evaluation Data
 
 Record evaluation data with the production microphone in the production room. The target

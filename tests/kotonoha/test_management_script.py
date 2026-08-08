@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -158,3 +159,33 @@ def test_model_verification_reports_every_missing_artifact(
     assert completed.returncode == 1
     assert completed.stderr.count("MISSING:") == 8
     assert "8 required model artifact(s) are missing" in completed.stderr
+
+
+def test_check_reports_step_progress() -> None:
+    """The quality gates run three long tools; the operator sees which one is active."""
+    result = _run_management_script(
+        ("-y", "check", "--dry-run"),
+        environment={**os.environ, "KOTONOHA_EQUIPMENT": "workstation"},
+    )
+
+    assert result.returncode == 0, result.stderr
+    combined = result.stdout + result.stderr
+    assert "== Quality gates (3 steps)" in combined
+    assert "(1/3) ruff" in combined
+    assert "(2/3) pytest" in combined
+    assert "(3/3) translation catalogs" in combined
+    assert "100%" in combined
+
+
+def test_progress_never_reports_more_steps_than_it_declares() -> None:
+    """A miscounted total silently produces a bar over 100 percent."""
+    script = MANAGEMENT_SCRIPT.read_text(encoding="utf-8")
+
+    declared = re.findall(r"progress_begin (\d+) ", script)
+    steps_per_block = [
+        len(re.findall(r"^\s*progress_step ", block, re.MULTILINE))
+        for block in script.split("progress_begin ")[1:]
+    ]
+
+    assert declared, "no progress block found"
+    assert [int(total) for total in declared] == steps_per_block

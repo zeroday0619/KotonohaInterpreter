@@ -472,7 +472,20 @@ class LoggingConfig(BaseModel):
     max_bytes: int = Field(64 * 1024 * 1024, ge=1024 * 1024, le=10 * 1024**3)
     backup_count: int = Field(5, ge=1, le=100)
     console: bool = True
+    # Console records render as "[   12.345678] LEVEL service: event key=value", the
+    # kernel ring buffer layout. The JSONL files keep the structured form either way,
+    # because the metrics and evaluation readers parse them.
+    console_format: Literal["dmesg", "json"] = "dmesg"
+    # Debug mode lowers the effective level to DEBUG and turns on the per-stage
+    # detail in the terminal interface. It does not change what is persisted.
+    debug: bool = False
     prometheus_port: int | None = Field(None, ge=1024, le=65535)
+
+    def effective_level(
+        self,
+        /,
+    ) -> str:
+        return "DEBUG" if self.debug else self.level
 
 
 class LatencyBudgetConfig(BaseModel):

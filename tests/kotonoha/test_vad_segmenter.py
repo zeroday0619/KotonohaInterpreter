@@ -142,6 +142,69 @@ def test_max_utterance_cuts() -> None:
     assert end is not None and end.utterance.ended_by == "max_len"
 
 
+def test_ptt_survives_a_vad_that_never_reports_speech() -> None:
+    """The key owns the boundary, so a quiet VAD must not discard the utterance.
+
+    This is the deployed failure: with the VAD below its threshold for the whole
+    press, the utterance was finished as silence, rejected by the minimum-speech
+    gate, and the key release then found an idle segmenter and produced nothing.
+    Microphone input reached no transcription at all.
+    """
+    segmenter = create_segmenter(silence_ms=800, min_speech_ms=120)
+    for _ in range(20):
+        segmenter.prime_preroll(frame(0.1))
+    segmenter.force_start()
+
+    for _ in range(int(800 / FRAME_MS) + 10):
+        assert segmenter.append(frame(0.2)).kind == "none", "the VAD ended a held key"
+
+    end = segmenter.force_end()
+    assert end.utterance is not None, "push-to-talk audio was discarded"
+    assert end.utterance.ended_by == "manual"
+    assert end.utterance.pcm.size > 0
+
+
+def test_ptt_keeps_one_utterance_across_a_pause() -> None:
+    """A pause longer than the EOU window must not split a single press."""
+    segmenter = create_segmenter(silence_ms=800)
+    segmenter.force_start()
+
+    for _ in range(5):
+        segmenter.append(frame(0.9))
+    for _ in range(int(800 / FRAME_MS) + 4):
+        assert segmenter.append(frame(0.0)).kind == "none"
+    for _ in range(5):
+        segmenter.append(frame(0.9))
+
+    end = segmenter.force_end()
+    assert end.utterance is not None
+    expected_frames = 5 + int(800 / FRAME_MS) + 4 + 5
+    assert end.utterance.pcm.size == expected_frames * SILERO_WINDOW
+
+
+def test_ptt_still_stops_at_the_length_ceiling() -> None:
+    """The hard ceiling is the one boundary the key does not own."""
+    segmenter = create_segmenter(max_utterance_ms=320)
+    segmenter.force_start()
+
+    end = None
+    for _ in range(30):
+        event = segmenter.append(frame(0.0))
+        if event.kind == "speech_end":
+            end = event
+            break
+
+    assert end is not None, "a held key ran past the length ceiling"
+    assert end.utterance is not None, "the length cut discarded operator-held audio"
+    assert end.utterance.ended_by == "max_len"
+
+
+def test_append_is_inert_when_no_utterance_is_open() -> None:
+    segmenter = create_segmenter()
+    assert segmenter.append(frame(0.9)).kind == "none"
+    assert segmenter.state.value == "idle"
+
+
 def test_ptt_keeps_preroll() -> None:
     """PTT preroll must include speech that begins before the key event."""
     segmenter = create_segmenter()

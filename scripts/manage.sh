@@ -17,6 +17,9 @@ docker_environment_names=(
   ASR_BASE
   CONTAINER_RUNTIME
   KOTONOHA_DISABLE_NVML
+  KOTONOHA_WEB_HOST
+  KOTONOHA_WEB_PORT
+  KOTONOHA_WEB_SESSIONS
   LLM_ENABLE_PREFIX_CACHING
   LLM_GPU_MEMORY_UTILIZATION
   LLM_IMAGE
@@ -64,6 +67,7 @@ Usage:
   bash scripts/manage.sh [--dry-run] [-y|--yes] benchmark link [netcheck options]
   bash scripts/manage.sh [--dry-run] [-y|--yes] deploy [auto|jetson|a6000] [deploy options]
   bash scripts/manage.sh [--dry-run] [-y|--yes] tui
+  bash scripts/manage.sh [--dry-run] [-y|--yes] web
   bash scripts/manage.sh [--dry-run] [-y|--yes] uninstall [auto|jetson|a6000] [--remove-images|--keep-images]
   bash scripts/manage.sh [--dry-run] [-y|--yes] gpu allocate [allocator options]
   bash scripts/manage.sh [--dry-run] [-y|--yes] doctor [doctor options]
@@ -77,6 +81,9 @@ Commands:
   benchmark   Run Docker hardware spikes or the Jetson-to-A6000 link benchmark.
   deploy      Build and start resident model services on the detected inference host.
   tui         Start the interactive orchestrator in Docker.
+  web         Serve the browser interface over HTTP. Audio runs in the
+              browser. Loopback unless KOTONOHA_WEB_HOST is set, and it
+              has no authentication.
   uninstall   Remove project containers and optionally Kotonoha Docker images.
   gpu         Run memory-aware A6000 GPU allocation.
   doctor      Report application environment and service health.
@@ -95,6 +102,41 @@ EOF
 fail() {
   printf 'ERROR: %s\n' "$*" >&2
   exit 1
+}
+
+# Step progress for the subcommands that run several long tools in sequence.
+#
+# The bar is printed as its own line rather than redrawn in place: every step
+# here runs a tool that writes to the terminal, so an in-place bar would be
+# scrolled away by the first line the tool prints. Progress goes to standard
+# error so that redirected command output stays machine-readable.
+progress_bar_filled='########################'
+progress_bar_empty='........................'
+progress_width=24
+progress_total=0
+progress_index=0
+
+progress_begin() {
+  progress_total=$1
+  progress_index=0
+  printf '\n== %s (%d steps)\n' "$2" "$progress_total" >&2
+}
+
+progress_step() {
+  [ "$progress_total" -gt 0 ] || return 0
+  progress_index=$((progress_index + 1))
+  local filled=$((progress_index * progress_width / progress_total))
+  printf '[%s%s] %3d%% (%d/%d) %s\n' \
+    "${progress_bar_filled:0:filled}" \
+    "${progress_bar_empty:0:$((progress_width - filled))}" \
+    "$((progress_index * 100 / progress_total))" \
+    "$progress_index" "$progress_total" "$1" >&2
+}
+
+progress_end() {
+  printf '[%s] 100%% %s\n\n' "$progress_bar_filled" "${1:-done}" >&2
+  progress_total=0
+  progress_index=0
 }
 
 run_command() {
@@ -144,6 +186,25 @@ run_tui() {
   fi
   configure_docker_access
   run_docker compose -f "$compose_file" run --rm orchestrator
+}
+
+# The web overlay only adds the front end, so both files are always passed: the
+# model services it depends on are declared in the base compose file.
+run_web() {
+  local compose_file="$repository_root/docker/compose.yaml"
+  local web_compose_file="$repository_root/docker/compose.web.yaml"
+  local bind_address=${KOTONOHA_WEB_HOST:-127.0.0.1}
+  if [ "$dry_run" = true ]; then
+    run_command docker compose -f "$compose_file" -f "$web_compose_file" up -d web
+    return
+  fi
+  configure_docker_access
+  run_docker compose -f "$compose_file" -f "$web_compose_file" up -d web
+  printf 'Web interface listening on http://%s:%s\n' \
+    "$bind_address" "${KOTONOHA_WEB_PORT:-8080}"
+  if [ "$bind_address" = "127.0.0.1" ]; then
+    printf 'Reachable from this host only. Set KOTONOHA_WEB_HOST=0.0.0.0 to expose it.\n'
+  fi
 }
 
 require_no_arguments() {
@@ -308,8 +369,12 @@ case "$command_name" in
           shift
         fi
         require_no_arguments "$@"
+        progress_begin 2 "Workstation setup"
+        progress_step "dependencies"
         run_command uv "${synchronize_arguments[@]}"
+        progress_step "translation catalogs"
         run_command uv run python scripts/py/i18n.py compile
+        progress_end "workstation ready"
         ;;
       jetson|a6000)
         run_command bash scripts/deploy.sh "$setup_target" --prepare-only "$@"
@@ -382,6 +447,11 @@ case "$command_name" in
     confirm "Start the integrated TUI"
     run_tui
     ;;
+  web)
+    require_no_arguments "$@"
+    confirm "Serve the browser interface over HTTP"
+    run_web
+    ;;
   uninstall)
     deployment_target=${1:-auto}
     case "$deployment_target" in
@@ -422,9 +492,14 @@ case "$command_name" in
   check)
     require_no_arguments "$@"
     confirm "Run repository quality checks"
+    progress_begin 3 "Quality gates"
+    progress_step "ruff"
     run_command uv run ruff check .
+    progress_step "pytest"
     run_command uv run pytest -q
+    progress_step "translation catalogs"
     run_command uv run python scripts/py/i18n.py check
+    progress_end "quality gates passed"
     ;;
   *)
     fail "unknown command: $command_name"

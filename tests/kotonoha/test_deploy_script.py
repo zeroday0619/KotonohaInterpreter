@@ -837,3 +837,45 @@ def test_llm_service_owns_the_engine_without_a_nested_server() -> None:
     assert "build_async_engine_client_from_engine_args" in source
     assert "create_subprocess_exec" not in source
     assert '"serve"' not in source
+
+
+def test_web_overlay_reaches_the_model_services_without_a_host_audio_device() -> None:
+    """Audio belongs to the browser, but the shared ring and services do not.
+
+    Bridge networking would resolve 127.0.0.1:800x inside the container instead of
+    to the model services, and without host IPC the shared-memory ring is invisible
+    to them. A host sound device would be unused: capture happens in the client.
+    """
+    overlay = yaml.safe_load(
+        (PROJECT_ROOT / "docker" / "compose.web.yaml").read_text(encoding="utf-8")
+    )
+
+    web = overlay["services"]["web"]
+
+    assert web["network_mode"] == "host"
+    assert web["ipc"] == "host"
+    assert "devices" not in web, "browser audio needs no host sound device"
+    assert "ports" not in web, "ports are ignored under host networking"
+    assert set(web["depends_on"]) == {"asr", "asr-verify", "llm", "tts"}
+
+
+def test_web_overlay_binds_loopback_unless_the_operator_opts_out() -> None:
+    """The interface drives the microphone and carries no authentication."""
+    overlay = yaml.safe_load(
+        (PROJECT_ROOT / "docker" / "compose.web.yaml").read_text(encoding="utf-8")
+    )
+
+    command = overlay["services"]["web"]["command"]
+
+    assert "${KOTONOHA_WEB_HOST:-127.0.0.1}" in command
+
+
+def test_web_compose_variables_survive_sudo() -> None:
+    """sudo strips exported variables; Compose interpolation needs them allowlisted."""
+    script = (PROJECT_ROOT / "scripts" / "manage.sh").read_text(encoding="utf-8")
+    overlay = (PROJECT_ROOT / "docker" / "compose.web.yaml").read_text(encoding="utf-8")
+
+    allowlist = script.split("docker_environment_names=(", 1)[1].split(")", 1)[0].split()
+
+    for name in re.findall(r"\$\{(KOTONOHA_WEB_[A-Z_]+)", overlay):
+        assert name in allowlist, f"{name} is dropped by sudo env"

@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from kotonoha._i18n import set_locale, translate_to
-from kotonoha.store._db import HistoryEntry, Store
+from kotonoha.store._db import GlossaryEntry, HistoryEntry, Store
 from kotonoha.tui._app import HistoryPane
 from kotonoha.tui._history_app import OUTCOMES, HistoryApp, excerpt, export_jsonl
 
@@ -450,3 +451,45 @@ async def test_browser_titles_follow_the_locale(
             translate_to("zh-TW", "Back"),
             translate_to("zh-TW", "Quit"),
         ]
+
+
+def test_clear_history_removes_every_turn(
+    _positional_only: object | None = None,
+    /,
+    *,
+    tmp_path: Path,
+) -> None:
+    store = Store(tmp_path / "history.sqlite3")
+    try:
+        store.add_turn("t1", "session-a", "ko", "en", "안녕", "hello")
+        store.add_turn("t2", "session-b", "en", "ko", "hello", "안녕")
+        store.upsert_glossary([GlossaryEntry("en", "Kotonoha", "ko", "코토노하")])
+
+        removed = store.clear_history()
+
+        assert removed == 2
+        assert store.count_turns() == 0
+        # A reset clears history, not the operator-authored glossary.
+        assert store.all_glossary(10)
+    finally:
+        store.close()
+
+
+def test_clear_history_can_be_limited_to_one_session(
+    _positional_only: object | None = None,
+    /,
+    *,
+    tmp_path: Path,
+) -> None:
+    store = Store(tmp_path / "history.sqlite3")
+    try:
+        store.add_turn("t1", "session-a", "ko", "en", "안녕", "hello")
+        store.add_turn("t2", "session-b", "en", "ko", "hello", "안녕")
+
+        removed = store.clear_history("session-a")
+
+        assert removed == 1
+        assert store.count_turns(session_id="session-a") == 0
+        assert store.count_turns(session_id="session-b") == 1
+    finally:
+        store.close()

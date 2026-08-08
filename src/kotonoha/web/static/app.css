@@ -1,0 +1,242 @@
+:root {
+  color-scheme: light dark;
+  --surface: Canvas;
+  --ink: CanvasText;
+  --muted: color-mix(in srgb, CanvasText 55%, Canvas);
+  --line: color-mix(in srgb, CanvasText 20%, Canvas);
+  --ok: #1a7f37;
+  --warn: #9a6700;
+  --error: #cf222e;
+  --accent: #0969da;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ok: #3fb950;
+    --warn: #d29922;
+    --error: #f85149;
+    --accent: #58a6ff;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0 1rem 2rem;
+  background: var(--surface);
+  color: var(--ink);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+h1 {
+  font-size: 1.1rem;
+  margin: 0.75rem 0 0.25rem;
+}
+
+h2 {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin: 0 0 0.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+
+.field {
+  color: var(--muted);
+}
+
+.field b {
+  color: var(--ink);
+}
+
+#turn-state {
+  font-weight: 700;
+  padding: 0.1rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+}
+
+#turn-state[data-state="LISTENING"] {
+  color: var(--accent);
+}
+#turn-state[data-state="PROCESSING"] {
+  color: var(--warn);
+}
+#turn-state[data-state="SPEAKING"] {
+  color: var(--ok);
+}
+
+#mic[data-open="true"] {
+  color: var(--ok);
+}
+#mic[data-open="false"] {
+  color: var(--error);
+}
+
+#status[data-kind="ok"] {
+  color: var(--ok);
+}
+#status[data-kind="error"] {
+  color: var(--error);
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0.75rem 0;
+}
+
+button,
+select,
+input[type="text"],
+input[type="search"] {
+  font: inherit;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button[data-active="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+main {
+  display: grid;
+  gap: 1rem;
+}
+
+article {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.75rem;
+  min-width: 0;
+}
+
+.panes {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 800px) {
+  .panes {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.panes p {
+  margin: 0;
+  min-height: 3rem;
+  overflow-wrap: anywhere;
+}
+
+#translation {
+  font-weight: 600;
+}
+
+.stage {
+  display: grid;
+  grid-template-columns: 1.5rem 7rem 5rem 1fr;
+  gap: 0.5rem;
+  align-items: baseline;
+  font-size: 0.9rem;
+  padding: 0.1rem 0;
+}
+
+.stage-detail {
+  color: var(--muted);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.stage[data-status="ok"] .stage-mark,
+.stage[data-status="ok"] .stage-status {
+  color: var(--ok);
+}
+.stage[data-status="running"] .stage-mark,
+.stage[data-status="running"] .stage-status,
+.stage[data-status="empty"] .stage-mark,
+.stage[data-status="empty"] .stage-status {
+  color: var(--warn);
+}
+.stage[data-status="failed"] .stage-mark,
+.stage[data-status="failed"] .stage-status {
+  color: var(--error);
+  font-weight: 700;
+}
+.stage[data-status="pending"],
+.stage[data-status="skipped"] {
+  color: var(--muted);
+}
+
+.history-row {
+  font-size: 0.85rem;
+  padding: 0.15rem 0;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+
+.log-controls {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+#logs {
+  height: 16rem;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.log-line {
+  white-space: pre;
+}
+
+.log-line[data-level="warning"] {
+  color: var(--warn);
+}
+.log-line[data-level="error"],
+.log-line[data-level="critical"] {
+  color: var(--error);
+}
+.log-line[data-level="debug"] {
+  color: var(--muted);
+}

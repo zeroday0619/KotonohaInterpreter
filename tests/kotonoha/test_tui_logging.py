@@ -94,7 +94,7 @@ def test_terminal_log_buffer_drains_bounded_frames_in_order() -> None:
     assert drain_terminal_interface_logs(2) == ["2"]
 
 
-def test_json_log_is_rendered_as_a_human_readable_record() -> None:
+def test_json_log_is_rendered_in_the_kernel_ring_buffer_layout() -> None:
     rendered = format_json_log(
         json.dumps(
             {
@@ -102,6 +102,7 @@ def test_json_log_is_rendered_as_a_human_readable_record() -> None:
                 "event": "tts.loaded",
                 "level": "warning",
                 "timestamp": "2026-08-04T03:04:05.123456+09:00",
+                "uptime": 12.3456,
                 "backend": "qwen3",
                 "fallback": False,
                 "placement": {"tts": "remote"},
@@ -110,9 +111,18 @@ def test_json_log_is_rendered_as_a_human_readable_record() -> None:
     )
 
     assert rendered.plain == (
-        '03:04:05 WARNING tts         tts.loaded  backend=qwen3  fallback=false  '
+        '[   12.345600] WARNING tts: tts.loaded backend=qwen3 fallback=false '
         'placement={"tts":"remote"}'
     )
+
+
+def test_a_record_without_uptime_keeps_the_stamp_column() -> None:
+    """Records written before this process started carry no monotonic origin."""
+    rendered = format_json_log(
+        json.dumps({"service": "asr", "event": "asr.started", "level": "info"})
+    )
+
+    assert rendered.plain == "[            ] INFO    asr: asr.started"
 
 
 def test_non_json_log_line_remains_visible() -> None:

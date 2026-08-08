@@ -93,6 +93,7 @@ class HistoryApp(App[None]):
     status: Static
     title: str
     sub_title: str
+    _clear_armed: bool
     _bindings: BindingsMap
 
     CSS: ClassVar[str] = """
@@ -109,6 +110,7 @@ class HistoryApp(App[None]):
         ("slash", "focus_search", ""),
         ("r", "reload", ""),
         ("e", "export", ""),
+        ("x", "clear", ""),
         ("n", "next_page", ""),
         ("p", "previous_page", ""),
         ("escape", "back", ""),
@@ -125,6 +127,7 @@ class HistoryApp(App[None]):
         super().__init__()
         self.settings = settings or load_settings(config_path)
         self.store = None
+        self._clear_armed = False
         self.query = HistoryQuery()
         self.entries: list[HistoryEntry] = []
         self.total = 0
@@ -342,6 +345,7 @@ class HistoryApp(App[None]):
         self,
         /,
     ) -> None:
+        self._clear_armed = False
         await self.reload()
 
     async def action_next_page(
@@ -379,6 +383,25 @@ class HistoryApp(App[None]):
                 style="green",
             )
         )
+
+    async def action_clear(
+        self,
+        /,
+    ) -> None:
+        """Delete every recorded turn. The first press asks, the second confirms."""
+        if self.store is None:
+            return
+        if not self._clear_armed:
+            self._clear_armed = True
+            self.status.update(
+                Text(_("Press x again to delete all recorded turns"), style="red bold")
+            )
+            return
+        self._clear_armed = False
+        removed = await asyncio.to_thread(self.store.clear_history)
+        self.query.offset = 0
+        await self.reload()
+        self.status.update(Text(_("Cleared {count} turns", count=removed), style="green"))
 
     @override
     def action_back(

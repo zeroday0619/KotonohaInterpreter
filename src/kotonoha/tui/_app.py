@@ -436,6 +436,93 @@ class LatencyPanel(Static):
         return text
 
 
+STAGE_ORDER: Final = ("capture", "asr", "verify", "llm", "tts")
+STAGE_LABELS: Final = {
+    "capture": N_("capture"),
+    "asr": N_("transcribe"),
+    "verify": N_("verify"),
+    "llm": N_("translate"),
+    "tts": N_("speak"),
+}
+# Marks read left to right as the turn advances. An outcome is never blank: a
+# stage the turn never reached is reported as skipped rather than left pending.
+STAGE_MARKS: Final = {
+    "pending": ("·", "dim"),
+    "running": ("…", "yellow"),
+    "ok": ("✓", "green"),
+    "empty": ("∅", "yellow"),
+    "skipped": ("–", "dim"),
+    "failed": ("✗", "red bold"),
+}
+
+
+class StagePanel(Static):
+    """Per-stage outcome for the turn in flight."""
+
+    __slots__: ClassVar[tuple[str, ...]] = ()
+    stages: dict[str, tuple[str, str]]
+    detailed: bool
+
+    @override
+    def __init__(
+        self,
+        /,
+        detailed: bool = False,
+        **widget_options: Any,
+    ) -> None:
+        super().__init__(**widget_options)
+        self.detailed = detailed
+        self.stages = {}
+        self.reset()
+
+    def reset(
+        self,
+        /,
+    ) -> None:
+        self.stages = {stage: ("pending", "") for stage in STAGE_ORDER}
+        self.refresh()
+
+    def set_stage(
+        self,
+        /,
+        stage: str,
+        state: str,
+        detail: str = "",
+    ) -> None:
+        if stage not in self.stages:
+            return
+        self.stages[stage] = (state, detail)
+        self.refresh()
+
+    def finish(
+        self,
+        /,
+    ) -> None:
+        """The turn ended. Nothing may stay pending or mid-flight."""
+        for stage, (state, detail) in self.stages.items():
+            if state in ("pending", "running"):
+                self.stages[stage] = ("skipped", detail)
+        self.refresh()
+
+    @override
+    def render(
+        self,
+        /,
+    ) -> Text:
+        text = Text()
+        text.append(_("Turn stages") + "\n", style="bold underline")
+        for stage in STAGE_ORDER:
+            state, detail = self.stages.get(stage, ("pending", ""))
+            mark, style = STAGE_MARKS.get(state, STAGE_MARKS["pending"])
+            text.append(f"  {mark} ", style=style)
+            text.append(f"{_(STAGE_LABELS[stage]):<11}")
+            text.append(state, style=style)
+            if detail and self.detailed:
+                text.append(f"  {detail}", style="dim")
+            text.append("\n")
+        return text
+
+
 class ServicePanel(Static):
     __slots__: ClassVar[tuple[str, ...]] = ()
     services: dict[str, dict]
@@ -555,7 +642,7 @@ class KotonohaApp(App):
         overflow-y: auto;
     }
     #bottom { height: 7; }
-    #lat, #svc { width: 1fr; border: round $secondary; padding: 0 1; }
+    #lat, #stage, #svc { width: 1fr; border: round $secondary; padding: 0 1; }
     #text-input { height: 3; border: round $accent; }
     #logs { height: 5; border: round $secondary; padding: 0 1; }
     #log-title { height: 1; text-style: bold underline; }
@@ -651,8 +738,12 @@ class KotonohaApp(App):
             yield self.history_pane
         with Horizontal(id="bottom"):
             self.latency_panel = LatencyPanel(self.orchestrator.settings.budget_ms, id="lat")
+            self.stage_panel = StagePanel(
+                detailed=self.orchestrator.settings.logging.debug, id="stage"
+            )
             self.service_panel = ServicePanel(id="svc")
             yield self.latency_panel
+            yield self.stage_panel
             yield self.service_panel
         self.text_input = Input(
             placeholder=_("Type an utterance and press Enter. Press t to return to voice."),
@@ -757,6 +848,11 @@ class KotonohaApp(App):
             if payload.get("note"):
                 self.service_panel.push_error("lid", payload["note"])
         elif event.kind == "eou":
+            self.stage_panel.reset()
+            self.stage_panel.set_stage(
+                "capture", "ok", f"{payload['seconds']}s {payload['ended_by']}"
+            )
+            self.stage_panel.set_stage("asr", "running")
             self.source_pane.push(
                 _("[{seconds}s, preroll {preroll}ms, {reason}]",
                     seconds=payload["seconds"],
@@ -765,17 +861,33 @@ class KotonohaApp(App):
                 )
             )
         elif event.kind == "text_submitted":
+            # A typed turn skips capture, transcription and verification by design.
+            self.stage_panel.reset()
+            for skipped_stage in ("capture", "asr", "verify"):
+                self.stage_panel.set_stage(skipped_stage, "skipped", _("text input"))
+            self.stage_panel.set_stage("llm", "running")
             self._clear_transcripts()
         elif event.kind == "asr":
             if payload.get("empty"):
+                self.stage_panel.set_stage("asr", "empty")
                 self.source_pane.replace_last(_("(silence, returning without playback)"))
             else:
+                self.stage_panel.set_stage(
+                    "asr", "ok", f"n_best={len(payload.get('n_best') or ())}"
+                )
+                self.stage_panel.set_stage("llm", "running")
                 self.source_pane.replace_last(payload.get("text", ""))
         elif event.kind == "verify":
             if payload.get("state") == "done":
+                self.stage_panel.set_stage(
+                    "verify", "ok", f"cer={payload.get('cer')}"
+                )
                 mark = "≠" if payload.get("divergent") else "≈"
                 self.source_pane.push(f"  {mark} whisper: {payload.get('text', '')[:70]}")
+            elif payload.get("state") == "failed":
+                self.stage_panel.set_stage("verify", "failed", payload.get("message", ""))
             elif payload.get("state") == "running":
+                self.stage_panel.set_stage("verify", "running", payload.get("reason", ""))
                 message = _("verifying ({reason})", reason=payload.get("reason", ""))
                 self.source_pane.push("  … " + message)
         elif event.kind == "translation_delta":
@@ -784,6 +896,13 @@ class KotonohaApp(App):
             pass
         elif event.kind == "translation":
             self._frame_accumulator.discard_translation()
+            if payload.get("timeout"):
+                self.stage_panel.set_stage("llm", "failed", _("timeout"))
+            elif not payload.get("text"):
+                self.stage_panel.set_stage("llm", "empty")
+            else:
+                self.stage_panel.set_stage("llm", "ok")
+                self.stage_panel.set_stage("tts", "running")
             if payload.get("timeout"):
                 self.translation_pane.replace_last(_("(LLM timeout, transcript only, TTS skipped)"))
             else:
@@ -797,7 +916,10 @@ class KotonohaApp(App):
                 payload.get("source_text") or "",
                 payload.get("translation") or "",
             )
+        elif event.kind == "first_audio":
+            self.stage_panel.set_stage("tts", "ok", f"{payload.get('ms')}ms")
         elif event.kind == "turn":
+            self.stage_panel.finish()
             self.latency_panel.update_turn(payload)
         elif event.kind == "service":
             self.service_panel.set_service(
@@ -822,7 +944,9 @@ class KotonohaApp(App):
         elif event.kind == "privacy":
             self.status.offbox_audio = bool(payload.get("audio_leaves_device"))
         elif event.kind == "error":
-            self.service_panel.push_error(payload.get("where", "?"), payload.get("message", ""))
+            where = payload.get("where", "?")
+            self.stage_panel.set_stage(where, "failed", payload.get("message", "")[:40])
+            self.service_panel.push_error(where, payload.get("message", ""))
 
     # -- keys ----------------------------------------------------------------
     def action_talk(

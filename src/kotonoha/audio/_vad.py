@@ -241,6 +241,7 @@ class UtteranceSegmenter:
     _speech_ms: float = 0.0
     _accumulated_silence_ms: float = 0.0
     _preroll_used_ms: float = 0.0
+    _operator_held: bool = False
 
     def __post_init__(
         self,
@@ -267,6 +268,7 @@ class UtteranceSegmenter:
         self._speech_ms = 0.0
         self._accumulated_silence_ms = 0.0
         self._preroll_used_ms = 0.0
+        self._operator_held = False
         self.vad.reset()
 
     def prime_preroll(
@@ -321,6 +323,34 @@ class UtteranceSegmenter:
 
         return SegmentationEvent("none", probability)
 
+    def append(
+        self,
+        /,
+        frame: np.ndarray,
+    ) -> SegmentationEvent:
+        """Buffer one frame of an utterance whose boundary the operator owns.
+
+        Push-to-talk gives both edges to the key, so neither a pause nor a VAD
+        that never reports speech may end or discard the utterance. Only the hard
+        length ceiling still applies. The probability is still measured because
+        the level meter and the recorded speech duration read it.
+        """
+        if self.state is SegmentationState.IDLE:
+            return SegmentationEvent("none")
+
+        probability = self.vad.probability(frame)
+        self._buffer.append(frame)
+        if probability >= self.neg_threshold:
+            self.state = SegmentationState.SPEECH
+            self._speech_ms += self.frame_ms
+            self._accumulated_silence_ms = 0.0
+        else:
+            self._accumulated_silence_ms += self.frame_ms
+
+        if len(self._buffer) * self.frame_ms >= self.max_utterance_ms:
+            return self._finish("max_len", probability)
+        return SegmentationEvent("none", probability)
+
     def force_end(
         self,
         /,
@@ -338,6 +368,7 @@ class UtteranceSegmenter:
         if self.state is not SegmentationState.IDLE:
             return SegmentationEvent("none")
         self._start(None)
+        self._operator_held = True
         return SegmentationEvent("speech_start", 1.0)
 
     # -- internals -------------------------------------------------------
@@ -370,9 +401,13 @@ class UtteranceSegmenter:
         )
         speech_ms = self._speech_ms
         preroll_ms = self._preroll_used_ms
+        operator_held = self._operator_held
         self.reset()
 
-        if speech_ms < self.min_speech_ms and reason != "manual":
+        # The minimum-speech gate rejects coughs the VAD picked up on its own. An
+        # utterance the operator held the key through is never ambiguous, so it
+        # survives even when the VAD reported no speech at all.
+        if speech_ms < self.min_speech_ms and reason != "manual" and not operator_held:
             # A cough, a door closing. Not an utterance.
             log.debug("vad.too_short", speech_ms=round(speech_ms, 1))
             return SegmentationEvent("none", probability)

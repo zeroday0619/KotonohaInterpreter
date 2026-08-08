@@ -211,3 +211,22 @@ def test_framework_help_text_uses_the_import_time_locale(
     assert completed.returncode == 0, completed.stderr
     for expected in (usage, options, commands, completion, help_text):
         assert expected in completed.stdout
+
+
+def test_web_command_serves_the_browser_client() -> None:
+    """The web command builds the browser app rather than relaying a terminal."""
+    from kotonoha.web._server import create_app
+
+    application = create_app()
+    routes = {getattr(route, "path", None) for route in application.routes}
+
+    assert "/ws" in routes
+    assert "/api/logs" in routes
+    assert "/health" in routes
+
+
+def test_module_entry_point_exists() -> None:
+    """python -m kotonoha is what the web server runs; a missing file fails at runtime."""
+    import kotonoha
+
+    assert (Path(kotonoha.__file__).parent / "__main__.py").is_file()

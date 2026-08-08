@@ -463,13 +463,18 @@ class Orchestrator:
             if self.machine.state is State.PROCESSING:
                 continue
 
-            if self.settings.session.mode != "auto" and self.machine.state is State.IDLE:
-                # PTT mode: the key decides the transition. Skip the VAD and
-                # just keep the preroll ring filled (§5.1 applies to PTT too).
-                self.segmenter.prime_preroll(frame.pcm)
-                continue
-
-            event = self.segmenter.feed(frame.pcm)
+            if self.settings.session.mode != "auto":
+                if self.machine.state is State.IDLE:
+                    # PTT mode: the key decides the transition. Skip the VAD and
+                    # just keep the preroll ring filled (§5.1 applies to PTT too).
+                    self.segmenter.prime_preroll(frame.pcm)
+                    continue
+                # The key is down. Buffering here rather than feeding the VAD is
+                # what keeps a pause from closing the turn early and a silent VAD
+                # from discarding the whole utterance.
+                event = self.segmenter.append(frame.pcm)
+            else:
+                event = self.segmenter.feed(frame.pcm)
 
             level_tick += 1
             if level_tick % 4 == 0:

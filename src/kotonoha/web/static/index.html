@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Kotonoha Interpreter</title>
+    <link rel="stylesheet" href="/static/app.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Kotonoha</h1>
+      <div class="bar">
+        <span id="turn-state" data-state="IDLE">IDLE</span>
+        <span class="field">mic <b id="mic" data-open="false">SHUT</b> <small id="mic-rate">—</small></span>
+        <meter id="level" min="0" max="1" value="0"></meter>
+        <span class="field">mode <b id="mode">push_to_talk</b></span>
+        <span class="field">lang <b id="language">—</b></span>
+        <span class="field">session <b id="session-id">—</b></span>
+        <span id="status"></span>
+      </div>
+    </header>
+
+    <section class="controls">
+      <!-- getUserMedia needs a user gesture, so capture cannot start on load. -->
+      <button id="enable-audio" type="button">Enable microphone</button>
+      <button id="talk" type="button">Talk (space)</button>
+      <button id="mode-button" type="button">Mode (a)</button>
+      <label>Translate to <select id="target"></select></label>
+    </section>
+
+    <section id="text-row" class="controls" hidden>
+      <input id="text-input" type="text" placeholder="Type an utterance" />
+      <button id="text-send" type="button">Send</button>
+    </section>
+
+    <main>
+      <div class="panes">
+        <article>
+          <h2>Source</h2>
+          <p id="source"></p>
+        </article>
+        <article>
+          <h2>Translation</h2>
+          <p id="translation"></p>
+        </article>
+      </div>
+
+      <article class="stages">
+        <h2>Turn stages</h2>
+        <div id="stage-capture" class="stage" data-status="pending">
+          <span class="stage-mark">·</span><span class="stage-name">capture</span>
+          <span class="stage-status">pending</span><span class="stage-detail"></span>
+        </div>
+        <div id="stage-asr" class="stage" data-status="pending">
+          <span class="stage-mark">·</span><span class="stage-name">transcribe</span>
+          <span class="stage-status">pending</span><span class="stage-detail"></span>
+        </div>
+        <div id="stage-verify" class="stage" data-status="pending">
+          <span class="stage-mark">·</span><span class="stage-name">verify</span>
+          <span class="stage-status">pending</span><span class="stage-detail"></span>
+        </div>
+        <div id="stage-llm" class="stage" data-status="pending">
+          <span class="stage-mark">·</span><span class="stage-name">translate</span>
+          <span class="stage-status">pending</span><span class="stage-detail"></span>
+        </div>
+        <div id="stage-tts" class="stage" data-status="pending">
+          <span class="stage-mark">·</span><span class="stage-name">speak</span>
+          <span class="stage-status">pending</span><span class="stage-detail"></span>
+        </div>
+      </article>
+
+      <article>
+        <h2>History</h2>
+        <div id="history"></div>
+      </article>
+
+      <article class="log-panel">
+        <h2>
+          Application logs
+          <span class="log-controls">
+            <input id="log-filter" type="search" placeholder="filter" />
+            <label><input id="log-follow" type="checkbox" checked /> follow</label>
+            <button id="log-pause" type="button">Pause</button>
+            <button id="log-clear" type="button">Clear</button>
+          </span>
+        </h2>
+        <div id="logs"></div>
+      </article>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

@@ -49,6 +49,10 @@ does not verify Jetson behavior.
 | Integrated TUI | `uv run kotonoha tui` |
 | Configuration editor | `uv run kotonoha config` |
 | History browser | `uv run kotonoha history browse` |
+| History reset | `uv run kotonoha history clear [--session ID] [-y]` |
+| Web interface | `uv run kotonoha web [--host H] [--port P] [--sessions N]` |
+| Web interface in Docker | `bash scripts/manage.sh web` |
+| Debug run | `uv run kotonoha --debug tui` |
 | Translation catalog check | `uv run python scripts/py/i18n.py check` |
 | Translation catalog compile | `uv run python scripts/py/i18n.py compile` |
 | Translation catalog management | `bash scripts/manage.sh i18n check` |
@@ -71,7 +75,7 @@ uv run ruff check .
 uv run pytest -q
 ```
 
-Current baseline: 435 tests and zero lint findings.
+Current baseline: 469 tests and zero lint findings.
 
 `.github/workflows/ci.yml` runs these gates plus lock consistency, wheel catalog
 compilation, and Python 3.10 import parity. See
@@ -89,6 +93,7 @@ Changing these constraints requires explicit user instruction and a regression t
 | LLM output reaches TTS by clause | `src/kotonoha/core/_clauses.py` | Delays first audio until full completion |
 | Cross-verification remains conditional on Orin | `src/kotonoha/core/_quality.py` | Adds approximately 0.8 seconds to every turn |
 | Half-duplex gating remains in `Orchestrator._on_state_change` | `src/kotonoha/core/_orchestrator.py` | TTS re-enters the microphone and loops |
+| Browser playback drains on client acknowledgement | `src/kotonoha/web/_audio.py` | The microphone reopens while the browser is still speaking, and TTS loops |
 | Audio transport remains binary or shared memory | `src/kotonoha/_shmring.py`, `src/kotonoha/_transport.py` | Base64 adds avoidable latency and allocation |
 
 Do not introduce:
@@ -96,7 +101,6 @@ Do not introduce:
 - Cloud ASR, translation, or TTS APIs
 - Simultaneous interpretation policies such as AlignAtt or LocalAgreement
 - English-pivot translation
-- Browser microphone capture
 - Per-request model loading
 - Vector databases or embedding models for the glossary
 - Unvalidated JetPack, CUDA, Jetson Linux, or base-image upgrades
@@ -451,6 +455,7 @@ Do not mix application logs and turn metrics in one file.
 | Settings sources | Keep environment values above initialization values |
 | YAML overlays | Merge incomplete overlays over `config/default.yaml` |
 | VAD preroll | Keep `math.ceil` plus the onset-trigger frame slot |
+| Push-to-talk | The key owns both edges; buffer with `append`, never `feed`, or a quiet VAD discards the utterance |
 | Replay | Force automatic mode because files have no PTT key event |
 | Client fallback | Bind loop values passed through retryable lambdas |
 | Textual bindings | Replace `BindingsMap`; do not mutate the shared class map with `bind()` |
@@ -461,6 +466,9 @@ Do not mix application logs and turn metrics in one file.
 | History search | Escape `%` and `_` before SQL LIKE matching |
 | Test isolation | Keep `KOTONOHA_SKIP_LOCAL_CONFIG`; local config contains device secrets |
 | Privileged Compose | Pass the interpolation allowlist through `sudo env`; sudo removes exported variables |
+| Web overlay | `docker/compose.web.yaml` needs `-f docker/compose.yaml` too; its `depends_on` targets live there |
+| Web sessions | Give each session its own `shm.name`; one ring shared between sessions hands their audio to each other |
+| Browser capture rate | Trust the rate the client reports, not the one requested; a refused AudioContext rate shifts pitch |
 | Accelerator profiles | Use `config/profiles/accelerators/<vendor>/<family>/<model>.yaml`; select profiles with `<vendor>.<family>.<model>` identifiers and keep engine argument generation data-driven |
 | Jetson NVML | Build Jetson images with the vLLM non-NVML platform patch; use raw CUDA device queries in deployment probes |
 | Docker accelerator profiles | Load `docker/profiles/accelerators/<vendor>/<family>/<model>.env`; keep runtime, driver, visible-device, image, and patch settings out of service-specific branches |
