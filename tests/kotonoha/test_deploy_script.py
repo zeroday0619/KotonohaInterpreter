@@ -857,6 +857,25 @@ def test_web_overlay_reaches_the_model_services_without_a_host_audio_device() ->
     assert "devices" not in web, "browser audio needs no host sound device"
     assert "ports" not in web, "ports are ignored under host networking"
     assert set(web["depends_on"]) == {"asr", "asr-verify", "llm", "tts"}
+    assert "runtime" not in web, "the browser orchestrator is accelerator-neutral"
+    assert web["build"]["dockerfile"] == "docker/Dockerfile.web"
+
+
+def test_a6000_web_overlay_uses_pcm_transport_to_local_resident_services() -> None:
+    overlay = yaml.safe_load(
+        (PROJECT_ROOT / "docker" / "compose.web.a6000.yaml").read_text(encoding="utf-8")
+    )
+    environment = overlay["services"]["web"]["environment"]
+
+    assert "KOTONOHA__PERF_MODE=remote" in environment
+    assert "KOTONOHA__REMOTE__ENABLED=true" in environment
+    assert all(
+        any(
+            item.startswith(f"KOTONOHA__REMOTE__SERVICES__{role}=http://127.0.0.1:")
+            for item in environment
+        )
+        for role in ("ASR", "ASR_VERIFY", "LLM", "TTS")
+    )
 
 
 def test_web_overlay_binds_loopback_unless_the_operator_opts_out() -> None:

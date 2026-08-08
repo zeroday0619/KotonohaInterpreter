@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -20,6 +21,7 @@ from kotonoha._config import (
     accelerator_profile_path,
     load_settings,
 )
+from kotonoha._env import load_env_file, parse_env_file
 
 
 @pytest.mark.parametrize(
@@ -143,3 +145,42 @@ def test_model_fetches_pin_every_external_snapshot() -> None:
     assert all(revision in source for revision in revisions)
     assert source.count("--revision") == 7
     assert "/master/" not in source
+
+
+def test_environment_file_parser_supports_documented_syntax() -> None:
+    values = parse_env_file(
+        """
+        # comment
+        export KOTONOHA_LANG=ja
+        KOTONOHA_CONFIG="config/performance.yaml"
+        INVALID LINE
+        """
+    )
+
+    assert values == {
+        "KOTONOHA_LANG": "ja",
+        "KOTONOHA_CONFIG": "config/performance.yaml",
+    }
+
+
+def test_environment_file_preserves_process_values_and_rejects_foreign_names(
+    _positional_only: object | None = None,
+    /,
+    *,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    environment_path = tmp_path / ".env"
+    environment_path.write_text(
+        "KOTONOHA_LANG=ja\nPATH=/untrusted\nMODELS_DIR=/models\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("KOTONOHA_LANG", "ko")
+    original_path = os.environ["PATH"]
+
+    applied = load_env_file(environment_path)
+
+    assert applied == {}
+    assert os.environ["KOTONOHA_LANG"] == "ko"
+    assert os.environ["PATH"] == original_path
+    assert "MODELS_DIR" not in applied

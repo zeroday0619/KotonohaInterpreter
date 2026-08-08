@@ -1,17 +1,38 @@
-:root {
-  color-scheme: light dark;
-  --surface: Canvas;
-  --ink: CanvasText;
-  --muted: color-mix(in srgb, CanvasText 55%, Canvas);
-  --line: color-mix(in srgb, CanvasText 20%, Canvas);
+:root,
+:root[data-theme="light"] {
+  color-scheme: light;
+  --surface: #ffffff;
+  --surface-raised: #f6f8fa;
+  --ink: #1f2328;
+  --muted: #59636e;
+  --line: #d0d7de;
   --ok: #1a7f37;
   --warn: #9a6700;
   --error: #cf222e;
   --accent: #0969da;
 }
 
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface: #0d1117;
+  --surface-raised: #161b22;
+  --ink: #e6edf3;
+  --muted: #8b949e;
+  --line: #30363d;
+  --ok: #3fb950;
+  --warn: #d29922;
+  --error: #f85149;
+  --accent: #58a6ff;
+}
+
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root[data-theme="system"] {
+    color-scheme: dark;
+    --surface: #0d1117;
+    --surface-raised: #161b22;
+    --ink: #e6edf3;
+    --muted: #8b949e;
+    --line: #30363d;
     --ok: #3fb950;
     --warn: #d29922;
     --error: #f85149;
@@ -29,6 +50,37 @@ body {
   background: var(--surface);
   color: var(--ink);
   font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.application-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding: 0.5rem 0 0.75rem;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.header-title,
+.page-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.header-title label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--muted);
+}
+
+#navigation {
+  display: flex;
+  gap: 0.4rem;
+  margin: 0.5rem 0;
+  overflow-x: auto;
 }
 
 h1 {
@@ -110,13 +162,22 @@ h2 {
 button,
 select,
 input[type="text"],
-input[type="search"] {
+input[type="search"],
+input[type="number"],
+input[type="password"],
+textarea {
   font: inherit;
   padding: 0.35rem 0.7rem;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--surface);
   color: var(--ink);
+}
+
+textarea {
+  width: 100%;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 button {
@@ -137,6 +198,114 @@ button[data-active="true"] {
 main {
   display: grid;
   gap: 1rem;
+}
+
+.page {
+  display: grid;
+  gap: 1rem;
+}
+
+.page[hidden] {
+  display: none;
+}
+
+.page-heading h2 {
+  margin: 0;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.danger {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.settings-layout {
+  display: grid;
+  grid-template-columns: minmax(11rem, 16rem) minmax(0, 1fr);
+  gap: 1rem;
+}
+
+#config-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+#config-sections button {
+  text-align: left;
+}
+
+.settings-section {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.configuration-field,
+.form-grid label {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.configuration-field {
+  grid-template-columns: minmax(14rem, 1fr) minmax(15rem, 2fr);
+  align-items: start;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.configuration-path {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.75rem;
+}
+
+.table-container {
+  max-width: 100%;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+th,
+td {
+  padding: 0.5rem 0.65rem;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-raised);
+}
+
+pre {
+  max-height: 28rem;
+  margin: 0;
+  padding: 0.75rem;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 article {
@@ -239,4 +408,24 @@ article {
 }
 .log-line[data-level="debug"] {
   color: var(--muted);
+}
+
+@media (max-width: 720px) {
+  body {
+    padding-inline: 0.6rem;
+  }
+
+  .application-header {
+    position: static;
+  }
+
+  .settings-layout,
+  .configuration-field {
+    grid-template-columns: 1fr;
+  }
+
+  #config-sections {
+    flex-direction: row;
+    overflow-x: auto;
+  }
 }

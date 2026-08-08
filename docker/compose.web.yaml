@@ -1,7 +1,7 @@
 # Kotonoha — browser interface.
 #
-# This is an overlay for docker/compose.yaml, not a standalone stack. The resident
-# model services stay where they are defined; this file only adds the front end:
+# This is an overlay for either resident-service stack. The browser orchestrator
+# contains no CUDA runtime and runs unchanged on Jetson, A6000, and CPU hosts:
 #
 #   docker compose -f docker/compose.yaml -f docker/compose.web.yaml up -d web
 #   bash scripts/manage.sh web
@@ -40,24 +40,23 @@ services:
     image: kotonohainterpreter-web
     build:
       context: ..
-      dockerfile: docker/Dockerfile.orchestrator
-      args:
-        BASE_IMAGE: ${ORCH_BASE:-nvcr.io/nvidia/vllm:26.07-py3}
-    runtime: nvidia
+      dockerfile: docker/Dockerfile.web
     ipc: host
     network_mode: host
     restart: unless-stopped
     depends_on: [asr, asr-verify, llm, tts]
     environment:
-      - KOTONOHA_CONFIG=/app/config/default.yaml
+      - KOTONOHA_ENV_FILE=
+      - KOTONOHA_CONFIG=${KOTONOHA_WEB_CONFIG:-/app/config/default.yaml}
+      - KOTONOHA_LOCAL_CONFIG=${KOTONOHA_WEB_LOCAL_CONFIG:-/app/config/local.yaml}
+      - KOTONOHA__ACCELERATOR__PROFILE=${ACCELERATOR_PROFILE:-nvidia.jetson.agx-orin}
       - HF_HOME=/models/hf
       - TRANSFORMERS_OFFLINE=1 # fully offline (§1); models are fetched in advance
       - HF_HUB_OFFLINE=1
     volumes:
-      - ../:/app
-      - ../models:/models
+      - ../config:/app/config
+      - ${MODELS_DIR:-../models}:/models
       - ../data:/app/data
-    working_dir: /app
     command:
       - python3
       - -m

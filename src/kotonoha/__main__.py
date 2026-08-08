@@ -2,6 +2,6 @@
 
 from __future__ import annotations
 
-from kotonoha._cli import main
+from kotonoha._entrypoint import main
 
 main()

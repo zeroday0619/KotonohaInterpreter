@@ -211,6 +211,46 @@ STATE: dict[str, Any] = {
     "maximum_audio_frames": None,
     "shm_name": None,
 }
+RELOAD_LOCK = asyncio.Lock()
+
+
+async def _reload_backend() -> bool:
+    async with RELOAD_LOCK:
+        backend = STATE["backend"]
+        shutdown = getattr(backend, "shutdown", None)
+        if callable(shutdown):
+            await asyncio.to_thread(shutdown)
+        close_attached(STATE["shm_name"])
+        STATE.update(
+            backend=None,
+            error=None,
+            maximum_audio_frames=None,
+            shm_name=None,
+        )
+        settings = await asyncio.to_thread(
+            load_settings,
+            os.environ.get("KOTONOHA_CONFIG"),
+        )
+        config = settings.asr_verify
+        STATE["shm_name"] = settings.shm.name
+        STATE["maximum_audio_frames"] = settings.shm.slot_seconds * settings.shm.sample_rate
+        try:
+            if config.backend == "whisper_cpp":
+                STATE["backend"] = await asyncio.to_thread(
+                    WhisperCppBackend,
+                    os.environ.get("WHISPER_CPP_URL", "http://127.0.0.1:8082"),
+                )
+            else:
+                STATE["backend"] = await asyncio.to_thread(
+                    FasterWhisperBackend,
+                    config.model_id,
+                    config.device,
+                    config.compute_type,
+                )
+        except Exception as error:  # noqa: BLE001
+            STATE["error"] = repr(error)
+            log.error("verify.load_failed", error=repr(error))
+        return STATE["backend"] is not None
 
 
 @asynccontextmanager
@@ -218,31 +258,7 @@ async def lifespan(
     app: FastAPI,
     /,
 ) -> Any:
-    STATE["backend"] = None
-    STATE["error"] = None
-    settings = await asyncio.to_thread(
-        load_settings,
-        os.environ.get("KOTONOHA_CONFIG"),
-    )
-    config = settings.asr_verify
-    STATE["shm_name"] = settings.shm.name
-    STATE["maximum_audio_frames"] = settings.shm.slot_seconds * settings.shm.sample_rate
-    try:
-        if config.backend == "whisper_cpp":
-            STATE["backend"] = await asyncio.to_thread(
-                WhisperCppBackend,
-                os.environ.get("WHISPER_CPP_URL", "http://127.0.0.1:8082"),
-            )
-        else:
-            STATE["backend"] = await asyncio.to_thread(
-                FasterWhisperBackend,
-                config.model_id,
-                config.device,
-                config.compute_type,
-            )
-    except Exception as error:  # noqa: BLE001
-        STATE["error"] = repr(error)
-        log.error("verify.load_failed", error=repr(error))
+    await _reload_backend()
     try:
         yield
     finally:
@@ -260,6 +276,13 @@ app = FastAPI(title="kotonoha-asr-verify", lifespan=lifespan)
 app.add_middleware(RequestBodyLimitMiddleware)
 install_auth(app, "asr-verify")
 install_metrics(app, "asr-verify")
+
+
+@app.post("/admin/reload")
+@keyword_compatible
+async def reload_backend() -> dict[str, Any]:
+    ready = await _reload_backend()
+    return {"ok": ready, "service": "asr-verify", "error": STATE["error"]}
 
 
 @app.get("/health")

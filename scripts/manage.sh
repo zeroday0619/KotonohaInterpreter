@@ -13,21 +13,34 @@ docker_requires_sudo=false
 docker_environment_names=(
   ACCELERATOR_OMNI_IMAGE
   ACCELERATOR_PROFILE
+  ACCELERATOR_REMOTE_BASE
   ACCELERATOR_VLLM_IMAGE
   ASR_BASE
+  ASR_GPU_DEVICE
+  ASR_VERIFY_GPU_DEVICE
   CONTAINER_RUNTIME
+  GPU_DRIVER
   KOTONOHA_DISABLE_NVML
+  KOTONOHA_SERVICE_TOKEN
+  KOTONOHA_WEB_CONFIG
   KOTONOHA_WEB_HOST
+  KOTONOHA_WEB_LOCAL_CONFIG
   KOTONOHA_WEB_PORT
   KOTONOHA_WEB_SESSIONS
   LLM_ENABLE_PREFIX_CACHING
+  LLM_GPU_DEVICE
   LLM_GPU_MEMORY_UTILIZATION
   LLM_IMAGE
   LLM_KV_CACHE_DTYPE
   LLM_MAX_MODEL_LEN
   LLM_MAX_NUM_BATCHED_TOKENS
+  MODELS_DIR
   ORCH_BASE
+  PROMETHEUS_PORT
+  REMOTE_ASR_BASE
+  REMOTE_BASE
   TTS_ENFORCE_EAGER
+  TTS_GPU_DEVICE
   TTS_GPU_MEMORY_UTILIZATION
   TTS_IMAGE
   VERIFY_BASE
@@ -67,7 +80,7 @@ Usage:
   bash scripts/manage.sh [--dry-run] [-y|--yes] benchmark link [netcheck options]
   bash scripts/manage.sh [--dry-run] [-y|--yes] deploy [auto|jetson|a6000] [deploy options]
   bash scripts/manage.sh [--dry-run] [-y|--yes] tui
-  bash scripts/manage.sh [--dry-run] [-y|--yes] web
+  bash scripts/manage.sh [--dry-run] [-y|--yes] web [auto|jetson|a6000]
   bash scripts/manage.sh [--dry-run] [-y|--yes] uninstall [auto|jetson|a6000] [--remove-images|--keep-images]
   bash scripts/manage.sh [--dry-run] [-y|--yes] gpu allocate [allocator options]
   bash scripts/manage.sh [--dry-run] [-y|--yes] doctor [doctor options]
@@ -188,18 +201,70 @@ run_tui() {
   run_docker compose -f "$compose_file" run --rm orchestrator
 }
 
-# The web overlay only adds the front end, so both files are always passed: the
-# model services it depends on are declared in the base compose file.
+load_web_accelerator_environment() {
+  local deployment_target=$1
+  local profile_file="$repository_root/docker/profiles/accelerators/nvidia/jetson/agx-orin.env"
+  local variable_name
+  local variable_value
+  if [ "$deployment_target" = "a6000" ]; then
+    profile_file="$repository_root/docker/profiles/accelerators/nvidia/rtx/a6000.env"
+  fi
+  [ -f "$profile_file" ] || fail "Docker accelerator profile not found: $profile_file"
+  while IFS='=' read -r variable_name variable_value; do
+    case "$variable_name" in
+      ''|'#'*) continue ;;
+      *[!A-Z0-9_]*) fail "invalid variable in Docker accelerator profile: $variable_name" ;;
+    esac
+    if [ "${!variable_name+x}" != x ]; then
+      export "$variable_name=$variable_value"
+    fi
+  done < "$profile_file"
+
+  if [ "$deployment_target" != "a6000" ]; then
+    return
+  fi
+  local gpu_environment_file="$repository_root/config/remote-gpu.env"
+  if [ ! -f "$gpu_environment_file" ]; then
+    [ "$dry_run" = true ] && return
+    fail "A6000 GPU allocation is missing; run scripts/manage.sh deploy a6000 first"
+  fi
+  while IFS='=' read -r variable_name variable_value; do
+    case "$variable_name" in
+      ASR_GPU_DEVICE|ASR_VERIFY_GPU_DEVICE|LLM_GPU_DEVICE|TTS_GPU_DEVICE)
+        [ -n "$variable_value" ] || fail "empty GPU assignment: $variable_name"
+        export "$variable_name=$variable_value"
+        ;;
+    esac
+  done < "$gpu_environment_file"
+}
+
 run_web() {
-  local compose_file="$repository_root/docker/compose.yaml"
+  local deployment_target=$1
+  local compose_file
   local web_compose_file="$repository_root/docker/compose.web.yaml"
+  local web_target_compose_file=
   local bind_address=${KOTONOHA_WEB_HOST:-127.0.0.1}
+  local compose_arguments=()
+  load_web_accelerator_environment "$deployment_target"
+  if [ "$deployment_target" = "a6000" ]; then
+    compose_file="$repository_root/docker/compose.remote.yaml"
+    web_target_compose_file="$repository_root/docker/compose.web.a6000.yaml"
+  else
+    compose_file="$repository_root/docker/compose.yaml"
+  fi
+  if [ -f "$repository_root/.env" ]; then
+    compose_arguments+=(--env-file "$repository_root/.env")
+  fi
+  compose_arguments+=(-f "$compose_file" -f "$web_compose_file")
+  if [ -n "$web_target_compose_file" ]; then
+    compose_arguments+=(-f "$web_target_compose_file")
+  fi
   if [ "$dry_run" = true ]; then
-    run_command docker compose -f "$compose_file" -f "$web_compose_file" up -d web
+    run_command docker compose "${compose_arguments[@]}" up -d web
     return
   fi
   configure_docker_access
-  run_docker compose -f "$compose_file" -f "$web_compose_file" up -d web
+  run_docker compose "${compose_arguments[@]}" up -d web
   printf 'Web interface listening on http://%s:%s\n' \
     "$bind_address" "${KOTONOHA_WEB_PORT:-8080}"
   if [ "$bind_address" = "127.0.0.1" ]; then
@@ -301,6 +366,28 @@ resolve_models_directory() {
   esac
 }
 
+load_management_dotenv() {
+  local environment_file="$repository_root/.env"
+  local variable_name
+  local variable_value
+  [ -f "$environment_file" ] || return 0
+  while IFS='=' read -r variable_name variable_value; do
+    variable_name=${variable_name#export }
+    case "$variable_name" in
+      KOTONOHA_EQUIPMENT|KOTONOHA_WEB_HOST|KOTONOHA_WEB_PORT|KOTONOHA_WEB_SESSIONS)
+        if [ "${!variable_name+x}" != x ]; then
+          variable_value=${variable_value%$'\r'}
+          case "$variable_value" in
+            \"*\") variable_value=${variable_value#\"}; variable_value=${variable_value%\"} ;;
+            \'*\') variable_value=${variable_value#\'}; variable_value=${variable_value%\'} ;;
+          esac
+          export "$variable_name=$variable_value"
+        fi
+        ;;
+    esac
+  done < "$environment_file"
+}
+
 verify_model_artifacts() {
   local models_directory
   local missing_count=0
@@ -328,6 +415,8 @@ verify_model_artifacts() {
   [ "$missing_count" -eq 0 ] \
     || fail "$missing_count required model artifact(s) are missing"
 }
+
+load_management_dotenv
 
 command_name=${1:-}
 if [ -z "$command_name" ]; then
@@ -448,9 +537,15 @@ case "$command_name" in
     run_tui
     ;;
   web)
+    deployment_target=${1:-auto}
+    case "$deployment_target" in
+      auto|jetson|a6000) [ "$#" -eq 0 ] || shift ;;
+      *) fail "web target must be auto, jetson, or a6000" ;;
+    esac
     require_no_arguments "$@"
-    confirm "Serve the browser interface over HTTP"
-    run_web
+    deployment_target=$(resolve_inference_equipment "$deployment_target")
+    confirm "Serve the browser interface on $deployment_target"
+    run_web "$deployment_target"
     ;;
   uninstall)
     deployment_target=${1:-auto}

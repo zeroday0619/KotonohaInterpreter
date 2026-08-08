@@ -343,6 +343,16 @@ class TransformersBackend:
             "infer_ms": round(inference_ms, 1),
         }
 
+    def shutdown(
+        self,
+        /,
+    ) -> None:
+        """Release model references before loading a replacement backend."""
+        self.model = None
+        self.processor = None
+        if self.torch.cuda.is_available():
+            self.torch.cuda.empty_cache()
+
 
 class VllmBackend:
     """Own one in-process vLLM engine for beam search and realtime ASR."""
@@ -831,6 +841,55 @@ STATE: dict[str, Any] = {
     "maximum_audio_frames": None,
     "shm_name": None,
 }
+RELOAD_LOCK = asyncio.Lock()
+
+
+async def _reload_backend() -> bool:
+    async with RELOAD_LOCK:
+        backend = STATE["backend"]
+        if isinstance(backend, VllmBackend):
+            await backend.shutdown()
+        else:
+            shutdown = getattr(backend, "shutdown", None)
+            if callable(shutdown):
+                await asyncio.to_thread(shutdown)
+        close_attached(STATE["shm_name"])
+        STATE.update(
+            backend=None,
+            error=None,
+            maximum_audio_frames=None,
+            shm_name=None,
+        )
+        settings = await asyncio.to_thread(
+            load_settings,
+            os.environ.get("KOTONOHA_CONFIG"),
+        )
+        STATE["shm_name"] = settings.shm.name
+        STATE["maximum_audio_frames"] = settings.shm.slot_seconds * settings.shm.sample_rate
+        try:
+            if settings.asr.backend == "vllm":
+                backend = VllmBackend(
+                    settings.asr.vllm_model_id,
+                    settings.asr.vllm_served_model_name,
+                    settings.asr.vllm_realtime_architecture,
+                    settings.asr.dtype,
+                    settings.asr.vllm_gpu_memory_utilization,
+                    settings.asr.vllm_max_model_len,
+                    settings.asr.vllm_enforce_eager,
+                )
+                await backend.start()
+                STATE["backend"] = backend
+            else:
+                STATE["backend"] = await asyncio.to_thread(
+                    TransformersBackend,
+                    settings.asr.model_id,
+                    settings.asr.model_revision,
+                    settings.asr.dtype,
+                )
+        except Exception as error:  # noqa: BLE001
+            STATE["error"] = repr(error)
+            log.exception("asr.load_failed", error=repr(error))
+        return STATE["backend"] is not None
 
 
 @asynccontextmanager
@@ -839,37 +898,7 @@ async def lifespan(
     /,
 ) -> AsyncIterator[None]:
     del app
-    STATE["backend"] = None
-    STATE["error"] = None
-    settings = await asyncio.to_thread(
-        load_settings,
-        os.environ.get("KOTONOHA_CONFIG"),
-    )
-    STATE["shm_name"] = settings.shm.name
-    STATE["maximum_audio_frames"] = settings.shm.slot_seconds * settings.shm.sample_rate
-    try:
-        if settings.asr.backend == "vllm":
-            backend = VllmBackend(
-                settings.asr.vllm_model_id,
-                settings.asr.vllm_served_model_name,
-                settings.asr.vllm_realtime_architecture,
-                settings.asr.dtype,
-                settings.asr.vllm_gpu_memory_utilization,
-                settings.asr.vllm_max_model_len,
-                settings.asr.vllm_enforce_eager,
-            )
-            await backend.start()
-            STATE["backend"] = backend
-        else:
-            STATE["backend"] = await asyncio.to_thread(
-                TransformersBackend,
-                settings.asr.model_id,
-                settings.asr.model_revision,
-                settings.asr.dtype,
-            )
-    except Exception as error:  # noqa: BLE001
-        STATE["error"] = repr(error)
-        log.exception("asr.load_failed", error=repr(error))
+    await _reload_backend()
     try:
         yield
     finally:
@@ -887,6 +916,13 @@ app.add_middleware(RequestBodyLimitMiddleware)
 install_auth(app, "asr")
 install_metrics(app, "asr")
 app.include_router(config_admin_router)
+
+
+@app.post("/admin/reload")
+@keyword_compatible
+async def reload_backend() -> dict[str, Any]:
+    ready = await _reload_backend()
+    return {"ok": ready, "service": "asr", "error": STATE["error"]}
 
 
 @app.get("/health")

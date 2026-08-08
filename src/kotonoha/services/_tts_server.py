@@ -539,6 +539,7 @@ class VllmOmniRuntime:
 
 
 RUNTIME = VllmOmniRuntime()
+RELOAD_LOCK = asyncio.Lock()
 
 
 @asynccontextmanager
@@ -558,6 +559,14 @@ app = FastAPI(title="kotonoha-tts", lifespan=lifespan)
 app.add_middleware(RequestBodyLimitMiddleware)
 install_auth(app, "tts")
 install_metrics(app, "tts")
+
+
+@app.post("/admin/reload")
+@keyword_compatible
+async def reload_backend() -> dict[str, Any]:
+    async with RELOAD_LOCK:
+        await RUNTIME.start()
+    return await RUNTIME.health()
 
 
 @app.get("/health")

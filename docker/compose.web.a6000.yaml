@@ -1,0 +1,20 @@
+# Route the accelerator-neutral Web orchestrator to services on the same A6000 host.
+name: kotonohainterpreter
+
+services:
+  web:
+    environment:
+      - KOTONOHA_CONFIG=/app/config/remote-server.yaml
+      - KOTONOHA_LOCAL_CONFIG=/app/config/remote-server.local.yaml
+      - KOTONOHA__ACCELERATOR__PROFILE=${ACCELERATOR_PROFILE:-nvidia.rtx.a6000}
+      - KOTONOHA__PERF_MODE=remote
+      - KOTONOHA__REMOTE__ENABLED=true
+      - KOTONOHA__REMOTE__TOKEN=${KOTONOHA_SERVICE_TOKEN:?set a token before starting}
+      - KOTONOHA__REMOTE__SERVICES__ASR=http://127.0.0.1:8001
+      - KOTONOHA__REMOTE__SERVICES__ASR_VERIFY=http://127.0.0.1:8002
+      - KOTONOHA__REMOTE__SERVICES__LLM=http://127.0.0.1:8003
+      - KOTONOHA__REMOTE__SERVICES__TTS=http://127.0.0.1:8004
+      - KOTONOHA__SERVICES__ASR=http://127.0.0.1:8001
+      - KOTONOHA__SERVICES__ASR_VERIFY=http://127.0.0.1:8002
+      - KOTONOHA__SERVICES__LLM=http://127.0.0.1:8003
+      - KOTONOHA__SERVICES__TTS=http://127.0.0.1:8004

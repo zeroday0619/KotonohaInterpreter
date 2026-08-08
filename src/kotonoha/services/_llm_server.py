@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 import os
@@ -390,6 +391,25 @@ class VllmTranslationBackend:
 
 
 STATE: dict[str, Any] = {"backend": None, "error": None}
+RELOAD_LOCK = asyncio.Lock()
+
+
+async def _reload_backend() -> bool:
+    async with RELOAD_LOCK:
+        backend = STATE["backend"]
+        if isinstance(backend, VllmTranslationBackend):
+            await backend.shutdown()
+        STATE["backend"] = None
+        STATE["error"] = None
+        settings = load_settings(os.environ.get("KOTONOHA_CONFIG"))
+        try:
+            backend = VllmTranslationBackend(settings.llm)
+            await backend.start()
+            STATE["backend"] = backend
+        except Exception as error:  # noqa: BLE001
+            STATE["error"] = repr(error)
+            log.exception("llm.load_failed", error=repr(error))
+        return STATE["backend"] is not None
 
 
 @asynccontextmanager
@@ -398,16 +418,7 @@ async def lifespan(
     /,
 ) -> AsyncIterator[None]:
     del app
-    STATE["backend"] = None
-    STATE["error"] = None
-    settings = load_settings(os.environ.get("KOTONOHA_CONFIG"))
-    try:
-        backend = VllmTranslationBackend(settings.llm)
-        await backend.start()
-        STATE["backend"] = backend
-    except Exception as error:  # noqa: BLE001
-        STATE["error"] = repr(error)
-        log.exception("llm.load_failed", error=repr(error))
+    await _reload_backend()
     try:
         yield
     finally:
@@ -421,6 +432,13 @@ app = FastAPI(title="kotonoha-translation", lifespan=lifespan)
 app.add_middleware(RequestBodyLimitMiddleware)
 install_auth(app, "llm")
 install_metrics(app, "llm")
+
+
+@app.post("/admin/reload")
+@keyword_compatible
+async def reload_backend() -> dict[str, Any]:
+    ready = await _reload_backend()
+    return {"ok": ready, "service": "llm", "error": STATE["error"]}
 
 
 def _backend() -> VllmTranslationBackend:

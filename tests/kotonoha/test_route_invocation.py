@@ -72,6 +72,25 @@ def test_every_positional_only_route_handler_is_keyword_compatible() -> None:
     )
 
 
+def test_every_resident_model_service_exposes_live_reload() -> None:
+    from kotonoha.services import (
+        _asr_server,
+        _asr_verify_server,
+        _llm_server,
+        _tts_server,
+    )
+
+    for application in (
+        _asr_server.app,
+        _asr_verify_server.app,
+        _llm_server.app,
+        _tts_server.app,
+    ):
+        assert "/admin/reload" in {
+            getattr(route, "path", None) for route in application.routes
+        }
+
+
 class RequestBody(BaseModel):
     __slots__: ClassVar[tuple[str, ...]] = ()
     value: int

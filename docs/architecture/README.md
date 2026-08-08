@@ -3,11 +3,12 @@
 ## Processing Model
 
 Kotonoha processes completed utterances. It does not implement simultaneous
-interpretation. The audio frontend and orchestrator run on the Jetson, and model services
-remain resident across turns.
+interpretation. The audio frontend and orchestrator run in the selected client process,
+and model services remain resident across turns. The client can be a Jetson TUI, a Jetson
+browser session, or a browser session hosted with the model stack on an A6000 server.
 
 ```text
-[microphone]
+[microphone or browser MediaStream]
     |
     v
 Audio frontend (CPU)
@@ -24,7 +25,7 @@ Orchestrator (asyncio and uvloop)
     `-- :8004 TTS               vLLM-Omni, Qwen3-TTS 0.6B
     |
     v
-[speaker and terminal UI]
+[speaker, terminal UI, or browser Web Audio]
 ```
 
 ## Turn Workflow
@@ -49,6 +50,10 @@ IDLE -> LISTENING -> PROCESSING -> SPEAKING -> IDLE
 
 `Orchestrator._on_state_change` owns half-duplex microphone gating. TTS output cannot
 re-enter capture while the state is `SPEAKING`.
+
+Browser sessions replace PortAudio with Web Audio adapters. Each connection owns an
+orchestrator and unique shared-memory name. Browser playback acknowledges consumed
+samples before the state machine reopens capture.
 
 ## Audio Transport
 
@@ -80,17 +85,17 @@ enforce Taiwanese vocabulary, including `軟體`, `影片`, `資訊`, and `滑�
 
 `perf_mode` controls service placement.
 
-| Mode | ASR | Verification | LLM | TTS | Audio leaves Jetson |
+| Mode | ASR | Verification | LLM | TTS | Transport |
 |---|---|---|---|---|---|
-| `onboard` | Jetson | Jetson | Jetson | Jetson | No |
-| `hybrid` | Jetson | Jetson | A6000 | Jetson | No |
-| `remote` | A6000 | A6000 | A6000 | A6000 | Yes |
-| `custom` | Per-role | Per-role | Per-role | Per-role | Depends on ASR and verification placement |
+| `onboard` | Local | Local | Local | Local | Shared memory |
+| `hybrid` | Local | Local | Remote | Local | Shared memory plus remote text |
+| `remote` | Remote | Remote | Remote | Remote | Binary PCM and HTTP/WebSocket |
+| `custom` | Per-role | Per-role | Per-role | Per-role | Determined per role |
 
 `custom` reads the `placement` mapping. Each role accepts `local` or `remote`; omitted
 roles inherit the `onboard` placement. Remote roles require `remote.enabled: true`.
 
-Each remote role retains a resident Jetson fallback. Transport failures retry locally.
+Each remote role retains a configured local fallback. Transport failures retry locally.
 HTTP 4xx application errors do not activate failover. Streaming roles fail over only
 before the first chunk because an active stream cannot be rewound.
 
@@ -163,7 +168,6 @@ compatibility HTTP stream does not start another model server.
 - Cloud ASR, translation, or TTS APIs
 - Simultaneous interpretation policies
 - English-pivot translation
-- Browser microphone capture
 - Per-request model loading
 - Vector databases or embedding models for glossary lookup
 - Unvalidated JetPack, CUDA, Jetson Linux, or base-image upgrades

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="system">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -7,8 +7,24 @@
     <link rel="stylesheet" href="/static/app.css" />
   </head>
   <body>
-    <header>
-      <h1>Kotonoha</h1>
+    <header class="application-header">
+      <div class="header-title">
+        <h1>Kotonoha</h1>
+        <label>Theme
+          <select id="theme-select">
+            <option value="system">System</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </label>
+      </div>
+      <nav id="navigation" aria-label="Application">
+        <button type="button" data-page="interpreter" data-active="true">Interpreter</button>
+        <button type="button" data-page="configuration">Configuration</button>
+        <button type="button" data-page="history-page">History</button>
+        <button type="button" data-page="operations">Operations</button>
+        <button type="button" data-page="license">License</button>
+      </nav>
       <div class="bar">
         <span id="turn-state" data-state="IDLE">IDLE</span>
         <span class="field">mic <b id="mic" data-open="false">SHUT</b> <small id="mic-rate">—</small></span>
@@ -20,72 +36,93 @@
       </div>
     </header>
 
-    <section class="controls">
-      <!-- getUserMedia needs a user gesture, so capture cannot start on load. -->
-      <button id="enable-audio" type="button">Enable microphone</button>
-      <button id="talk" type="button">Talk (space)</button>
-      <button id="mode-button" type="button">Mode (a)</button>
-      <label>Translate to <select id="target"></select></label>
-    </section>
-
-    <section id="text-row" class="controls" hidden>
-      <input id="text-input" type="text" placeholder="Type an utterance" />
-      <button id="text-send" type="button">Send</button>
-    </section>
-
     <main>
-      <div class="panes">
-        <article>
-          <h2>Source</h2>
-          <p id="source"></p>
+      <section id="interpreter" class="page" data-active="true">
+        <section class="controls">
+          <button id="enable-audio" type="button">Enable microphone</button>
+          <label>Input <select id="input-device"><option value="">System default</option></select></label>
+          <label>Output <select id="output-device"><option value="">System default</option></select></label>
+          <button id="refresh-audio" type="button">Refresh devices</button>
+          <button id="test-audio" type="button">Test audio</button>
+          <button id="talk" type="button">Talk (space)</button>
+          <button id="mode-button" type="button">Mode (a)</button>
+          <label>Translate to <select id="target"></select></label>
+        </section>
+
+        <section id="text-row" class="controls" hidden>
+          <input id="text-input" type="text" placeholder="Type an utterance" />
+          <button id="text-send" type="button">Send</button>
+        </section>
+
+        <div class="panes">
+          <article><h2>Source</h2><p id="source"></p></article>
+          <article><h2>Translation</h2><p id="translation"></p></article>
+        </div>
+
+        <article class="stages">
+          <h2>Turn stages</h2>
+          <div id="stage-capture" class="stage" data-status="pending"><span class="stage-mark">·</span><span class="stage-name">capture</span><span class="stage-status">pending</span><span class="stage-detail"></span></div>
+          <div id="stage-asr" class="stage" data-status="pending"><span class="stage-mark">·</span><span class="stage-name">transcribe</span><span class="stage-status">pending</span><span class="stage-detail"></span></div>
+          <div id="stage-verify" class="stage" data-status="pending"><span class="stage-mark">·</span><span class="stage-name">verify</span><span class="stage-status">pending</span><span class="stage-detail"></span></div>
+          <div id="stage-llm" class="stage" data-status="pending"><span class="stage-mark">·</span><span class="stage-name">translate</span><span class="stage-status">pending</span><span class="stage-detail"></span></div>
+          <div id="stage-tts" class="stage" data-status="pending"><span class="stage-mark">·</span><span class="stage-name">speak</span><span class="stage-status">pending</span><span class="stage-detail"></span></div>
         </article>
-        <article>
-          <h2>Translation</h2>
-          <p id="translation"></p>
+
+        <article><h2>Recent turns</h2><div id="history"></div></article>
+        <article class="log-panel">
+          <h2>Application logs
+            <span class="log-controls">
+              <input id="log-filter" type="search" placeholder="filter" />
+              <label><input id="log-follow" type="checkbox" checked /> follow</label>
+              <button id="log-pause" type="button">Pause</button>
+              <button id="log-clear" type="button">Clear</button>
+            </span>
+          </h2>
+          <div id="logs"></div>
         </article>
-      </div>
+      </section>
 
-      <article class="stages">
-        <h2>Turn stages</h2>
-        <div id="stage-capture" class="stage" data-status="pending">
-          <span class="stage-mark">·</span><span class="stage-name">capture</span>
-          <span class="stage-status">pending</span><span class="stage-detail"></span>
+      <section id="configuration" class="page" hidden>
+        <div class="page-heading">
+          <div><h2>Configuration</h2><p id="config-path" class="muted"></p></div>
+          <button id="config-save" type="button">Save and apply</button>
         </div>
-        <div id="stage-asr" class="stage" data-status="pending">
-          <span class="stage-mark">·</span><span class="stage-name">transcribe</span>
-          <span class="stage-status">pending</span><span class="stage-detail"></span>
+        <div class="settings-layout">
+          <nav id="config-sections" aria-label="Configuration categories"></nav>
+          <div id="config-fields"></div>
         </div>
-        <div id="stage-verify" class="stage" data-status="pending">
-          <span class="stage-mark">·</span><span class="stage-name">verify</span>
-          <span class="stage-status">pending</span><span class="stage-detail"></span>
-        </div>
-        <div id="stage-llm" class="stage" data-status="pending">
-          <span class="stage-mark">·</span><span class="stage-name">translate</span>
-          <span class="stage-status">pending</span><span class="stage-detail"></span>
-        </div>
-        <div id="stage-tts" class="stage" data-status="pending">
-          <span class="stage-mark">·</span><span class="stage-name">speak</span>
-          <span class="stage-status">pending</span><span class="stage-detail"></span>
-        </div>
-      </article>
+        <p id="config-status" role="status"></p>
+      </section>
 
-      <article>
-        <h2>History</h2>
-        <div id="history"></div>
-      </article>
+      <section id="history-page" class="page" hidden>
+        <div class="page-heading"><h2>Interpretation history</h2><button id="history-clear" type="button" class="danger">Clear history</button></div>
+        <div class="controls">
+          <input id="history-search" type="search" placeholder="Search source or translation" />
+          <select id="history-language"><option value="">All languages</option></select>
+          <select id="history-outcome"><option value="">All outcomes</option></select>
+          <button id="history-reload" type="button">Reload</button>
+        </div>
+        <div id="history-results" class="table-container"></div>
+        <p id="history-status" class="muted"></p>
+      </section>
 
-      <article class="log-panel">
-        <h2>
-          Application logs
-          <span class="log-controls">
-            <input id="log-filter" type="search" placeholder="filter" />
-            <label><input id="log-follow" type="checkbox" checked /> follow</label>
-            <button id="log-pause" type="button">Pause</button>
-            <button id="log-clear" type="button">Clear</button>
-          </span>
-        </h2>
-        <div id="logs"></div>
-      </article>
+      <section id="operations" class="page" hidden>
+        <div class="page-heading"><h2>Operations</h2><span id="operation-state" class="muted"></span></div>
+        <div class="controls">
+          <select id="operation-select"></select>
+          <button id="operation-run" type="button">Run</button>
+          <button id="operation-stop" type="button">Stop</button>
+        </div>
+        <p id="operation-description" class="muted"></p>
+        <div id="operation-fields" class="form-grid"></div>
+        <pre id="operation-output"></pre>
+      </section>
+
+      <section id="license" class="page" hidden>
+        <div class="page-heading"><h2>License information</h2><span id="license-version"></span></div>
+        <article><h2>Project license</h2><pre id="license-text"></pre></article>
+        <article><h2>Installed dependencies</h2><div id="dependency-licenses" class="table-container"></div></article>
+      </section>
     </main>
 
     <script src="/static/app.js"></script>

@@ -5,9 +5,9 @@ directory take precedence for that directory.
 
 ## Mission
 
-Kotonoha Interpreter is a consecutive four-language offline speech interpreter for an
-NVIDIA Jetson AGX Orin 64GB. An external RTX A6000 provides an optional high-performance
-mode. `README.md` is the project entry point. `docs/README.md` indexes planning,
+Kotonoha Interpreter is an accelerator-aware consecutive four-language offline speech
+interpreter. NVIDIA Jetson AGX Orin supports appliance deployment, and RTX A6000-class
+hosts can run the complete Web and model stack. `README.md` is the project entry point. `docs/README.md` indexes planning,
 architecture, operator, deployment, operations, performance, and development
 documentation. `docs/planning/README.md` defines the phase sequence and acceptance gates.
 `spikes/README.md` defines the hardware spike harness. `docs/performance/measurement.md`
@@ -51,7 +51,7 @@ does not verify Jetson behavior.
 | History browser | `uv run kotonoha history browse` |
 | History reset | `uv run kotonoha history clear [--session ID] [-y]` |
 | Web interface | `uv run kotonoha web [--host H] [--port P] [--sessions N]` |
-| Web interface in Docker | `bash scripts/manage.sh web` |
+| Web interface in Docker | `bash scripts/manage.sh web <jetson|a6000>` |
 | Debug run | `uv run kotonoha --debug tui` |
 | Translation catalog check | `uv run python scripts/py/i18n.py check` |
 | Translation catalog compile | `uv run python scripts/py/i18n.py compile` |
@@ -75,7 +75,7 @@ uv run ruff check .
 uv run pytest -q
 ```
 
-Current baseline: 469 tests and zero lint findings.
+Current baseline: 481 tests and zero lint findings.
 
 `.github/workflows/ci.yml` runs these gates plus lock consistency, wheel catalog
 compilation, and Python 3.10 import parity. See
@@ -316,7 +316,8 @@ files.
 
 The remote allowlist contains only settings consumed by resident model services. Do not
 expose credentials, client policy, audio devices, or local storage. Remote model changes
-take effect after service restart.
+persist through `/admin/config`. The Web control center additionally invokes the affected
+service `/admin/reload` endpoint after a validated save.
 
 ## Localization
 

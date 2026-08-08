@@ -1,0 +1,29 @@
+# Accelerator-neutral browser orchestrator.
+FROM python:3.12-slim
+
+COPY --from=ghcr.io/astral-sh/uv:0.12 /uv /uvx /bin/
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libportaudio2 libsndfile1 \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1 \
+    UV_PYTHON=/opt/kotonoha-venv/bin/python \
+    VIRTUAL_ENV=/opt/kotonoha-venv \
+    PATH=/opt/kotonoha-venv/bin:${PATH} \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+RUN uv venv --python python3 /opt/kotonoha-venv
+
+COPY pyproject.toml uv.lock README.md LICENSE hatch_build.py ./
+RUN uv sync --active --frozen --no-dev --no-install-project --no-cache
+
+COPY src ./src
+RUN uv sync --active --frozen --no-dev --no-cache \
+ && (uv pip install --python "$UV_PYTHON" --no-cache "onnxruntime>=1.24,<2" \
+      || echo "WARNING: onnxruntime is unavailable; VAD will use the energy fallback") \
+ && uv pip check --python "$UV_PYTHON"
+
+CMD ["python3", "-m", "kotonoha", "web"]

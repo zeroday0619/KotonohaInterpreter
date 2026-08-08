@@ -1,7 +1,8 @@
 # Kotonoha Interpreter
 
-Consecutive four-language speech interpreter for NVIDIA Jetson AGX Orin 64GB, with an
-optional RTX A6000 service host.
+Accelerator-aware consecutive four-language speech interpreter. NVIDIA Jetson AGX Orin
+supports appliance deployment, while RTX A6000-class hosts can run the complete browser
+service and resident model stack.
 
 ## Overview
 
@@ -16,7 +17,7 @@ interpretation. ASR, translation, and TTS operate without cloud APIs.
 | Source language | Automatic identification with previous-language fallback |
 | Target routing | Language pair, fixed target, or broadcast |
 | Interaction | Push-to-talk, automatic VAD, or typed input |
-| Interface | Localized Textual TUI |
+| Interface | Localized Textual TUI and multi-session Web UI |
 | Latency objective | 2.9 seconds from end-of-utterance to first audio |
 | Design priority | Accuracy before latency |
 
@@ -72,6 +73,19 @@ bash scripts/manage.sh deploy jetson
 bash scripts/manage.sh deploy a6000
 ```
 
+Deploy the browser interface with the resident model stack:
+
+```bash
+cp .env.example .env
+bash scripts/manage.sh web jetson
+bash scripts/manage.sh web a6000
+```
+
+The Web UI provides interpretation, complete configuration editing, history management,
+operator tools, dependency licenses, and application logs. Configuration writes are
+validated and applied without restarting the Web process. Resident model settings invoke
+service-level backend reloads.
+
 The [management script reference](docs/operations/management.md) defines model staging,
 target setup, benchmarking, deployment, and dry-run commands.
 
@@ -85,6 +99,7 @@ The [documentation index](docs/README.md) organizes project documentation by cat
 | Architecture | [System Architecture](docs/architecture/README.md) |
 | User guide | [Operator Guide](docs/user-guide/README.md) |
 | Deployment | [Installation and Deployment](docs/deployment/installation.md) |
+| Environment | [Environment Variables](docs/deployment/environment.md) |
 | Operations | [Service Runbook](docs/operations/service-runbook.md) |
 | Performance | [Performance Measurement](docs/performance/measurement.md) |
 | Development | [Development](docs/development/README.md) |
@@ -99,7 +114,7 @@ The [documentation index](docs/README.md) organizes project documentation by cat
   measured with the complete remote stack.
 - Complete model inference cannot be validated on the macOS development workstation.
 - Push-to-talk is a terminal toggle because terminals do not expose key-release events.
-- Remote configuration changes do not reload resident models.
+- A resident model is temporarily unavailable while its in-process backend reloads.
 - TLS termination and a production supervisor outside Docker Compose are not included.
 
 ## AI-Generated Code Notice

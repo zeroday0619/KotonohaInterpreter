@@ -66,6 +66,8 @@ bash scripts/manage.sh deploy jetson
 | Deploy Jetson services | `bash scripts/manage.sh deploy jetson` |
 | Deploy A6000 services | `bash scripts/manage.sh deploy a6000` |
 | Start the integrated TUI | `bash scripts/manage.sh tui` |
+| Start the Jetson Web stack | `bash scripts/manage.sh web jetson` |
+| Start the A6000 Web stack | `bash scripts/manage.sh web a6000` |
 | Remove Jetson containers | `bash scripts/manage.sh uninstall jetson` |
 | Remove A6000 containers | `bash scripts/manage.sh uninstall a6000` |
 | Run environment diagnostics | `bash scripts/manage.sh doctor` |
@@ -78,7 +80,7 @@ example, the following command preserves the deployment script's image-build opt
 bash scripts/manage.sh deploy a6000 --no-build
 ```
 
-The `setup`, `benchmark`, `deploy`, and `uninstall` operations accept `auto` or an omitted
+The `setup`, `benchmark`, `deploy`, `web`, and `uninstall` operations accept `auto` or an omitted
 target. `KOTONOHA_EQUIPMENT=workstation|jetson|a6000` provides an explicit automation
 override when host interfaces are unavailable inside a controlled execution environment.
 
@@ -125,6 +127,11 @@ read or modify model files.
 The management script preserves environment variables consumed by delegated workflows.
 Docker workflows that require sudo forward an explicit Compose-variable allowlist because
 the standard sudo policy removes exported shell variables.
+
+The `web` workflow passes the repository-root `.env` to Compose explicitly. Jetson uses
+`docker/compose.yaml`; A6000 uses `docker/compose.remote.yaml`. Both use the
+accelerator-neutral `docker/compose.web.yaml` browser image. The A6000 overlay routes the
+Web orchestrator to the four local resident services through binary PCM upload.
 
 | Variable | Purpose |
 |---|---|

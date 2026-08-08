@@ -221,3 +221,17 @@ class SessionManager:
     ) -> None:
         for identifier in list(self._sessions):
             await self.close(identifier)
+
+    async def replace_settings(
+        self,
+        settings: Settings,
+        /,
+    ) -> int:
+        """Apply settings to new sessions and retire existing browser sessions."""
+        async with self._lock:
+            self.settings = settings
+            sessions = tuple(self._sessions.values())
+        for session in sessions:
+            session.capture.close_gate()
+            session._send_control({"type": "settings_reload"})
+        return len(sessions)

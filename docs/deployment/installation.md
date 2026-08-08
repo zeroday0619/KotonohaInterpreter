@@ -929,6 +929,48 @@ cat config/remote-gpu.env
 docker compose -f docker/compose.remote.yaml config | sed -n '/device_ids:/,+2p'
 ```
 
+### Deploy the Web control center
+
+The Web image contains the CPU orchestrator and browser assets. It does not inherit a
+CUDA base image and does not request the NVIDIA container runtime. The selected base
+Compose stack owns accelerator attachment for the four resident model services.
+
+Start the complete A6000 browser stack:
+
+```bash
+bash scripts/manage.sh web a6000
+curl -fsS http://127.0.0.1:8080/health | python3 -m json.tool
+```
+
+Start the equivalent Jetson browser stack on the Jetson host:
+
+```bash
+bash scripts/manage.sh web jetson
+curl -fsS http://127.0.0.1:8080/health | python3 -m json.tool
+```
+
+The command passes `.env` to Compose when the file exists. A6000 deployment combines
+`compose.remote.yaml`, `compose.web.yaml`, and `compose.web.a6000.yaml`. Jetson deployment
+combines `compose.yaml` and `compose.web.yaml`.
+
+The default listener is loopback. For remote browser clients, place an authenticated TLS
+reverse proxy on the host and set the application listener explicitly:
+
+```dotenv
+KOTONOHA_WEB_HOST=0.0.0.0
+KOTONOHA_WEB_PORT=8080
+KOTONOHA_WEB_SESSIONS=4
+```
+
+Browsers require a secure context for microphone capture. Do not expose port 8080 without
+TLS and user authentication.
+
+The configuration page writes `config/local.yaml` on Jetson and
+`config/remote-server.local.yaml` on A6000. A valid save reconnects active browser
+sessions. Model and accelerator changes call the authenticated reload endpoint for each
+affected resident service. Requests targeting a service during its backend reload can
+receive HTTP 503 and must be retried after `/health` reports `"ok": true`.
+
 ## Connect the Jetson to the A6000
 
 ### Configure service addresses

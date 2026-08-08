@@ -11,6 +11,7 @@ uv sync
 | Command | Function |
 |---|---|
 | `uv run kotonoha tui` | Open the integrated control center |
+| `uv run kotonoha web` | Open the multi-session browser control center |
 | `uv run kotonoha run` | Open the interpreter directly |
 | `uv run kotonoha config` | Edit local or remote configuration |
 | `uv run kotonoha history browse` | Browse completed turns |
@@ -33,6 +34,22 @@ footer without writing terminal control output to the application log.
 
 Live ASR and translation panes clear when a new turn starts. Completed turns remain in a
 message-style conversation timeline below the live panes.
+
+## Web UI
+
+The Web UI exposes the same five control-center areas as the TUI: interpreter,
+configuration, history, operations, and license information. It also streams structured
+application logs into the interpreter page.
+
+The browser owns microphone capture and audio playback. Each browser connection owns an
+isolated orchestrator session and shared-memory ring. The resident ASR, verification ASR,
+translation, and TTS services remain shared across sessions.
+
+Theme selection supports system synchronization, explicit light mode, and explicit dark
+mode. The browser stores the preference locally and sends no theme data to the server.
+Input and output selectors use the browser media-device inventory. The audio test opens
+the selected microphone, updates the level meter, and plays a low-volume tone through the
+selected output when the browser implements `AudioContext.setSinkId`.
 
 ## Text Input
 
@@ -92,7 +109,9 @@ inherit the local placement.
 `kotonoha config` exposes every local `Settings` leaf. Local changes are validated and
 written atomically to `config/local.yaml`. Remote changes use the authenticated
 `/admin/config` endpoint and only accept settings consumed by resident model services.
-Remote model changes require a service restart.
+The TUI remote editor persists model-service settings but does not reload a service. The
+Web editor applies local runtime settings immediately and invokes `/admin/reload` for each
+affected resident model service.
 
 Qwen3-TTS voice selection is exposed as four local settings under `tts.voices`. The
 configuration editor presents only the presets native to each target language:

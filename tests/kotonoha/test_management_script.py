@@ -52,6 +52,7 @@ def test_management_script_has_valid_shell_syntax_and_help() -> None:
     assert "benchmark [auto|jetson|a6000]" in help_result.stdout
     assert "benchmark link" in help_result.stdout
     assert "deploy [auto|jetson|a6000]" in help_result.stdout
+    assert "web [auto|jetson|a6000]" in help_result.stdout
     assert "tui" in help_result.stdout
     assert "detect" in help_result.stdout
     assert "--yes" in help_result.stdout
@@ -73,6 +74,15 @@ def test_management_script_has_valid_shell_syntax_and_help() -> None:
         (("benchmark", "link", "--samples", "2"), ("netcheck --samples 2",)),
         (("deploy", "a6000", "--no-build"), ("deploy.sh a6000 --no-build",)),
         (("tui",), ("docker compose", "docker/compose.yaml", "run --rm orchestrator")),
+        (
+            ("web", "a6000"),
+            (
+                "docker/compose.remote.yaml",
+                "docker/compose.web.yaml",
+                "docker/compose.web.a6000.yaml",
+                "up -d web",
+            ),
+        ),
         (
             ("uninstall", "jetson"),
             ("deploy.sh uninstall jetson --remove-images",),

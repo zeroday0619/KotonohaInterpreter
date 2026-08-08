@@ -41,6 +41,9 @@ const state = {
   mode: "push_to_talk",
   session: null,
   logsPaused: false,
+  configuration: null,
+  operations: null,
+  operationTimer: null,
 };
 
 const view = {};
@@ -108,6 +111,11 @@ function handleControl(message) {
       break;
     case "playback_flush":
       resetPlayback();
+      break;
+    case "settings_reload":
+      setStatus("settings applied; reconnecting", "ok");
+      state.socket.close();
+      window.setTimeout(connect, 250);
       break;
     case "error":
       setStatus(message.message, "error");
@@ -233,12 +241,14 @@ async function startCapture() {
   if (state.audioContext) {
     return;
   }
+  const selectedInput = element("input-device").value;
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: {
       channelCount: 1,
       echoCancellation: true,
       noiseSuppression: true,
       autoGainControl: true,
+      ...(selectedInput ? { deviceId: { exact: selectedInput } } : {}),
     },
   });
   // Ask for the working rate. A browser may refuse, so the rate actually used is
@@ -279,6 +289,7 @@ async function startCapture() {
   send({ type: "hello", capture_rate: context.sampleRate });
   view.micRate.textContent = `${context.sampleRate} Hz`;
   setCaptureEnabled(state.mode !== "text");
+  await refreshAudioDevices();
 }
 
 function setCaptureEnabled(enabled) {
@@ -312,8 +323,66 @@ function playbackContext() {
       state.playbackContext.close();
     }
     state.playbackContext = new AudioContext({ sampleRate: state.playbackRate });
+    applyOutputDevice(state.playbackContext);
   }
   return state.playbackContext;
+}
+
+function applyOutputDevice(context) {
+  const selectedOutput = element("output-device").value;
+  if (!selectedOutput || typeof context.setSinkId !== "function") {
+    return;
+  }
+  context.setSinkId(selectedOutput).catch((error) => {
+    setStatus(`output device unavailable: ${error.message}`, "error");
+  });
+}
+
+async function refreshAudioDevices() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+    setStatus("audio device enumeration is unavailable", "error");
+    return;
+  }
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  fillAudioDevices(element("input-device"), devices, "audioinput", "Microphone");
+  fillAudioDevices(element("output-device"), devices, "audiooutput", "Speaker");
+}
+
+function fillAudioDevices(select, devices, kind, fallbackLabel) {
+  const selected = select.value;
+  select.replaceChildren();
+  const defaultOption = document.createElement("option");
+  defaultOption.value = "";
+  defaultOption.textContent = "System default";
+  select.appendChild(defaultOption);
+  devices
+    .filter((device) => device.kind === kind)
+    .forEach((device, index) => {
+      const option = document.createElement("option");
+      option.value = device.deviceId;
+      option.textContent = device.label || `${fallbackLabel} ${index + 1}`;
+      option.selected = device.deviceId === selected;
+      select.appendChild(option);
+    });
+}
+
+async function testAudioDevices() {
+  try {
+    await startCapture();
+    const context = playbackContext();
+    await context.resume();
+    applyOutputDevice(context);
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    gain.gain.value = 0.04;
+    oscillator.frequency.value = 440;
+    oscillator.connect(gain).connect(context.destination);
+    oscillator.start();
+    oscillator.stop(context.currentTime + 0.25);
+    setStatus("audio test active; verify the meter and tone", "ok");
+  } catch (error) {
+    setStatus(`audio test failed: ${error.message}`, "error");
+  }
 }
 
 function resetPlayback() {
@@ -423,6 +492,348 @@ function appendLog(line) {
   }
 }
 
+// -- application pages -----------------------------------------------------
+
+function showPage(pageId) {
+  document.querySelectorAll(".page").forEach((page) => {
+    const active = page.id === pageId;
+    page.hidden = !active;
+    page.dataset.active = String(active);
+  });
+  document.querySelectorAll("#navigation button").forEach((button) => {
+    button.dataset.active = String(button.dataset.page === pageId);
+  });
+  if (pageId === "configuration") {
+    loadConfiguration();
+  } else if (pageId === "history-page") {
+    loadHistoryArchive();
+  } else if (pageId === "operations") {
+    loadOperations();
+  } else if (pageId === "license") {
+    loadLicense();
+  }
+}
+
+function setTheme(theme) {
+  const selected = ["system", "light", "dark"].includes(theme) ? theme : "system";
+  document.documentElement.dataset.theme = selected;
+  localStorage.setItem("kotonoha-theme", selected);
+  element("theme-select").value = selected;
+}
+
+async function fetchJson(path, options) {
+  const response = await fetch(path, {
+    headers: { "Content-Type": "application/json" },
+    ...(options || {}),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.detail || `${response.status} ${response.statusText}`);
+  }
+  return payload;
+}
+
+// -- configuration ---------------------------------------------------------
+
+async function loadConfiguration() {
+  try {
+    state.configuration = await fetchJson("/api/config");
+    renderConfiguration(state.configuration);
+    element("config-status").textContent = "Configuration loaded";
+  } catch (error) {
+    element("config-status").textContent = error.message;
+  }
+}
+
+function renderConfiguration(configuration) {
+  element("config-path").textContent = configuration.path;
+  const sectionNavigation = element("config-sections");
+  const fieldContainer = element("config-fields");
+  sectionNavigation.replaceChildren();
+  fieldContainer.replaceChildren();
+
+  configuration.sections.forEach((section, sectionIndex) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = section.label;
+    button.dataset.active = String(sectionIndex === 0);
+    button.addEventListener("click", () => {
+      sectionNavigation.querySelectorAll("button").forEach((item) => {
+        item.dataset.active = String(item === button);
+      });
+      fieldContainer.querySelectorAll(".settings-section").forEach((panel) => {
+        panel.hidden = panel.dataset.section !== section.name;
+      });
+    });
+    sectionNavigation.appendChild(button);
+
+    const panel = document.createElement("section");
+    panel.className = "settings-section";
+    panel.dataset.section = section.name;
+    panel.hidden = sectionIndex !== 0;
+    const heading = document.createElement("h2");
+    heading.textContent = section.label;
+    panel.appendChild(heading);
+    configuration.fields
+      .filter((field) => field.section === section.name)
+      .forEach((field) => panel.appendChild(configurationField(field)));
+    fieldContainer.appendChild(panel);
+  });
+}
+
+function configurationField(field) {
+  const row = document.createElement("label");
+  row.className = "configuration-field";
+  const title = document.createElement("span");
+  title.className = "configuration-path";
+  title.textContent = `${field.path}${field.modified ? "  [modified]" : ""}`;
+  row.appendChild(title);
+
+  let input;
+  if (field.kind === "select") {
+    input = document.createElement("select");
+    field.choices.forEach((choice) => {
+      const option = document.createElement("option");
+      option.value = choice;
+      option.textContent = choice;
+      option.selected = choice === field.value;
+      input.appendChild(option);
+    });
+  } else if (field.kind === "bool") {
+    input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = Boolean(field.value);
+  } else if (field.value_kind === "collection" || field.kind === "placement") {
+    input = document.createElement("textarea");
+    input.rows = 4;
+    input.value = JSON.stringify(field.value, null, 2);
+  } else {
+    input = document.createElement("input");
+    input.type = field.secret ? "password" : field.value_kind === "number" ? "number" : "text";
+    input.value = field.value === null ? "" : String(field.value);
+    input.placeholder = field.secret ? "Leave empty to preserve the current value" : "";
+  }
+  input.dataset.path = field.path;
+  input.dataset.kind = field.kind;
+  input.dataset.valueKind = field.value_kind;
+  input.dataset.optional = String(field.optional);
+  input.dataset.secret = String(field.secret);
+  input.dataset.original = JSON.stringify(field.value);
+  row.appendChild(input);
+  return row;
+}
+
+function configurationValue(input) {
+  if (input.dataset.kind === "bool") {
+    return input.checked;
+  }
+  const raw = input.value.trim();
+  if (input.dataset.secret === "true" && raw === "") {
+    return undefined;
+  }
+  if (raw === "" && input.dataset.optional === "true") {
+    return null;
+  }
+  if (input.dataset.valueKind === "number") {
+    const number = Number(raw);
+    if (!Number.isFinite(number)) {
+      throw new Error(`${input.dataset.path} must be numeric`);
+    }
+    return number;
+  }
+  if (input.dataset.valueKind === "collection" || input.dataset.kind === "placement") {
+    return JSON.parse(raw);
+  }
+  return raw;
+}
+
+async function saveConfiguration() {
+  const changes = {};
+  try {
+    document.querySelectorAll("#config-fields [data-path]").forEach((input) => {
+      const value = configurationValue(input);
+      if (value !== undefined && JSON.stringify(value) !== input.dataset.original) {
+        changes[input.dataset.path] = value;
+      }
+    });
+    if (Object.keys(changes).length === 0) {
+      element("config-status").textContent = "No changes";
+      return;
+    }
+    element("config-save").disabled = true;
+    const result = await fetchJson("/api/config", {
+      method: "PUT",
+      body: JSON.stringify({ changes }),
+    });
+    const roles = result.reloading_roles.length ? `; reloading ${result.reloading_roles.join(", ")}` : "";
+    element("config-status").textContent = `Applied ${result.changed.length} settings${roles}`;
+    state.configuration = result;
+    renderConfiguration(result);
+  } catch (error) {
+    element("config-status").textContent = error.message;
+  } finally {
+    element("config-save").disabled = false;
+  }
+}
+
+// -- history ---------------------------------------------------------------
+
+async function loadHistoryArchive() {
+  const parameters = new URLSearchParams();
+  const search = element("history-search").value.trim();
+  const language = element("history-language").value;
+  const outcome = element("history-outcome").value;
+  if (search) parameters.set("query", search);
+  if (language) parameters.set("source_language", language);
+  if (outcome) parameters.set("outcome", outcome);
+  try {
+    const result = await fetchJson(`/api/history?${parameters}`);
+    fillFilter(element("history-language"), result.languages, language, "All languages");
+    fillFilter(element("history-outcome"), result.outcomes, outcome, "All outcomes");
+    renderTable(
+      element("history-results"),
+      ["Time", "Direction", "Source", "Translation", "Outcome"],
+      result.entries.map((entry) => [
+        entry.time,
+        `${entry.src_lang || "?"}→${entry.tgt_lang || "?"}`,
+        entry.source_text || "",
+        entry.translation || "",
+        entry.outcome,
+      ]),
+    );
+    element("history-status").textContent = `${result.total} turns`;
+  } catch (error) {
+    element("history-status").textContent = error.message;
+  }
+}
+
+function fillFilter(select, values, selected, allLabel) {
+  select.replaceChildren();
+  [[allLabel, ""], ...(values || []).map((value) => [value, value])].forEach(([label, value]) => {
+    const option = document.createElement("option");
+    option.textContent = label;
+    option.value = value;
+    option.selected = value === selected;
+    select.appendChild(option);
+  });
+}
+
+async function clearHistoryArchive() {
+  if (!window.confirm("Delete all recorded interpretation turns?")) {
+    return;
+  }
+  const result = await fetchJson("/api/history", { method: "DELETE" });
+  element("history-status").textContent = `Cleared ${result.removed} turns`;
+  await loadHistoryArchive();
+}
+
+// -- operations and license ------------------------------------------------
+
+async function loadOperations() {
+  const result = await fetchJson("/api/operations");
+  state.operations = result.operations;
+  const select = element("operation-select");
+  const current = select.value;
+  select.replaceChildren();
+  result.operations.forEach((operation) => {
+    const option = document.createElement("option");
+    option.value = operation.name;
+    option.textContent = operation.name;
+    option.selected = operation.name === current;
+    select.appendChild(option);
+  });
+  renderOperation();
+  renderOperationJob(result.job);
+}
+
+function renderOperation() {
+  const operation = (state.operations || []).find((item) => item.name === element("operation-select").value);
+  if (!operation) return;
+  element("operation-description").textContent = operation.description;
+  const fields = element("operation-fields");
+  fields.replaceChildren();
+  const defaults = { "replay-seconds": "30", host: "127.0.0.1", samples: "10", "netcheck-seconds": "6", service: "asr" };
+  operation.fields.forEach((name) => {
+    const label = document.createElement("label");
+    label.textContent = name;
+    const input = document.createElement("input");
+    input.type = "text";
+    input.dataset.operationField = name;
+    input.value = defaults[name] || "";
+    label.appendChild(input);
+    fields.appendChild(label);
+  });
+}
+
+async function runOperation() {
+  const values = {};
+  document.querySelectorAll("[data-operation-field]").forEach((input) => {
+    values[input.dataset.operationField] = input.value;
+  });
+  try {
+    const job = await fetchJson("/api/operations", {
+      method: "POST",
+      body: JSON.stringify({ operation: element("operation-select").value, values }),
+    });
+    renderOperationJob(job);
+    window.clearInterval(state.operationTimer);
+    state.operationTimer = window.setInterval(refreshOperation, 500);
+  } catch (error) {
+    element("operation-state").textContent = error.message;
+  }
+}
+
+async function refreshOperation() {
+  const result = await fetchJson("/api/operations");
+  renderOperationJob(result.job);
+  if (!result.job.running) {
+    window.clearInterval(state.operationTimer);
+  }
+}
+
+function renderOperationJob(job) {
+  element("operation-state").textContent = job.running ? "Running" : job.return_code === null ? "Ready" : `Exit ${job.return_code}`;
+  element("operation-output").textContent = (job.lines || []).join("\n");
+  element("operation-run").disabled = job.running;
+  element("operation-stop").disabled = !job.running;
+}
+
+async function loadLicense() {
+  try {
+    const result = await fetchJson("/api/license");
+    element("license-version").textContent = `Version ${result.version}`;
+    element("license-text").textContent = result.license || "License text unavailable";
+    renderTable(
+      element("dependency-licenses"),
+      ["Package", "Version", "Declared license"],
+      result.dependencies.map((dependency) => [dependency.name, dependency.version, dependency.license]),
+    );
+  } catch (error) {
+    element("license-text").textContent = error.message;
+  }
+}
+
+function renderTable(container, headers, rows) {
+  const table = document.createElement("table");
+  const heading = document.createElement("tr");
+  headers.forEach((header) => {
+    const cell = document.createElement("th");
+    cell.textContent = header;
+    heading.appendChild(cell);
+  });
+  table.appendChild(heading);
+  rows.forEach((row) => {
+    const tableRow = document.createElement("tr");
+    row.forEach((value) => {
+      const cell = document.createElement("td");
+      cell.textContent = value === null ? "" : String(value);
+      tableRow.appendChild(cell);
+    });
+    table.appendChild(tableRow);
+  });
+  container.replaceChildren(table);
+}
+
 // -- wiring -----------------------------------------------------------------
 
 function main() {
@@ -459,6 +870,26 @@ function main() {
       setStatus(`microphone denied: ${error.message}`, "error");
     }
   });
+  element("refresh-audio").addEventListener("click", async () => {
+    try {
+      await refreshAudioDevices();
+    } catch (error) {
+      setStatus(`device refresh failed: ${error.message}`, "error");
+    }
+  });
+  element("test-audio").addEventListener("click", testAudioDevices);
+  element("input-device").addEventListener("change", () => {
+    if (state.audioContext) {
+      stopCapture();
+      element("enable-audio").disabled = false;
+      setStatus("input device changed; enable the microphone again", "ok");
+    }
+  });
+  element("output-device").addEventListener("change", () => {
+    if (state.playbackContext) {
+      applyOutputDevice(state.playbackContext);
+    }
+  });
   view.target.addEventListener("change", () => {
     send({ type: "target", language: view.target.value });
   });
@@ -476,9 +907,24 @@ function main() {
   element("log-clear").addEventListener("click", () => {
     view.logs.innerHTML = "";
   });
+  document.querySelectorAll("#navigation button").forEach((button) => {
+    button.addEventListener("click", () => showPage(button.dataset.page));
+  });
+  element("theme-select").addEventListener("change", (event) => setTheme(event.target.value));
+  element("config-save").addEventListener("click", saveConfiguration);
+  element("history-reload").addEventListener("click", loadHistoryArchive);
+  element("history-search").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") loadHistoryArchive();
+  });
+  element("history-clear").addEventListener("click", clearHistoryArchive);
+  element("operation-select").addEventListener("change", renderOperation);
+  element("operation-run").addEventListener("click", runOperation);
+  element("operation-stop").addEventListener("click", async () => {
+    renderOperationJob(await fetchJson("/api/operations", { method: "DELETE" }));
+  });
 
   document.addEventListener("keydown", (event) => {
-    if (event.target.tagName === "INPUT" || event.target.tagName === "SELECT") {
+    if (event.target.closest("input, select, textarea, button")) {
       return;
     }
     if (event.code === "Space") {
@@ -491,6 +937,8 @@ function main() {
 
   resetStages();
   updateTalkButton();
+  setTheme(localStorage.getItem("kotonoha-theme") || "system");
+  refreshAudioDevices().catch(() => {});
   connect();
 }
 

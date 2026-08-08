@@ -479,7 +479,7 @@ def web(
         print(_("Warning: {host} exposes the interface with no authentication", host=host))
 
     uvicorn.run(
-        create_app(settings, maximum_sessions=sessions),
+        create_app(settings, maximum_sessions=sessions, config_path=context.obj.config),
         host=host,
         port=port,
         log_config=None,

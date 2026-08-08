@@ -1,7 +1,7 @@
 [project]
 name = "kotonoha-interpreter"
 version = "0.1.0"
-description = "Consecutive (non-simultaneous) 4-language offline speech interpreter for Jetson AGX Orin"
+description = "Accelerator-aware consecutive four-language offline speech interpreter"
 readme = "README.md"
 license = { file = "LICENSE" }
 # Deployment images use Python 3.12. Python 3.10 remains the minimum supported
@@ -84,7 +84,7 @@ eval = [
   "pandas>=2.2 ; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
 [project.scripts]
-kotonoha = "kotonoha._cli:main"
+kotonoha = "kotonoha._entrypoint:main"
 
 [build-system]
 # Babel compiles the translation catalogs in hatch_build.py. .po files are

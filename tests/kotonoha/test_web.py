@@ -4,16 +4,20 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import Path
 from typing import Any, ClassVar
 
 import numpy as np
+import pytest
 from fastapi.testclient import TestClient
 
 from kotonoha._config import load_settings
 from kotonoha._shmring import _owned_shared_memory_names
+from kotonoha.store._db import Store
+from kotonoha.tui._config_app import FIELDS
 from kotonoha.web._audio import FRAME_SAMPLES, BrowserCapture, BrowserPlayback
 from kotonoha.web._logs import LogBroadcaster
-from kotonoha.web._server import create_app
+from kotonoha.web._server import _changed_model_roles, create_app
 from kotonoha.web._session import SessionManager
 
 
@@ -234,6 +238,97 @@ def test_web_routes_serve_the_client() -> None:
     assert client.get("/").status_code == 200
     for asset in ("app.js", "app.css", "capture-worklet.js"):
         assert client.get(f"/static/{asset}").status_code == 200, asset
+
+
+def test_web_exposes_every_control_center_page() -> None:
+    client = TestClient(create_app())
+    document = client.get("/").text
+
+    for page in ("interpreter", "configuration", "history-page", "operations", "license"):
+        assert f'id="{page}"' in document
+    assert 'id="theme-select"' in document
+    assert 'data-theme="system"' in document
+    configuration = client.get("/api/config").json()
+    assert {field["path"] for field in configuration["fields"]} == {
+        field.path for field in FIELDS
+    }
+
+
+def test_web_configuration_save_is_validated_and_applied_without_process_restart(
+    _positional_only: object | None = None,
+    /,
+    *,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    local_path = tmp_path / "web.local.yaml"
+    monkeypatch.setenv("KOTONOHA_LOCAL_CONFIG", str(local_path))
+    application = create_app()
+    client = TestClient(application)
+
+    response = client.put(
+        "/api/config",
+        json={"changes": {"session.fixed_target": "ja"}},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["changed"] == ["session.fixed_target"]
+    assert response.json()["retired_sessions"] == 0
+    assert application.state.kotonoha.settings.session.fixed_target == "ja"
+    assert "fixed_target: ja" in local_path.read_text(encoding="utf-8")
+
+    invalid = client.put(
+        "/api/config",
+        json={"changes": {"frontend.vad.preroll_ms": 10}},
+    )
+    assert invalid.status_code == 422
+
+    unknown = client.put("/api/config", json={"changes": {"unknown.setting": True}})
+    assert unknown.status_code == 422
+
+
+def test_web_history_and_license_pages_use_the_runtime_store(
+    _positional_only: object | None = None,
+    /,
+    *,
+    tmp_path: Path,
+) -> None:
+    settings = load_settings()
+    settings.store.path = tmp_path / "history.db"
+    store = Store(settings.store.path)
+    store.add_turn("turn", "session", "ko", "ja", "source", "translation")
+    store.close()
+    client = TestClient(create_app(settings))
+
+    history = client.get("/api/history").json()
+    assert history["total"] == 1
+    assert history["entries"][0]["source_text"] == "source"
+    assert client.get("/api/license").json()["version"]
+    assert client.delete("/api/history").json()["removed"] == 1
+
+
+def test_web_operations_page_reuses_the_validated_tui_catalog() -> None:
+    client = TestClient(create_app())
+
+    payload = client.get("/api/operations").json()
+
+    assert {operation["name"] for operation in payload["operations"]} >= {
+        "doctor",
+        "replay",
+        "netcheck",
+        "glossary_import",
+    }
+
+
+def test_model_setting_changes_reload_only_the_affected_services() -> None:
+    assert _changed_model_roles(["llm.max_model_len"]) == ["llm"]
+    assert _changed_model_roles(["session.fixed_target"]) == []
+    assert _changed_model_roles(["accelerator.profile"]) == [
+        "asr",
+        "asr_verify",
+        "llm",
+        "tts",
+    ]
 
 
 def test_session_socket_announces_the_audio_contract() -> None:
