@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import os
 import platform
-import subprocess
+
+# macOS memory discovery requires the fixed system sysctl command and never invokes a shell.
+import subprocess  # nosec B404
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -140,8 +142,9 @@ def _system_memory() -> dict[str, float | None]:
 
     if platform.system() == "Darwin":
         try:
-            completed = subprocess.run(
-                ["sysctl", "-n", "hw.memsize"],
+            # The executable path and every argument are fixed application constants.
+            completed = subprocess.run(  # nosec B603
+                ["/usr/sbin/sysctl", "-n", "hw.memsize"],
                 check=True,
                 capture_output=True,
                 text=True,
@@ -186,8 +189,8 @@ def _accelerator_memory_snapshot(
 
 
 @lru_cache(maxsize=1)
-def system_snapshot() -> dict[str, Any]:
-    """Return stable host, kernel, accelerator, and memory architecture data."""
+def _stable_system_snapshot() -> dict[str, Any]:
+    """Cache host and accelerator identity, which cannot change at runtime."""
     uname = platform.uname()
     accelerator = _torch_accelerator()
     device_names = tuple(
@@ -199,9 +202,6 @@ def system_snapshot() -> dict[str, Any]:
         device_tree_model=_device_tree_model(),
         device_tree_compatible=_device_tree_compatible(),
     )
-    memory = _system_memory()
-    memory["architecture"] = memory_architecture
-    memory["scope"] = "system" if memory_architecture == "unified" else "accelerator"
     return {
         "os": {
             "name": uname.system,
@@ -220,8 +220,19 @@ def system_snapshot() -> dict[str, Any]:
             **accelerator,
             "memory_architecture": memory_architecture,
         },
-        "memory": memory,
     }
+
+
+def system_snapshot() -> dict[str, Any]:
+    """Return stable host identity with a current available-memory sample."""
+    stable = _stable_system_snapshot()
+    memory_architecture = stable["accelerator"]["memory_architecture"]
+    memory = _system_memory()
+    memory["architecture"] = memory_architecture
+    # These values always come from system RAM. Discrete accelerator memory is
+    # reported separately by `_accelerator_memory_snapshot`.
+    memory["scope"] = "system"
+    return {**stable, "memory": memory}
 
 
 def resource_report(

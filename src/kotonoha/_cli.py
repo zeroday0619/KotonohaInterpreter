@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import sys
 import time
 import wave
@@ -35,8 +36,12 @@ from kotonoha._typer_i18n import (
     LocalizedTyperGroup,
     configure_typer_chrome,
 )
+from kotonoha.services._request_limits import MAXIMUM_REQUEST_BODY_BYTES
 
 configure_typer_chrome()
+
+WAVE_READ_CHUNK_FRAMES: Final[int] = 65536
+MAXIMUM_REPLAY_SECONDS: Final[float] = 600.0
 
 
 # -- shared wiring --------------------------------------------------------
@@ -44,6 +49,7 @@ def _build(
     settings: Settings,
     /,
     wave_path: Path | None = None,
+    wave_maximum_seconds: float | None = None,
     text_only: bool = False,
 ) -> Any:
     from kotonoha.audio._capture import FileCapture, MicCapture, NullCapture
@@ -74,7 +80,11 @@ def _build(
         capture = NullCapture()
         playback = _output_or_null(settings)
     elif wave_path is not None:
-        audio_samples = load_wave_file(wave_path, settings.audio.work_sample_rate)
+        audio_samples = load_wave_file(
+            wave_path,
+            settings.audio.work_sample_rate,
+            wave_maximum_seconds,
+        )
         capture = FileCapture(audio_samples)
         playback = NullPlayback(settings.audio, settings.tts)
     else:
@@ -116,17 +126,50 @@ def load_wave_file(
     path: Path,
     /,
     target_rate: int,
+    maximum_seconds: float | None = None,
 ) -> np.ndarray:
     with wave.open(str(path), "rb") as wave_reader:
         sample_rate = wave_reader.getframerate()
         channel_count = wave_reader.getnchannels()
         sample_width = wave_reader.getsampwidth()
-        raw_audio = wave_reader.readframes(wave_reader.getnframes())
-    if sample_width != 2:
-        raise ValueError(f"only 16-bit PCM WAV is supported: {path} ({sample_width * 8}-bit)")
-    audio_samples = np.frombuffer(raw_audio, dtype="<i2").astype(np.float32) / 32768.0
-    if channel_count > 1:
-        audio_samples = audio_samples.reshape(-1, channel_count).mean(axis=1)
+        declared_frame_count = wave_reader.getnframes()
+        if sample_width != 2:
+            raise ValueError(
+                f"only 16-bit PCM WAV is supported: {path} ({sample_width * 8}-bit)"
+            )
+        expected_audio_bytes = declared_frame_count * channel_count * sample_width
+        if expected_audio_bytes > path.stat().st_size:
+            raise ValueError(f"WAV header declares more audio than the file contains: {path}")
+        frame_count = declared_frame_count
+        if maximum_seconds is not None:
+            if not math.isfinite(maximum_seconds) or maximum_seconds <= 0:
+                raise ValueError("maximum WAV duration must be finite and positive")
+            maximum_frame_count = max(1, math.ceil(maximum_seconds * sample_rate))
+            frame_count = min(frame_count, maximum_frame_count)
+        audio_samples = np.empty(frame_count, dtype=np.float32)
+        written_frames = 0
+        while written_frames < frame_count:
+            raw_audio = wave_reader.readframes(
+                min(WAVE_READ_CHUNK_FRAMES, frame_count - written_frames)
+            )
+            if not raw_audio:
+                break
+            frame_bytes = channel_count * sample_width
+            if len(raw_audio) % frame_bytes:
+                raise ValueError(f"WAV data ends inside an audio frame: {path}")
+            decoded = np.frombuffer(raw_audio, dtype="<i2").reshape(-1, channel_count)
+            if channel_count == 1:
+                mono = decoded[:, 0].astype(np.float32)
+            else:
+                mono = decoded.mean(axis=1, dtype=np.float32)
+            mono *= 1.0 / 32768.0
+            chunk_frames = mono.size
+            audio_samples[written_frames : written_frames + chunk_frames] = mono
+            written_frames += chunk_frames
+    if written_frames != frame_count:
+        raise ValueError(
+            f"WAV ended after {written_frames} of {frame_count} declared frames: {path}"
+        )
     if sample_rate != target_rate:
         from kotonoha.audio._resample import resample_once
 
@@ -229,6 +272,8 @@ def run(
         settings.logging.console,
         "orchestrator",
         terminal_interface=True,
+        maximum_bytes=settings.logging.max_bytes,
+        backup_count=settings.logging.backup_count,
     )
     from kotonoha.tui._app import KotonohaApp
 
@@ -257,11 +302,20 @@ def replay(
     wave_file: Annotated[
         Path, typer.Argument(exists=True, dir_okay=False, help=_("16-bit PCM WAV file"))
     ],
-    seconds: Annotated[float, typer.Option(help=_("Run duration in seconds"))] = 30.0,
+    seconds: Annotated[
+        float,
+        typer.Option(
+            help=_("Run duration in seconds"),
+            min=0.1,
+            max=MAXIMUM_REPLAY_SECONDS,
+        ),
+    ] = 30.0,
 ) -> None:
     # Runs the whole pipeline from a file. This is the regression path for
     # end-of-utterance and preroll behaviour.
     settings = _settings(context)
+    if not math.isfinite(seconds):
+        raise typer.BadParameter(repr(seconds), param_hint="--seconds")
     # There is no key to press when replaying a file, and the VAD has to do the
     # segmenting, so force automatic mode.
     settings.session.mode = "auto"
@@ -270,13 +324,21 @@ def replay(
         settings.resolve(settings.logging.log_path),
         True,
         "replay",
+        maximum_bytes=settings.logging.max_bytes,
+        backup_count=settings.logging.backup_count,
     )
-    orchestrator = _build(settings, wave_path=wave_file)
+    orchestrator = _build(
+        settings,
+        wave_path=wave_file,
+        wave_maximum_seconds=seconds,
+    )
 
     async def execute() -> None:
-        await orchestrator.start()
-        await asyncio.sleep(seconds)
-        await orchestrator.stop()
+        try:
+            await orchestrator.start()
+            await asyncio.sleep(seconds)
+        finally:
+            await orchestrator.stop()
 
     run_async(execute())
     print(_("Turn log: {path}", path=settings.resolve(settings.logging.turn_log_path)))
@@ -313,6 +375,8 @@ def text_command(
         settings.resolve(settings.logging.log_path),
         False,
         "text",
+        maximum_bytes=settings.logging.max_bytes,
+        backup_count=settings.logging.backup_count,
     )
     orchestrator = _build(settings, text_only=True)
     if not speak:
@@ -321,16 +385,18 @@ def text_command(
         orchestrator.playback = NullPlayback(settings.audio, settings.tts)
 
     async def execute() -> dict | None:
-        await orchestrator.start()
-        accepted = await orchestrator.submit_text(message, src_lang=source)
-        if accepted and speak:
-            await orchestrator.playback.wait_drained(timeout=settings.tts.timeout_s * 4)
-        record = None
-        for event in orchestrator.event_bus.drain_nowait(1024):
-            if event.kind == "history":
-                record = event.payload
-        await orchestrator.stop()
-        return record
+        try:
+            await orchestrator.start()
+            accepted = await orchestrator.submit_text(message, source_language=source)
+            if accepted and speak:
+                await orchestrator.playback.wait_drained(timeout=settings.tts.timeout_s * 4)
+            record = None
+            for event in orchestrator.event_bus.drain_nowait(1024):
+                if event.kind == "history":
+                    record = event.payload
+            return record
+        finally:
+            await orchestrator.stop()
 
     result = run_async(execute())
     if result is None:
@@ -356,7 +422,7 @@ def devices() -> None:
 def serve(
     service: Annotated[ServiceName, typer.Argument(help=_("Service to start"))],
     /,
-    host: Annotated[str, typer.Option(help=_("Bind address"))] = "0.0.0.0",
+    host: Annotated[str, typer.Option(help=_("Bind address"))] = "127.0.0.1",
     port: Annotated[
         int | None, typer.Option(help=_("Port; defaults to the port assigned to the service"))
     ] = None,
@@ -371,6 +437,7 @@ def serve(
         log_level="info",
         loop="uvloop",
         timeout_graceful_shutdown=30,
+        ws_max_size=MAXIMUM_REQUEST_BODY_BYTES,
         workers=1,
     )
 
@@ -522,15 +589,27 @@ def doctor(
         from kotonoha.clients._build import build_service_group
 
         group = build_service_group(settings)
-        print("\n" + _("Services:"))
-        for role in group.all():
-            for client in filter(None, (role.preferred, role.fallback)):
-                health = await client.health()
+        try:
+            print("\n" + _("Services:"))
+            clients = [
+                (role.role, client)
+                for role in group.all()
+                for client in filter(None, (role.preferred, role.fallback))
+            ]
+            health_results = await asyncio.gather(
+                *(client.health() for _role, client in clients)
+            )
+            for (role_name, client), health in zip(
+                clients,
+                health_results,
+                strict=True,
+            ):
                 state = "UP" if health.get("ok") else "DOWN"
-                tag = f"{role.role}@{client.side}"
+                tag = f"{role_name}@{client.side}"
                 details = json.dumps(health, ensure_ascii=False)[:80]
                 print(f"  {tag:<20} {state:<4} {details}")
-        await group.aclose()
+        finally:
+            await group.aclose()
 
     run_async(probe())
 

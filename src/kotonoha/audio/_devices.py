@@ -7,6 +7,9 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 import numpy as np
+from structlog import get_logger
+
+log = get_logger(__name__)
 
 AudioDeviceIdentifier = int | str | None
 AudioDirection = Literal["input", "output"]
@@ -329,7 +332,15 @@ def select_mono_input(
         return audio.reshape(-1)
     if audio.ndim != 2 or audio.shape[1] == 0:
         raise ValueError(f"Expected audio frames by channels, got shape {audio.shape}")
-    channel_energy = np.mean(np.square(audio, dtype=np.float64), axis=0)
+    if audio.shape[1] == 1:
+        return audio[:, 0].reshape(-1)
+    if audio.shape[1] == 2:
+        first_energy = float(np.dot(audio[:, 0], audio[:, 0]))
+        second_energy = float(np.dot(audio[:, 1], audio[:, 1]))
+        active_channel = 0 if first_energy >= second_energy else 1
+        return np.asarray(audio[:, active_channel], dtype=np.float32).reshape(-1)
+    # einsum avoids allocating a block-sized temporary in the capture worker.
+    channel_energy = np.einsum("ij,ij->j", audio, audio, optimize=False)
     active_channel = int(np.argmax(channel_energy))
     return np.asarray(audio[:, active_channel], dtype=np.float32).reshape(-1)
 
@@ -348,5 +359,9 @@ def _close_stream(
     for method_name in ("stop", "close"):
         try:
             getattr(stream, method_name)()
-        except Exception:  # noqa: BLE001 - preserve the original probe failure
-            continue
+        except Exception as error:  # noqa: BLE001 - preserve the original probe failure
+            log.debug(
+                "audio.probe_stream_close_failed",
+                method=method_name,
+                error=repr(error),
+            )

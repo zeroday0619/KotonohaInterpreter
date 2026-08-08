@@ -27,6 +27,7 @@ def test_resource_report_contains_system_kernel_and_accelerator_information() ->
         "discrete",
         "unknown",
     }
+    assert report["system"]["memory"]["scope"] == "system"
 
 
 def test_jetson_device_tree_is_reported_as_unified_memory() -> None:
@@ -57,3 +58,24 @@ def test_resource_detection_falls_back_to_cpu_without_torch(
 
     assert accelerator["backend"] == "cpu"
     assert accelerator["device_count"] == 0
+
+
+def test_resource_report_refreshes_available_system_memory(
+    _positional_only: object | None = None,
+    /,
+    *,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    samples = iter(
+        (
+            {"total_mib": 1024.0, "available_mib": 768.0},
+            {"total_mib": 1024.0, "available_mib": 256.0},
+        )
+    )
+    monkeypatch.setattr(_resources, "_system_memory", lambda: next(samples))
+
+    first = _resources.resource_report("asr")
+    second = _resources.resource_report("asr")
+
+    assert first["system"]["memory"]["available_mib"] == 768.0
+    assert second["system"]["memory"]["available_mib"] == 256.0

@@ -297,7 +297,7 @@ class ToolsApp(App[None]):
                         allow_blank=False,
                         id="service",
                     )
-                yield from self._input_field("host", "host", value="0.0.0.0")
+                yield from self._input_field("host", "host", value="127.0.0.1")
                 yield from self._input_field(
                     "port", "port", "port", input_type="integer"
                 )

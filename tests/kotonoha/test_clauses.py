@@ -66,3 +66,11 @@ def test_long_run_without_terminator_is_cut() -> None:
     out, _ = feed(text, chunk=7)
     assert len(out) > 1
     assert all(len(c) <= 120 for c in out)
+
+
+def test_long_cjk_run_without_spaces_is_hard_bounded() -> None:
+    text = "字" * 400
+    out, _ = feed(text, chunk=7)
+
+    assert "".join(out) == text
+    assert all(len(clause) <= 90 for clause in out)

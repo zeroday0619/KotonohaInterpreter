@@ -67,6 +67,7 @@ async def lifespan(
             await refresh_task
         except asyncio.CancelledError:
             pass
+        await AGGREGATOR.aclose()
 
 
 app = FastAPI(title="kotonoha-metrics", lifespan=lifespan)
@@ -98,7 +99,8 @@ def main() -> None:
         raise RuntimeError("logging.prometheus_port must be set for the metrics receiver")
     uvicorn.run(
         app,
-        host="0.0.0.0",
+        # The remote receiver must accept external scrapes and enforces bearer authentication.
+        host="0.0.0.0",  # nosec B104
         port=port,
         loop="uvloop",
         timeout_graceful_shutdown=30,

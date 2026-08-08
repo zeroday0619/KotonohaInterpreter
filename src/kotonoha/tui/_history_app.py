@@ -25,6 +25,7 @@ from textual.widgets import DataTable, Footer, Header, Input, Select, Static
 
 from kotonoha._config import Settings, load_settings
 from kotonoha._i18n import _
+from kotonoha._secure_files import atomic_text_writer
 from kotonoha._typing import override
 from kotonoha.store._db import HistoryEntry, Store
 
@@ -57,10 +58,9 @@ def export_jsonl(
     """Write the current result set as JSONL, one turn per line."""
     import json
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as handle:
+    with atomic_text_writer(path) as handle:
         for entry in entries:
-            handle.write(json.dumps(entry.as_dict(), ensure_ascii=False) + "\n")
+            handle.write(f"{json.dumps(entry.as_dict(), ensure_ascii=False)}\n")
     return path
 
 

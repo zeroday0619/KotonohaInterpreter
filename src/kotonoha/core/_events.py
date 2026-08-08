@@ -42,9 +42,12 @@ class EventBus:
         except asyncio.QueueFull:
             try:
                 self.queue.get_nowait()
+            except asyncio.QueueEmpty:
+                return
+            try:
                 self.queue.put_nowait(UiEvent(kind, payload))
-            except Exception:  # noqa: BLE001
-                pass
+            except asyncio.QueueFull:
+                return
 
     async def get(
         self,

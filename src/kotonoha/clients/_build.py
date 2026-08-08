@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -55,8 +56,18 @@ class ServiceGroup:
         self,
         /,
     ) -> None:
-        for client in self.all():
-            await client.aclose()
+        clients = self.all()
+        results = await asyncio.gather(
+            *(client.aclose() for client in clients),
+            return_exceptions=True,
+        )
+        for client, result in zip(clients, results, strict=True):
+            if isinstance(result, BaseException):
+                log.error(
+                    "services.close_failed",
+                    role=client.role,
+                    error=repr(result),
+                )
 
 
 _FACTORY = {

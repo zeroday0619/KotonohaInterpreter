@@ -8,12 +8,24 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Final
+
+from pydantic import BaseModel, Field, ValidationError
 
 from kotonoha._config import AsrVerificationConfig
 from kotonoha._transport import AudioPayload, Encoding
 from kotonoha._typing import override
 from kotonoha.clients._base import BaseClient, ServiceError
+
+MAXIMUM_VERIFICATION_TEXT_CHARACTERS: Final[int] = 4096
+
+
+class VerificationResponse(BaseModel):
+    __slots__: ClassVar[tuple[str, ...]] = ()
+    text: str = Field("", max_length=MAXIMUM_VERIFICATION_TEXT_CHARACTERS)
+    avg_logprob: float = Field(-99.0, allow_inf_nan=False)
+    language: str | None = Field(None, max_length=128)
+    infer_ms: float = Field(0.0, ge=0.0, le=3_600_000.0, allow_inf_nan=False)
 
 
 @dataclass(slots=True)
@@ -82,12 +94,24 @@ class AsrVerifyClient(BaseClient):
                 },
             )
 
-        return VerifyResult(
-            text=result.get("text", ""),
-            avg_logprob=float(result.get("avg_logprob", -99.0)),
-            language=result.get("language"),
-            infer_ms=float(result.get("infer_ms", 0.0)),
-        )
+        return _parse_verification_response(result)
+
+
+def _parse_verification_response(
+    result: dict[str, Any],
+    /,
+) -> VerifyResult:
+    """Validate bounded verification output before CER computation."""
+    try:
+        response = VerificationResponse.model_validate(result)
+    except ValidationError as error:
+        raise ServiceError("asr-verify returned an invalid response") from error
+    return VerifyResult(
+        text=response.text,
+        avg_logprob=response.avg_logprob,
+        language=response.language,
+        infer_ms=response.infer_ms,
+    )
 
 
 def _to_whisper_language(

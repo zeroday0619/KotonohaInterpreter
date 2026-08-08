@@ -28,6 +28,7 @@ REMOTE_EDITABLE_PATHS = frozenset(
         "asr.backend",
         "asr.dtype",
         "asr.model_id",
+        "asr.model_revision",
         "asr.vllm_model_id",
         "asr.vllm_realtime_architecture",
         "asr.vllm_served_model_name",
@@ -70,16 +71,31 @@ def _serializable(
     settings: Settings,
     /,
 ) -> dict[str, Any]:
-    return settings.model_dump(mode="json", exclude={"root"})
+    return settings.model_dump(
+        mode="json",
+        exclude={"root": True, "remote": {"token"}},
+    )
+
+
+def _redacted_overrides(
+    overrides: dict[str, Any],
+    /,
+) -> dict[str, Any]:
+    overrides.pop("root", None)
+    remote = overrides.get("remote")
+    if isinstance(remote, dict):
+        remote.pop("token", None)
+    return overrides
 
 
 def snapshot() -> dict[str, Any]:
     target = local_config_path()
     settings = load_settings(_base_config_path())
+    overrides = read_yaml(target) if target.exists() else {}
     return {
         "config": _serializable(settings),
         "editable_paths": sorted(REMOTE_EDITABLE_PATHS),
-        "overrides": read_yaml(target) if target.exists() else {},
+        "overrides": _redacted_overrides(overrides),
         "path": str(target),
         "restart_required": True,
     }

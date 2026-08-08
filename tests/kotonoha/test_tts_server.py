@@ -47,6 +47,40 @@ class FakeErrorResponse:
     __slots__: ClassVar[tuple[str, ...]] = ()
 
 
+class CloseTrackingAudioStream:
+    __slots__: ClassVar[tuple[str, ...]] = ("closed", "chunks")
+
+    closed: bool
+    chunks: list[bytes]
+
+    def __init__(
+        self,
+        /,
+    ) -> None:
+        self.closed = False
+        self.chunks = [b"\x00\x00"]
+
+    def __aiter__(
+        self,
+        /,
+    ) -> CloseTrackingAudioStream:
+        return self
+
+    async def __anext__(
+        self,
+        /,
+    ) -> bytes:
+        if not self.chunks:
+            raise StopAsyncIteration
+        return self.chunks.pop()
+
+    async def aclose(
+        self,
+        /,
+    ) -> None:
+        self.closed = True
+
+
 def test_vllm_omni_service_wraps_the_engine_without_an_internal_server() -> None:
     source = Path(_tts_server.__file__).read_text(encoding="utf-8")
 
@@ -160,3 +194,20 @@ async def test_fastapi_speech_endpoint_returns_the_direct_runtime_stream(
     assert speech.request["stream_format"] == "audio"
     assert speech.request["max_new_tokens"] == 2048
     assert speech.raw_request is raw_request
+
+
+async def test_observed_tts_stream_closes_the_upstream_iterator() -> None:
+    stream = CloseTrackingAudioStream()
+    request = _tts_server.SpeechRequest(
+        input="Hello",
+        voice="Ryan",
+        language="English",
+    )
+
+    chunks = [
+        chunk
+        async for chunk in _tts_server.RUNTIME._observe_audio_stream(stream, request)
+    ]
+
+    assert chunks == [b"\x00\x00"]
+    assert stream.closed is True

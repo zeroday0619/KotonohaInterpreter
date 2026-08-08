@@ -8,19 +8,25 @@ import ssl
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Final
 from urllib.parse import urlsplit, urlunsplit
 
-import httpx2
 from websockets.asyncio.client import connect
 from websockets.exceptions import WebSocketException
 
 from kotonoha._config import LanguageModelConfig
 from kotonoha._logging_setup import get_logger
 from kotonoha._typing import override
-from kotonoha.clients._base import BaseClient, ServiceError, ServiceTimeout
+from kotonoha.clients._base import (
+    BaseClient,
+    ServiceApplicationError,
+    ServiceError,
+    ServiceTimeout,
+    read_json_object_response,
+)
 
 log = get_logger(__name__)
+MAXIMUM_TRANSLATION_OUTPUT_CHARACTERS: Final[int] = 32768
 
 
 @dataclass(slots=True)
@@ -68,11 +74,13 @@ class LanguageModelClient(BaseClient):
         side: str = "local",
         **transport_options: Any,
     ) -> None:
-        # A full stream can run long. The first-clause timeout is the
-        # orchestrator's job, not this timeout.
+        # A full stream can run long. This timeout applies to inactivity between
+        # WebSocket events; the orchestrator owns the first-clause deadline.
         super().__init__(
             base_url,
-            timeout=120.0,
+            # This is an inactivity timeout for each WebSocket receive, not a
+            # deadline for the complete translation stream.
+            timeout=config.timeout_s,
             name="llm",
             side=side,
             **transport_options,
@@ -86,18 +94,20 @@ class LanguageModelClient(BaseClient):
     ) -> dict:
         """Return the vLLM server health state."""
         try:
-            response = await self._client.get("/health", timeout=2.0)
-            if response.status_code == 200:
+            async with self._client.stream("GET", "/health", timeout=2.0) as response:
+                payload = await read_json_object_response(response, allow_empty=True)
+                status_code = response.status_code
+            if status_code == 200:
                 return {
                     "ok": True,
                     "service": "llm",
                     "side": self.side,
-                    **_safe_json(response),
+                    **payload,
                 }
             return {
                 "ok": False,
                 "service": "llm",
-                "status": response.status_code,
+                "status": status_code,
                 "side": self.side,
             }
         except Exception as error:  # noqa: BLE001
@@ -117,6 +127,9 @@ class LanguageModelClient(BaseClient):
     ) -> AsyncIterator[str]:
         """Yield content deltas one at a time."""
         generation_statistics = statistics or GenerationStatistics()
+        completion_token_limit = (
+            max_tokens if max_tokens is not None else self.config.max_tokens
+        )
         payload = {
             "type": "translation.create",
             "model": self.config.served_model_name,
@@ -124,8 +137,15 @@ class LanguageModelClient(BaseClient):
             "temperature": self.config.temperature,
             "top_p": self.config.top_p,
             "repetition_penalty": self.config.repetition_penalty,
-            "max_tokens": max_tokens or self.config.max_tokens,
+            "max_tokens": completion_token_limit,
         }
+        loop = asyncio.get_running_loop()
+        deadline = (
+            loop.time()
+            + self.config.timeout_s
+            + completion_token_limit / self.config.min_tok_per_s
+        )
+        output_characters = 0
         try:
             async with connect(
                 _websocket_url(self.base_url),
@@ -135,18 +155,27 @@ class LanguageModelClient(BaseClient):
             ) as websocket:
                 await websocket.send(json.dumps(payload, ensure_ascii=False))
                 while True:
-                    raw_event = await asyncio.wait_for(websocket.recv(), self._timeout)
-                    decoded_event = json.loads(raw_event)
+                    remaining_seconds = deadline - loop.time()
+                    if remaining_seconds <= 0:
+                        raise ServiceTimeout("llm stream exceeded the generation deadline")
+                    raw_event = await asyncio.wait_for(
+                        websocket.recv(),
+                        min(self._timeout, remaining_seconds),
+                    )
+                    decoded_event = _decode_websocket_event(raw_event)
                     event_type = decoded_event.get("type")
                     if event_type == "session.created":
                         continue
                     if event_type == "error":
-                        raise ServiceError(
+                        raise ServiceApplicationError(
                             f"llm application error: {decoded_event.get('error', 'unknown')}"
                         )
                     if event_type == "translation.done":
-                        completion_tokens = (decoded_event.get("usage") or {}).get(
-                            "completion_tokens"
+                        usage = decoded_event.get("usage")
+                        completion_tokens = (
+                            usage.get("completion_tokens")
+                            if isinstance(usage, dict)
+                            else None
                         )
                         if isinstance(completion_tokens, int):
                             generation_statistics.token_count = completion_tokens
@@ -156,13 +185,19 @@ class LanguageModelClient(BaseClient):
                     delta = decoded_event.get("delta")
                     if not isinstance(delta, str) or not delta:
                         continue
+                    output_characters += len(delta)
+                    if output_characters > MAXIMUM_TRANSLATION_OUTPUT_CHARACTERS:
+                        raise ServiceError(
+                            "llm output exceeded "
+                            f"{MAXIMUM_TRANSLATION_OUTPUT_CHARACTERS} characters"
+                        )
                     generation_statistics.token_count += 1
                     if generation_statistics.first_token_at is None:
                         generation_statistics.first_token_at = time.perf_counter()
                     yield delta
         except asyncio.TimeoutError as error:
             raise ServiceTimeout("llm stream timeout") from error
-        except (OSError, WebSocketException, json.JSONDecodeError) as error:
+        except (OSError, WebSocketException) as error:
             raise ServiceError(f"llm transport error: {error!r}") from error
         finally:
             generation_statistics.finished_at = time.perf_counter()
@@ -180,14 +215,18 @@ class LanguageModelClient(BaseClient):
                 )
 
 
-def _safe_json(
-    response: httpx2.Response,
+def _decode_websocket_event(
+    raw_event: str | bytes,
     /,
-) -> dict:
+) -> dict[str, Any]:
+    """Decode one bounded transport frame and require the protocol object shape."""
     try:
-        return response.json()
-    except Exception:  # noqa: BLE001
-        return {}
+        decoded_event = json.loads(raw_event)
+    except (TypeError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ServiceError("llm returned invalid WebSocket JSON") from error
+    if not isinstance(decoded_event, dict):
+        raise ServiceError("llm returned a non-object WebSocket event")
+    return decoded_event
 
 
 def _websocket_url(

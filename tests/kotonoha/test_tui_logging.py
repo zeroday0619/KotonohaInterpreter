@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 from typing import Any
+
+import pytest
 
 from kotonoha._config import load_settings
 from kotonoha._logging_setup import (
@@ -118,3 +121,62 @@ def test_non_json_log_line_remains_visible() -> None:
 
 def test_tui_logging_is_enabled_by_default() -> None:
     assert load_settings().logging.console
+
+
+def test_reconfiguration_closes_replaced_file_handlers(
+    _positional_only: object | None = None,
+    /,
+    *,
+    tmp_path: Any,
+) -> None:
+    old_handler = logging.FileHandler(tmp_path / "old.jsonl", encoding="utf-8")
+    logging.getLogger().addHandler(old_handler)
+
+    try:
+        setup_logging(json_path=tmp_path / "new.jsonl")
+        assert old_handler.stream is None
+        assert (tmp_path / "new.jsonl").stat().st_mode & 0o777 == 0o600
+    finally:
+        setup_logging()
+
+
+def test_json_logging_rejects_a_symbolic_link(
+    _positional_only: object | None = None,
+    /,
+    *,
+    tmp_path: Path,
+) -> None:
+    protected_file = tmp_path / "protected.txt"
+    protected_file.write_text("preserve", encoding="utf-8")
+    log_path = tmp_path / "application.jsonl"
+    log_path.symlink_to(protected_file)
+
+    try:
+        with pytest.raises(OSError):
+            setup_logging(json_path=log_path)
+        assert protected_file.read_text(encoding="utf-8") == "preserve"
+    finally:
+        setup_logging()
+
+
+def test_json_logging_rotates_at_the_configured_size(
+    _positional_only: object | None = None,
+    /,
+    *,
+    tmp_path: Path,
+) -> None:
+    log_path = tmp_path / "application.jsonl"
+    try:
+        logger = setup_logging(
+            json_path=log_path,
+            maximum_bytes=256,
+            backup_count=2,
+        )
+        for sequence in range(10):
+            logger.info("rotation.test", sequence=sequence, payload="x" * 80)
+
+        assert log_path.exists()
+        assert (tmp_path / "application.jsonl.1").exists()
+        assert not (tmp_path / "application.jsonl.3").exists()
+    finally:
+        setup_logging()

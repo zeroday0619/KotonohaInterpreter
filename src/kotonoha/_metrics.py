@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 from kotonoha._config import LatencyBudgetConfig
+from kotonoha._secure_files import open_rotating_append_text
 from kotonoha._typing import override
 
 MARKS = ("eou", "asr_done", "first_clause", "first_audio", "queue_drained")
@@ -169,11 +170,15 @@ class TurnLog:
     """Appends one JSONL line per turn."""
     __slots__: ClassVar[tuple[str, ...]] = (
         "budget",
+        "backup_count",
+        "maximum_bytes",
         "path",
     )
 
     path: Path
     budget: LatencyBudgetConfig
+    maximum_bytes: int
+    backup_count: int
 
     @override
     def __init__(
@@ -181,9 +186,13 @@ class TurnLog:
         /,
         path: Path,
         budget: LatencyBudgetConfig,
+        maximum_bytes: int = 64 * 1024 * 1024,
+        backup_count: int = 5,
     ) -> None:
         self.path = path
         self.budget = budget
+        self.maximum_bytes = maximum_bytes
+        self.backup_count = backup_count
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
     async def write(
@@ -205,7 +214,11 @@ class TurnLog:
         /,
         record: dict[str, Any],
     ) -> None:
-        with self.path.open("a", encoding="utf-8") as stream:
+        with open_rotating_append_text(
+            self.path,
+            self.maximum_bytes,
+            self.backup_count,
+        ) as stream:
             stream.write(
                 json.dumps({"event": "turn", **record}, ensure_ascii=False) + "\n"
             )

@@ -865,6 +865,13 @@ vLLM-Omni runtime through its base image:
 The targets share a cached application layer but install and verify role-specific runtime
 dependencies. The common layer imports `pydantic_settings` during the build. A missing
 core dependency therefore fails the image build instead of entering a restart loop.
+The remote stack executes the application code installed in each image. It mounts only
+`config/`, `data/`, and the selected model directory; it does not expose the host source
+tree or deployment scripts inside model-service containers. The metrics receiver mounts
+`config/` read-only.
+The Jetson stack retains a read-only repository mount for the integrated operator tools
+and overlays writable `config/`, `data/`, and model mounts. Model services cannot modify
+the checked-out source or deployment scripts.
 The lock selects NumPy 2.x on Linux Python 3.12 for the NGC SciPy and scikit-learn stack,
 while the macOS workstation retains NumPy 1.x. The A6000 ASR
 target additionally synchronizes `a6000-asr`; that extra supplies `mistral-common[audio]`

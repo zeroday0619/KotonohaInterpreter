@@ -21,7 +21,7 @@ against float32 and costs nothing at 16 kHz.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 import numpy as np
@@ -43,6 +43,7 @@ class AudioPayload:
     pcm: np.ndarray
     audio_reference: AudioRef | None = None
     sample_rate: int = 16000
+    _encoded_cache: dict[Encoding, bytes] = field(default_factory=dict, init=False)
 
     @property
     def seconds(
@@ -56,7 +57,11 @@ class AudioPayload:
         /,
         encoding: Encoding = "s16le",
     ) -> bytes:
-        return encode_pcm(self.pcm, encoding)
+        cached = self._encoded_cache.get(encoding)
+        if cached is None:
+            cached = encode_pcm(self.pcm, encoding)
+            self._encoded_cache[encoding] = cached
+        return cached
 
 
 def encode_pcm(
@@ -66,8 +71,12 @@ def encode_pcm(
 ) -> bytes:
     audio_samples = np.asarray(pcm, dtype=np.float32).reshape(-1)
     if encoding == "f32le":
-        return audio_samples.astype("<f4").tobytes()
-    return (np.clip(audio_samples, -1.0, 1.0) * 32767.0).astype("<i2").tobytes()
+        return audio_samples.astype("<f4", copy=False).tobytes()
+    if encoding != "s16le":
+        raise ValueError(f"unsupported PCM encoding: {encoding}")
+    scaled = np.clip(audio_samples, -1.0, 1.0)
+    np.multiply(scaled, 32767.0, out=scaled)
+    return scaled.astype("<i2").tobytes()
 
 
 def decode_pcm(
@@ -76,10 +85,14 @@ def decode_pcm(
     encoding: Encoding = "s16le",
 ) -> np.ndarray:
     if encoding == "f32le":
-        byte_count = (len(data) // 4) * 4
-        return np.frombuffer(data[:byte_count], dtype="<f4").astype(np.float32, copy=True)
-    byte_count = (len(data) // 2) * 2
-    return np.frombuffer(data[:byte_count], dtype="<i2").astype(np.float32) / 32768.0
+        if len(data) % 4:
+            raise ValueError("f32le PCM byte length must be divisible by four")
+        return np.frombuffer(data, dtype="<f4").astype(np.float32, copy=True)
+    if encoding != "s16le":
+        raise ValueError(f"unsupported PCM encoding: {encoding}")
+    if len(data) % 2:
+        raise ValueError("s16le PCM byte length must be divisible by two")
+    return np.frombuffer(data, dtype="<i2").astype(np.float32) / 32768.0
 
 
 def encoded_size(
@@ -88,4 +101,6 @@ def encoded_size(
     sample_rate: int = 16000,
     encoding: Encoding = "s16le",
 ) -> int:
+    if encoding not in {"s16le", "f32le"}:
+        raise ValueError(f"unsupported PCM encoding: {encoding}")
     return int(seconds * sample_rate) * (2 if encoding == "s16le" else 4)

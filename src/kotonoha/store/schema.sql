@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS zh_rules (
     id          INTEGER PRIMARY KEY,
     pattern     TEXT NOT NULL UNIQUE,
     replacement TEXT NOT NULL,
-    is_regex    INTEGER NOT NULL DEFAULT 0,
+    is_regex    INTEGER NOT NULL DEFAULT 0, -- legacy field; runtime accepts literals only
     note        TEXT,
     enabled     INTEGER NOT NULL DEFAULT 1
 );

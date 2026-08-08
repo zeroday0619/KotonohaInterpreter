@@ -11,30 +11,57 @@ import json
 import os
 import time
 from contextlib import asynccontextmanager
-from typing import Any, ClassVar, Final
+from typing import Any, ClassVar, Final, Literal
 
 import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, ValidationError
 
 from kotonoha._call_compatibility import keyword_compatible
 from kotonoha._config import load_settings
 from kotonoha._logging_setup import setup_logging
 from kotonoha._prometheus import install_metrics, observe_service_health
-from kotonoha._shmring import AudioRef, StaleSlotError, attach_cached
+from kotonoha._shmring import AudioRef, StaleSlotError, close_attached, read_cached
 from kotonoha._transport import decode_pcm
 from kotonoha._typing import override
 from kotonoha.services._auth import install_auth
+from kotonoha.services._request_limits import (
+    RequestBodyLimitMiddleware,
+    parse_json_object,
+)
 from kotonoha.services._resources import resource_report
 
 log = setup_logging(service="asr-verify", console=True)
+MAXIMUM_WHISPER_CPP_RESPONSE_BYTES: Final[int] = 2 * 1024 * 1024
+
+
+def _read_whisper_cpp_response(
+    response: Any,
+    /,
+) -> dict[str, Any]:
+    """Read a bounded whisper.cpp response and require a JSON object."""
+    payload = bytearray()
+    for chunk in response.iter_bytes():
+        if len(payload) + len(chunk) > MAXIMUM_WHISPER_CPP_RESPONSE_BYTES:
+            raise RuntimeError(
+                "whisper.cpp response exceeded "
+                f"{MAXIMUM_WHISPER_CPP_RESPONSE_BYTES} bytes"
+            )
+        payload.extend(chunk)
+    try:
+        result = json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise RuntimeError("whisper.cpp returned invalid JSON") from error
+    if not isinstance(result, dict):
+        raise RuntimeError("whisper.cpp returned a non-object JSON response")
+    return result
 
 
 class VerificationRequest(BaseModel):
     __slots__: ClassVar[tuple[str, ...]] = ()
     audio: dict[str, Any] | None = None
-    language: str | None = None
-    beam_size: int = 5
+    language: Literal["ko", "en", "ja", "zh"] | None = None
+    beam_size: int = Field(5, ge=1, le=10)
 
 
 class FasterWhisperBackend:
@@ -152,16 +179,17 @@ class WhisperCppBackend:
             )
         buffer.seek(0)
         start_time = time.perf_counter()
-        response = self.client.post(
+        with self.client.stream(
+            "POST",
             f"{self.url}/inference",
             files={"file": ("audio.wav", buffer, "audio/wav")},
             data={
                 "language": request.language or "auto",
                 "response_format": "json",
             },
-        )
-        response.raise_for_status()
-        result = response.json()
+        ) as response:
+            response.raise_for_status()
+            result = _read_whisper_cpp_response(response)
         return {
             "text": (result.get("text") or "").strip(),
             "avg_logprob": -1.0,  # the whisper.cpp server does not expose log-probs
@@ -177,7 +205,12 @@ class WhisperCppBackend:
         self.client.close()
 
 
-STATE: dict[str, Any] = {"backend": None, "error": None}
+STATE: dict[str, Any] = {
+    "backend": None,
+    "error": None,
+    "maximum_audio_frames": None,
+    "shm_name": None,
+}
 
 
 @asynccontextmanager
@@ -185,11 +218,15 @@ async def lifespan(
     app: FastAPI,
     /,
 ) -> Any:
+    STATE["backend"] = None
+    STATE["error"] = None
     settings = await asyncio.to_thread(
         load_settings,
         os.environ.get("KOTONOHA_CONFIG"),
     )
     config = settings.asr_verify
+    STATE["shm_name"] = settings.shm.name
+    STATE["maximum_audio_frames"] = settings.shm.slot_seconds * settings.shm.sample_rate
     try:
         if config.backend == "whisper_cpp":
             STATE["backend"] = await asyncio.to_thread(
@@ -214,9 +251,13 @@ async def lifespan(
         shutdown = getattr(backend, "shutdown", None)
         if callable(shutdown):
             await asyncio.to_thread(shutdown)
+        close_attached(STATE["shm_name"])
+        STATE["maximum_audio_frames"] = None
+        STATE["shm_name"] = None
 
 
 app = FastAPI(title="kotonoha-asr-verify", lifespan=lifespan)
+app.add_middleware(RequestBodyLimitMiddleware)
 install_auth(app, "asr-verify")
 install_metrics(app, "asr-verify")
 
@@ -254,11 +295,15 @@ def transcribe(
     backend = _backend()
     if request.audio is None:
         raise HTTPException(400, "missing audio reference; use /transcribe/upload instead")
-    audio_reference = AudioRef.from_json(request.audio)
     try:
-        audio = attach_cached(audio_reference.name).read(audio_reference)
+        audio_reference = AudioRef.from_json(request.audio)
+        audio = read_cached(audio_reference, STATE["shm_name"])
+    except (KeyError, TypeError, ValueError) as error:
+        raise HTTPException(400, f"invalid audio reference: {error}") from error
     except StaleSlotError as error:
         raise HTTPException(409, str(error)) from error
+    except FileNotFoundError as error:
+        raise HTTPException(503, f"shm not available: {error}") from error
     return backend.transcribe(audio, request)
 
 
@@ -272,25 +317,45 @@ async def transcribe_upload(
     """Upload path, for an orchestrator running on another machine."""
     backend = _backend()
     try:
-        data = json.loads(params or "{}")
-    except json.JSONDecodeError as error:
+        data = parse_json_object(params)
+    except ValueError as error:
         raise HTTPException(400, f"bad params json: {error}") from error
 
     encoding = data.pop("encoding", "s16le")
-    data.pop("sample_rate", None)
-    raw = await audio.read()
+    try:
+        sample_rate = int(data.pop("sample_rate", 16000))
+    except (TypeError, ValueError) as error:
+        raise HTTPException(400, "sample_rate must be an integer") from error
+    if sample_rate != 16000:
+        raise HTTPException(400, f"expected 16 kHz audio, got {sample_rate}")
+    try:
+        raw = await audio.read()
+    finally:
+        await audio.close()
     if not raw:
         raise HTTPException(400, "empty audio")
-    pcm = decode_pcm(raw, encoding)
+    try:
+        pcm = decode_pcm(raw, encoding)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    maximum_audio_frames = STATE["maximum_audio_frames"]
+    if isinstance(maximum_audio_frames, int) and pcm.size > maximum_audio_frames:
+        raise HTTPException(
+            413,
+            f"audio exceeds the configured {maximum_audio_frames / 16000:.1f}-second limit",
+        )
 
     known_fields = set(VerificationRequest.model_fields)
-    request = VerificationRequest(
-        **{
-            key: value
-            for key, value in data.items()
-            if key in known_fields and key != "audio"
-        }
-    )
+    try:
+        request = VerificationRequest(
+            **{
+                key: value
+                for key, value in data.items()
+                if key in known_fields and key != "audio"
+            }
+        )
+    except ValidationError as error:
+        raise HTTPException(422, str(error)) from error
     return await asyncio.to_thread(backend.transcribe, pcm, request)
 
 
@@ -301,5 +366,8 @@ async def echo(
     /,
 ) -> dict:
     """Transport probe for `kotonoha netcheck`."""
-    raw = await audio.read()
+    try:
+        raw = await audio.read()
+    finally:
+        await audio.close()
     return {"bytes": len(raw)}

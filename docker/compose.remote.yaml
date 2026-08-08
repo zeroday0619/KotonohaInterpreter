@@ -30,7 +30,8 @@ x-a6000: &a6000
     - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-0}
     - HF_HUB_OFFLINE=${TRANSFORMERS_OFFLINE:-0}
   volumes:
-    - ../:/app
+    - ../config:/app/config
+    - ../data:/app/data
     - ${MODELS_DIR:-../models}:/models
   working_dir: /app
 x-a6000-python-build: &a6000-python-build
@@ -57,7 +58,8 @@ services:
       - TRANSFORMERS_OFFLINE=1
       - HF_HUB_OFFLINE=1
     volumes:
-      - ../:/app
+      - ../config:/app/config:ro
+      - ../data:/app/data
     working_dir: /app
     ports: ["${PROMETHEUS_PORT:-9091}:${PROMETHEUS_PORT:-9091}"]
     depends_on: [asr, asr-verify, llm, tts]
@@ -81,7 +83,7 @@ services:
       - HF_HUB_OFFLINE=${TRANSFORMERS_OFFLINE:-0}
       # Voxtral Realtime does not support the full CUDA graph path.
       - VLLM_DISABLE_COMPILE_CACHE=1
-    command: uvicorn kotonoha.services._asr_server:app --host 0.0.0.0 --port 8001 --loop uvloop --timeout-graceful-shutdown 30
+    command: uvicorn kotonoha.services._asr_server:app --host 0.0.0.0 --port 8001 --loop uvloop --ws-max-size 4194304 --timeout-graceful-shutdown 30
     deploy:
       resources:
         reservations:
@@ -98,7 +100,7 @@ services:
       target: asr-verify
     depends_on: [asr]
     ports: ["8002:8002"]
-    command: uvicorn kotonoha.services._asr_verify_server:app --host 0.0.0.0 --port 8002 --loop uvloop --timeout-graceful-shutdown 30
+    command: uvicorn kotonoha.services._asr_verify_server:app --host 0.0.0.0 --port 8002 --loop uvloop --ws-max-size 4194304 --timeout-graceful-shutdown 30
     deploy:
       resources:
         reservations:
@@ -128,7 +130,7 @@ services:
       - TTS_SERVED_MODEL_NAME=kotonoha-tts
       - TTS_GPU_MEMORY_UTILIZATION=${TTS_GPU_MEMORY_UTILIZATION:-0.25}
       - TTS_ENFORCE_EAGER=${TTS_ENFORCE_EAGER:-1}
-    command: uvicorn kotonoha.services._tts_server:app --host 0.0.0.0 --port 8004 --loop uvloop --timeout-graceful-shutdown 30
+    command: uvicorn kotonoha.services._tts_server:app --host 0.0.0.0 --port 8004 --loop uvloop --ws-max-size 4194304 --timeout-graceful-shutdown 30
     deploy:
       resources:
         reservations:
@@ -160,7 +162,7 @@ services:
       - KOTONOHA__LLM__MAX_NUM_BATCHED_TOKENS=${LLM_MAX_NUM_BATCHED_TOKENS:-4096}
       - KOTONOHA__LLM__ENABLE_PREFIX_CACHING=${LLM_ENABLE_PREFIX_CACHING:-1}
       - KOTONOHA__LLM__COMPILATION_MODE=${LLM_COMPILATION_MODE:-2}
-    command: uvicorn kotonoha.services._llm_server:app --host 0.0.0.0 --port 8003 --loop uvloop --timeout-graceful-shutdown 30
+    command: uvicorn kotonoha.services._llm_server:app --host 0.0.0.0 --port 8003 --loop uvloop --ws-max-size 4194304 --timeout-graceful-shutdown 30
     deploy:
       resources:
         reservations:

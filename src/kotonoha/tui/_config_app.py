@@ -437,6 +437,7 @@ class FieldRow(Static):
             self.editor = Input(
                 value=_format_value(self.current),
                 placeholder="null" if specification.optional else "",
+                password=specification.path == "remote.token",
             )
         return self.editor
 

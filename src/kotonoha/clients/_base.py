@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import ssl
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Final
 
 import httpx2
 
@@ -13,6 +14,7 @@ from kotonoha._logging_setup import get_logger
 from kotonoha._typing import override
 
 log = get_logger(__name__)
+MAXIMUM_SERVICE_RESPONSE_BYTES: Final[int] = 2 * 1024 * 1024
 
 
 class ServiceError(RuntimeError):
@@ -20,9 +22,30 @@ class ServiceError(RuntimeError):
     pass
 
 
+class ServiceApplicationError(ServiceError):
+    """A request defect that must not be retried against another endpoint."""
+    __slots__: ClassVar[tuple[str, ...]] = ()
+    pass
+
+
 class ServiceTimeout(ServiceError):
     __slots__: ClassVar[tuple[str, ...]] = ()
     pass
+
+
+def service_error_from_status(
+    error: httpx2.HTTPStatusError,
+    /,
+    label: str,
+) -> ServiceError:
+    """Classify HTTP failures so failover only handles retryable conditions."""
+    status_code = error.response.status_code
+    # Validation responses can echo transcript or translation input. Keep
+    # operator logs useful without copying user content from the response body.
+    detail = f"{label} request failed with HTTP {status_code}"
+    if 400 <= status_code < 500 and status_code not in {408, 425, 429}:
+        return ServiceApplicationError(detail)
+    return ServiceError(detail)
 
 
 def remote_transport_kwargs(
@@ -43,6 +66,31 @@ def remote_transport_kwargs(
         "verify": verify,
         "connect_timeout": config.connect_timeout_s,
     }
+
+
+async def read_json_object_response(
+    response: httpx2.Response,
+    /,
+    *,
+    allow_empty: bool = False,
+) -> dict[str, Any]:
+    """Read a bounded service response and require a JSON object."""
+    payload = bytearray()
+    async for chunk in response.aiter_bytes():
+        if len(payload) + len(chunk) > MAXIMUM_SERVICE_RESPONSE_BYTES:
+            raise ServiceError(
+                f"service response exceeded {MAXIMUM_SERVICE_RESPONSE_BYTES} bytes"
+            )
+        payload.extend(chunk)
+    if not payload and allow_empty:
+        return {}
+    try:
+        decoded = json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ServiceError("service returned invalid JSON") from error
+    if not isinstance(decoded, dict):
+        raise ServiceError("service returned a non-object JSON response")
+    return decoded
 
 
 class BaseClient:
@@ -110,9 +158,10 @@ class BaseClient:
         /,
     ) -> dict:
         try:
-            response = await self._client.get("/health", timeout=2.0)
-            response.raise_for_status()
-            return {**response.json(), "side": self.side}
+            async with self._client.stream("GET", "/health", timeout=2.0) as response:
+                response.raise_for_status()
+                payload = await read_json_object_response(response)
+            return {**payload, "side": self.side}
         except Exception as error:  # noqa: BLE001
             return {
                 "ok": False,
@@ -170,20 +219,17 @@ class BaseClient:
         **request_options: Any,
     ) -> dict:
         try:
-            response = await self._client.request(
+            async with self._client.stream(
                 method,
                 path,
                 timeout=timeout or self._timeout,
                 **request_options,
-            )
-            response.raise_for_status()
-            return response.json()
+            ) as response:
+                response.raise_for_status()
+                return await read_json_object_response(response)
         except httpx2.TimeoutException as error:
             raise ServiceTimeout(f"{self.label} timeout on {path}") from error
         except httpx2.HTTPStatusError as error:
-            detail = (
-                f"{self.label} {error.response.status_code}: {error.response.text[:200]}"
-            )
-            raise ServiceError(detail) from error
+            raise service_error_from_status(error, self.label) from error
         except httpx2.HTTPError as error:
             raise ServiceError(f"{self.label} transport error: {error!r}") from error

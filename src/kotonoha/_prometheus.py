@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 from collections.abc import Awaitable, Callable, Iterable, Mapping
-from typing import Any, ClassVar
+from itertools import chain
+from typing import Any, ClassVar, Final
 
 import httpx2
 from fastapi import FastAPI, Request
@@ -117,15 +119,19 @@ REMOTE_SCRAPE_UP = Gauge(
     "Whether the metrics receiver received the latest service metrics payload.",
     ("service", "source"),
 )
+MAXIMUM_METRICS_PAYLOAD_BYTES: Final[int] = 2 * 1024 * 1024
 
 
 class MetricsAggregator:
     """Collect active service metrics for a unified exporter."""
 
     __slots__: ClassVar[tuple[str, ...]] = (
+        "_client",
         "_endpoint_urls",
         "_headers",
+        "_payload_lock",
         "_payloads",
+        "_refresh_lock",
         "placement",
         "settings",
     )
@@ -135,6 +141,9 @@ class MetricsAggregator:
     _endpoint_urls: dict[str, str] | None
     _headers: dict[str, str] | None
     _payloads: dict[tuple[str, str], tuple[Metric, ...]]
+    _payload_lock: threading.Lock
+    _refresh_lock: asyncio.Lock
+    _client: httpx2.AsyncClient | None
 
     def __init__(
         self,
@@ -150,6 +159,9 @@ class MetricsAggregator:
         self._endpoint_urls = dict(endpoint_urls) if endpoint_urls is not None else None
         self._headers = dict(headers) if headers is not None else None
         self._payloads = {}
+        self._payload_lock = threading.Lock()
+        self._refresh_lock = asyncio.Lock()
+        self._client = None
 
     async def refresh(
         self,
@@ -157,12 +169,24 @@ class MetricsAggregator:
         /,
     ) -> None:
         """Fetch metrics from every currently active role endpoint."""
+        async with self._refresh_lock:
+            await self._refresh(placement)
+
+    async def _refresh(
+        self,
+        placement: Mapping[str, str],
+        /,
+    ) -> None:
         self.placement = dict(placement)
         transport = remote_transport_kwargs(self.settings.remote)
-        timeout = httpx2.Timeout(
-            3.0,
-            connect=float(transport["connect_timeout"]),
-        )
+        if self._client is None:
+            self._client = httpx2.AsyncClient(
+                verify=transport["verify"],
+                timeout=httpx2.Timeout(
+                    3.0,
+                    connect=float(transport["connect_timeout"]),
+                ),
+            )
         endpoints = tuple(
             (
                 role,
@@ -176,36 +200,34 @@ class MetricsAggregator:
             for role in ROLES
         )
         active_keys = {(role, source) for role, source, _url in endpoints}
-        for key in tuple(self._payloads):
-            if key not in active_keys:
+        with self._payload_lock:
+            removed_keys = tuple(key for key in self._payloads if key not in active_keys)
+            for key in removed_keys:
                 self._payloads.pop(key, None)
-                role, source = key
-                REMOTE_SCRAPE_UP.labels(service=role, source=source).set(0)
-        async with httpx2.AsyncClient(
-            verify=transport["verify"],
-            timeout=timeout,
-        ) as client:
-            results = await asyncio.gather(
-                *(
-                    self._fetch(
-                        client,
-                        role,
-                        source,
-                        url,
-                        (
-                            self._headers
-                            if self._headers is not None
-                            else transport["headers"] if source == "remote" else {}
-                        ),
-                    )
-                    for role, source, url in endpoints
+        for role, source in removed_keys:
+            REMOTE_SCRAPE_UP.labels(service=role, source=source).set(0)
+        results = await asyncio.gather(
+            *(
+                self._fetch(
+                    self._client,
+                    role,
+                    source,
+                    url,
+                    (
+                        self._headers
+                        if self._headers is not None
+                        else transport["headers"] if source == "remote" else {}
+                    ),
                 )
+                for role, source, url in endpoints
             )
+        )
 
         for role, source, payload in results:
             key = (role, source)
             if payload is None:
-                self._payloads.pop(key, None)
+                with self._payload_lock:
+                    self._payloads.pop(key, None)
                 REMOTE_SCRAPE_UP.labels(service=role, source=source).set(0)
                 continue
             try:
@@ -215,11 +237,21 @@ class MetricsAggregator:
                     if family.name.startswith("kotonoha_")
                 )
             except (TypeError, ValueError):
-                self._payloads.pop(key, None)
+                with self._payload_lock:
+                    self._payloads.pop(key, None)
                 REMOTE_SCRAPE_UP.labels(service=role, source=source).set(0)
                 continue
-            self._payloads[key] = families
+            with self._payload_lock:
+                self._payloads[key] = families
             REMOTE_SCRAPE_UP.labels(service=role, source=source).set(1)
+
+    async def aclose(
+        self,
+        /,
+    ) -> None:
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
 
     async def _fetch(
         self,
@@ -231,14 +263,21 @@ class MetricsAggregator:
         /,
     ) -> tuple[str, str, str | None]:
         try:
-            response = await client.get(
+            payload = bytearray()
+            async with client.stream(
+                "GET",
                 f"{url.rstrip('/')}/metrics",
                 headers=headers,
-            )
-            response.raise_for_status()
-        except httpx2.HTTPError:
+            ) as response:
+                response.raise_for_status()
+                async for chunk in response.aiter_bytes():
+                    if len(payload) + len(chunk) > MAXIMUM_METRICS_PAYLOAD_BYTES:
+                        return role, source, None
+                    payload.extend(chunk)
+            text_payload = payload.decode("utf-8")
+        except (httpx2.HTTPError, UnicodeDecodeError):
             return role, source, None
-        return role, source, response.text
+        return role, source, text_payload
 
     def collect(
         self,
@@ -246,7 +285,9 @@ class MetricsAggregator:
     ) -> Iterable[Metric]:
         """Merge cached service families and add bounded placement labels."""
         merged: dict[str, Metric] = {}
-        for (role, source), families in self._payloads.items():
+        with self._payload_lock:
+            payloads = tuple(self._payloads.items())
+        for (role, source), families in payloads:
             for family in families:
                 metric = merged.get(family.name)
                 if metric is None:
@@ -288,8 +329,27 @@ class UnifiedCollector:
         self,
         /,
     ) -> Iterable[Metric]:
-        yield from REGISTRY.collect()
-        yield from self.aggregator.collect()
+        merged: dict[str, Metric] = {}
+        for family in chain(REGISTRY.collect(), self.aggregator.collect()):
+            metric = merged.get(family.name)
+            if metric is None:
+                metric = Metric(
+                    family.name,
+                    family.documentation,
+                    family.type,
+                    getattr(family, "unit", ""),
+                )
+                merged[family.name] = metric
+            for sample in family.samples:
+                metric.add_sample(
+                    sample.name,
+                    sample.labels,
+                    sample.value,
+                    sample.timestamp,
+                    sample.exemplar,
+                    sample.native_histogram,
+                )
+        yield from merged.values()
 
     def describe(
         self,
@@ -330,10 +390,12 @@ def install_metrics(
             status = str(response.status_code)
             return response
         finally:
+            route = request.scope.get("route")
+            route_path = getattr(route, "path", None) or "unmatched"
             labels = {
                 "service": service,
                 "method": request.method,
-                "path": request.url.path,
+                "path": route_path,
                 "status": status,
             }
             HTTP_REQUESTS.labels(**labels).inc()
@@ -374,9 +436,10 @@ def stop_metrics_server(
     /,
 ) -> None:
     """Stop an exporter created by :func:`start_metrics_server`."""
-    http_server, _thread = server
+    http_server, thread = server
     http_server.shutdown()
     http_server.server_close()
+    thread.join(timeout=5.0)
 
 
 def observe_service_health(

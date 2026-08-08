@@ -26,7 +26,8 @@ x-jetson: &jetson
     - HF_HUB_OFFLINE=1
     - KOTONOHA_DISABLE_NVML=${KOTONOHA_DISABLE_NVML:-1}
   volumes:
-    - ../:/app
+    - ../:/app:ro
+    - ../config:/app/config
     - ../models:/models
     - ../data:/app/data
   working_dir: /app
@@ -40,7 +41,7 @@ services:
       args:
         BASE_IMAGE: ${ASR_BASE:-${ACCELERATOR_VLLM_IMAGE:-nvcr.io/nvidia/vllm:26.07-py3}}
         VLLM_NVML_PATCH: ${VLLM_NVML_PATCH:-1}
-    command: uvicorn kotonoha.services._asr_server:app --host 0.0.0.0 --port 8001 --loop uvloop --timeout-graceful-shutdown 30
+    command: uvicorn kotonoha.services._asr_server:app --host 127.0.0.1 --port 8001 --loop uvloop --ws-max-size 4194304 --timeout-graceful-shutdown 30
 
   asr-verify:
     <<: *jetson
@@ -50,7 +51,7 @@ services:
       args:
         BASE_IMAGE: ${VERIFY_BASE:-${ACCELERATOR_VLLM_IMAGE:-nvcr.io/nvidia/vllm:26.07-py3}}
         VLLM_NVML_PATCH: ${VLLM_NVML_PATCH:-1}
-    command: uvicorn kotonoha.services._asr_verify_server:app --host 0.0.0.0 --port 8002 --loop uvloop --timeout-graceful-shutdown 30
+    command: uvicorn kotonoha.services._asr_verify_server:app --host 127.0.0.1 --port 8002 --loop uvloop --ws-max-size 4194304 --timeout-graceful-shutdown 30
 
   llm:
     <<: *jetson
@@ -73,7 +74,7 @@ services:
       - KOTONOHA__LLM__KV_CACHE_DTYPE=${LLM_KV_CACHE_DTYPE:-fp8}
       - KOTONOHA__LLM__ENABLE_PREFIX_CACHING=${LLM_ENABLE_PREFIX_CACHING:-0}
       - KOTONOHA__LLM__MAX_NUM_BATCHED_TOKENS=${LLM_MAX_NUM_BATCHED_TOKENS:-2048}
-    command: uvicorn kotonoha.services._llm_server:app --host 0.0.0.0 --port 8003 --loop uvloop --timeout-graceful-shutdown 30
+    command: uvicorn kotonoha.services._llm_server:app --host 127.0.0.1 --port 8003 --loop uvloop --ws-max-size 4194304 --timeout-graceful-shutdown 30
 
   tts:
     <<: *jetson
@@ -95,7 +96,7 @@ services:
       - TTS_SERVED_MODEL_NAME=kotonoha-tts
       - TTS_GPU_MEMORY_UTILIZATION=${TTS_GPU_MEMORY_UTILIZATION:-0.30}
       - TTS_ENFORCE_EAGER=${TTS_ENFORCE_EAGER:-1}
-    command: uvicorn kotonoha.services._tts_server:app --host 0.0.0.0 --port 8004 --loop uvloop --timeout-graceful-shutdown 30
+    command: uvicorn kotonoha.services._tts_server:app --host 127.0.0.1 --port 8004 --loop uvloop --ws-max-size 4194304 --timeout-graceful-shutdown 30
 
   orchestrator:
     <<: *jetson

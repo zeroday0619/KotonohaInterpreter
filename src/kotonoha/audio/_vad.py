@@ -50,6 +50,7 @@ class SileroVadOnnx:
     __slots__: ClassVar[tuple[str, ...]] = (
         "_cell_state",
         "_hidden_state",
+        "_sample_rate_input",
         "_state",
         "_uses_version_five",
         "sample_rate",
@@ -64,6 +65,7 @@ class SileroVadOnnx:
     _state: np.ndarray
     _hidden_state: np.ndarray
     _cell_state: np.ndarray
+    _sample_rate_input: np.ndarray
 
     @override
     def __init__(
@@ -90,6 +92,7 @@ class SileroVadOnnx:
             providers=["CPUExecutionProvider"],
         )
         self.sample_rate = sample_rate
+        self._sample_rate_input = np.array(sample_rate, dtype=np.int64)
         input_names = {
             model_input.name for model_input in self.session.get_inputs()
         }
@@ -118,11 +121,10 @@ class SileroVadOnnx:
             padded = np.zeros((1, self.window), dtype=np.float32)
             padded[0, : samples.shape[1]] = samples[0, : self.window]
             samples = padded
-        sample_rate = np.array(self.sample_rate, dtype=np.int64)
         if self._uses_version_five:
             output, self._state = self.session.run(
                 None,
-                {"input": samples, "state": self._state, "sr": sample_rate},
+                {"input": samples, "state": self._state, "sr": self._sample_rate_input},
             )
         else:
             output, self._hidden_state, self._cell_state = self.session.run(
@@ -131,7 +133,7 @@ class SileroVadOnnx:
                     "input": samples,
                     "h": self._hidden_state,
                     "c": self._cell_state,
-                    "sr": sample_rate,
+                    "sr": self._sample_rate_input,
                 },
             )
         return float(np.asarray(output).reshape(-1)[0])
@@ -169,9 +171,9 @@ class EnergyVad:
         /,
         frame: np.ndarray,
     ) -> float:
-        root_mean_square = float(
-            np.sqrt(np.mean(np.square(frame, dtype=np.float64)) + 1e-12)
-        )
+        samples = np.asarray(frame, dtype=np.float32).reshape(-1)
+        square_sum = float(np.dot(samples, samples))
+        root_mean_square = float(np.sqrt(square_sum / max(1, samples.size) + 1e-12))
         decibels = 20.0 * np.log10(root_mean_square + 1e-12)
         # Map linearly: 0 at floor_db, 1 at floor_db + 25 dB.
         return float(np.clip((decibels - self.floor_db) / 25.0, 0.0, 1.0))

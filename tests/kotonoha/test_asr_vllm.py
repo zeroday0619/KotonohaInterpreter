@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, ClassVar
@@ -11,6 +12,7 @@ import numpy as np
 import pytest
 
 from kotonoha._config import DEFAULT_CONFIG, AsrConfig, read_yaml
+from kotonoha._typing import override
 from kotonoha.services._asr_server import (
     TranscribeRequest,
     VllmBackend,
@@ -101,6 +103,37 @@ class FakeTranscriptionServing:
         yield SimpleNamespace(outputs=outputs)
 
 
+class BlockingTranscriptionServing(FakeTranscriptionServing):
+    __slots__: ClassVar[tuple[str, ...]] = ("closed", "started")
+
+    closed: bool
+    started: asyncio.Event
+
+    @override
+    def __init__(
+        self,
+        /,
+    ) -> None:
+        super().__init__()
+        self.closed = False
+        self.started = asyncio.Event()
+
+    @override
+    async def beam_search(
+        self,
+        /,
+        **arguments: Any,
+    ) -> Any:
+        del arguments
+        self.started.set()
+        try:
+            await asyncio.Event().wait()
+            if False:
+                yield None
+        finally:
+            self.closed = True
+
+
 def test_asr_defaults_to_vllm() -> None:
     config = AsrConfig()
     default_config = read_yaml(DEFAULT_CONFIG)["asr"]
@@ -109,6 +142,8 @@ def test_asr_defaults_to_vllm() -> None:
     assert default_config["backend"] == "vllm"
     assert config.vllm_model_id == "Qwen/Qwen3-ASR-0.6B"
     assert default_config["vllm_model_id"] == config.vllm_model_id
+    assert default_config["model_revision"] == config.model_revision
+    assert len(config.model_revision) == 40
     assert config.vllm_realtime_architecture == "qwen3_asr"
     assert config.n_best == 5
 
@@ -214,6 +249,37 @@ async def test_vllm_backend_returns_five_scored_hypotheses() -> None:
     assert result["duration_s"] == 2.0
 
 
+async def test_vllm_backend_closes_beam_generation_when_request_is_cancelled() -> None:
+    serving = BlockingTranscriptionServing()
+    backend = object.__new__(VllmBackend)
+    backend.bindings = VllmRuntimeBindings(
+        engine_arguments_type=None,
+        engine_context_type=None,
+        model_path_type=None,
+        models_type=None,
+        realtime_connection_type=None,
+        realtime_serving_type=None,
+        transcription_request_type=FakeTranscriptionRequest,
+        transcription_serving_type=None,
+    )
+    backend.transcription = serving
+    backend.load_seconds = 0.0
+    backend.served_model_name = "kotonoha-asr"
+    task = asyncio.create_task(
+        backend.transcribe(
+            np.zeros(32000, dtype=np.float32),
+            TranscribeRequest(n_best=5, num_beams=5),
+        )
+    )
+    await serving.started.wait()
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert serving.closed is True
+
+
 def test_realtime_filter_removes_qwen_control_prefixes_across_chunks() -> None:
     raw = "language Korean<asr_text>안녕language Korean<asr_text>하세요"
 
@@ -229,13 +295,14 @@ def test_realtime_websocket_requires_the_shared_service_token(
     *,
     monkeypatch: Any,
 ) -> None:
-    monkeypatch.setenv("KOTONOHA_SERVICE_TOKEN", "secret")
+    service_token = "test-service-token-0123456789abcdef"
+    monkeypatch.setenv("KOTONOHA_SERVICE_TOKEN", service_token)
     unauthorized = SimpleNamespace(
         headers={},
         url=SimpleNamespace(path="/v1/realtime"),
     )
     authorized = SimpleNamespace(
-        headers={"authorization": "Bearer secret"},
+        headers={"authorization": f"Bearer {service_token}"},
         url=SimpleNamespace(path="/v1/realtime"),
     )
 

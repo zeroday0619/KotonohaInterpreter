@@ -9,7 +9,13 @@ import httpx2
 
 from kotonoha._config import RemoteConfig
 from kotonoha._typing import override
-from kotonoha.clients._base import ServiceError, ServiceTimeout, remote_transport_kwargs
+from kotonoha.clients._base import (
+    ServiceError,
+    ServiceTimeout,
+    read_json_object_response,
+    remote_transport_kwargs,
+    service_error_from_status,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,13 +77,12 @@ class RemoteConfigClient:
         **kwargs: Any,
     ) -> dict:
         try:
-            response = await self._client.request(method, path, **kwargs)
-            response.raise_for_status()
-            return response.json()
+            async with self._client.stream(method, path, **kwargs) as response:
+                response.raise_for_status()
+                return await read_json_object_response(response)
         except httpx2.TimeoutException as error:
             raise ServiceTimeout(f"remote config timeout on {path}") from error
         except httpx2.HTTPStatusError as error:
-            detail = error.response.text[:300]
-            raise ServiceError(f"remote config {error.response.status_code}: {detail}") from error
+            raise service_error_from_status(error, "remote config") from error
         except httpx2.HTTPError as error:
             raise ServiceError(f"remote config transport error: {error!r}") from error

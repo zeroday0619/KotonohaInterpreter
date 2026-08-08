@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import os
 import re
 import time
@@ -24,6 +25,7 @@ from kotonoha._config import QWEN_LANGUAGE_VOICES, QWEN_VOICE_NAMES, QwenVoice
 from kotonoha._logging_setup import setup_logging
 from kotonoha._prometheus import install_metrics, observe_service_health
 from kotonoha.services._auth import install_auth
+from kotonoha.services._request_limits import RequestBodyLimitMiddleware
 from kotonoha.services._resources import resource_report
 
 log = setup_logging(service="tts", console=True)
@@ -59,8 +61,8 @@ class RuntimeBindings:
 
 class SpeechRequest(BaseModel):
     __slots__: ClassVar[tuple[str, ...]] = ()
-    input: str = Field(min_length=1)
-    model: str | None = None
+    input: str = Field(min_length=1, max_length=4096)
+    model: str | None = Field(None, min_length=1, max_length=256)
     voice: QwenVoice = "Vivian"
     language: Literal["Auto", "Chinese", "English", "Japanese", "Korean"] = "Auto"
     task_type: Literal["CustomVoice"] = "CustomVoice"
@@ -456,6 +458,8 @@ class VllmOmniRuntime:
             raise HTTPException(400, "empty text")
         if not self.ready or self.bindings is None or self.configuration is None:
             raise HTTPException(503, f"tts backend not loaded: {self.error}")
+        if request.model not in {None, self.configuration.served_model_name}:
+            raise HTTPException(400, f"unknown served model: {request.model}")
 
         payload = request.model_dump(exclude_none=True)
         if payload.get("model") is None:
@@ -514,14 +518,24 @@ class VllmOmniRuntime:
                 error=repr(error),
             )
             raise
-        log.info(
-            "tts.synthesis_finished",
-            language=request.language,
-            voice=request.voice,
-            bytes=byte_count,
-            audio_seconds=round(byte_count / (24000 * 2), 3),
-            elapsed_ms=round((time.perf_counter() - started_at) * 1000, 1),
-        )
+        else:
+            log.info(
+                "tts.synthesis_finished",
+                language=request.language,
+                voice=request.voice,
+                bytes=byte_count,
+                audio_seconds=round(byte_count / (24000 * 2), 3),
+                elapsed_ms=round((time.perf_counter() - started_at) * 1000, 1),
+            )
+        finally:
+            close_iterator = getattr(body_iterator, "aclose", None)
+            if close_iterator is not None:
+                try:
+                    close_result = close_iterator()
+                    if inspect.isawaitable(close_result):
+                        await close_result
+                except Exception as error:  # noqa: BLE001
+                    log.warning("tts.synthesis_stream_close_failed", error=repr(error))
 
 
 RUNTIME = VllmOmniRuntime()
@@ -541,6 +555,7 @@ async def lifespan(
 
 
 app = FastAPI(title="kotonoha-tts", lifespan=lifespan)
+app.add_middleware(RequestBodyLimitMiddleware)
 install_auth(app, "tts")
 install_metrics(app, "tts")
 

@@ -271,6 +271,8 @@ ensure_remote_environment() {
     environment_token=$(sed -n 's/^KOTONOHA_SERVICE_TOKEN=//p' "$environment_file" | tail -n 1)
     [ -n "$environment_token" ] \
       || fail "environment file does not define KOTONOHA_SERVICE_TOKEN: $environment_file"
+    [ "${#environment_token}" -ge 32 ] \
+      || fail "KOTONOHA_SERVICE_TOKEN must contain at least 32 characters"
     case "$environment_token" in
       *'<'*|*'>'*) fail "replace the token placeholder in $environment_file" ;;
     esac
@@ -304,6 +306,8 @@ ensure_remote_environment() {
   if [ -z "$service_token" ]; then
     service_token=$(openssl rand -hex 32)
   fi
+  [ "${#service_token}" -ge 32 ] \
+    || fail "KOTONOHA_SERVICE_TOKEN must contain at least 32 characters"
 
   umask 077
   {

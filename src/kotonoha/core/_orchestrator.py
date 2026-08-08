@@ -15,6 +15,7 @@ back to IDLE.
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 import time
 import uuid
 from typing import Any, ClassVar
@@ -25,9 +26,11 @@ from kotonoha._async_tools import cancel_and_wait, create_timer, wait_gracefully
 from kotonoha._config import Settings
 from kotonoha._logging_setup import get_logger
 from kotonoha._metrics import TurnLog, TurnMetrics
-from kotonoha._shmring import AudioRing
+from kotonoha._prometheus import observe_turn
+from kotonoha._shmring import AudioRing, prepare_shared_memory_tracking
 from kotonoha._transport import AudioPayload
 from kotonoha._typing import override
+from kotonoha.audio._statistics import signal_statistics
 from kotonoha.clients._base import ServiceError, ServiceTimeout
 from kotonoha.clients._build import ServiceGroup, build_service_group
 from kotonoha.clients._llm import GenerationStatistics
@@ -51,9 +54,14 @@ class Orchestrator:
     __slots__: ClassVar[tuple[str, ...]] = (
         "__dict__",
         "_busy",
+        "_capture_started",
+        "_closed",
         "_frame_task",
+        "_playback_started",
         "_resource_task",
         "_running",
+        "_stop_lock",
+        "_stopping",
         "_turn_children",
         "_turn_task",
         "asr_verifier",
@@ -83,7 +91,7 @@ class Orchestrator:
     session_id: str
     event_bus: EventBus
     machine: Machine
-    ring: AudioRing
+    ring: AudioRing | None
     services: ServiceGroup
     primary_asr: FailoverClient
     asr_verifier: FailoverClient
@@ -96,9 +104,14 @@ class Orchestrator:
     _frame_task: asyncio.Task[None] | None
     _resource_task: asyncio.Task[None] | None
     _running: bool
+    _capture_started: bool
+    _playback_started: bool
+    _closed: bool
+    _stopping: bool
     _turn_children: set[asyncio.Task[Any]]
     _turn_task: asyncio.Task[None] | None
     _busy: asyncio.Lock
+    _stop_lock: asyncio.Lock
 
     @override
     def __init__(
@@ -121,66 +134,92 @@ class Orchestrator:
         self.event_bus = EventBus()
         self.machine = Machine(on_change=self._on_state_change)
 
-        self.ring = AudioRing.create(
-            name=settings.shm.name,
-            slots=settings.shm.slots,
-            slot_seconds=settings.shm.slot_seconds,
-            sample_rate=settings.shm.sample_rate,
+        self.ring = None
+        if settings.session.mode != "text":
+            prepare_shared_memory_tracking()
+        self.store = Store(
+            settings.resolve(settings.store.path),
+            maximum_turns=settings.store.maximum_turns,
+            maximum_sessions=settings.store.maximum_sessions,
         )
+        try:
+            self.turn_log = TurnLog(
+                settings.resolve(settings.logging.turn_log_path),
+                settings.budget_ms,
+                settings.logging.max_bytes,
+                settings.logging.backup_count,
+            )
+            self.traditionalizer = TraditionalChineseConverter(
+                settings.zh.opencc_config,
+                self.store.zh_rules(),
+            )
+            self.last_language = self.store.last_language(self.session_id)
+            self.store.start_session(
+                self.session_id,
+                settings.session.routing,
+                {
+                    "llm_profile": settings.llm.profile,
+                    "asr_backend": settings.asr.backend,
+                    "perf_mode": settings.perf_mode,
+                    "placement": settings.resolved_placement(),
+                },
+            )
 
-        # Roles are routed to the A6000 or to the on-board service according to
-        # perf_mode, each with automatic failover (clients/router.py).
-        self.services = build_service_group(settings, on_change=self._on_placement_change)
+            # HTTP clients do not open sockets during construction. Building
+            # them after persistent state prevents failed initialization from
+            # leaving the database or shared-memory segment open.
+            self.services = build_service_group(
+                settings,
+                on_change=self._on_placement_change,
+            )
+        except Exception:
+            self.store.close()
+            raise
         self.primary_asr = self.services.asr
         self.asr_verifier = self.services.asr_verify
         self.language_model = self.services.llm
         self.text_to_speech = self.services.tts
 
-        self.store = Store(settings.resolve(settings.store.path))
-        self.turn_log = TurnLog(
-            settings.resolve(settings.logging.turn_log_path),
-            settings.budget_ms,
-        )
-        self.traditionalizer = TraditionalChineseConverter(
-            settings.zh.opencc_config,
-            self.store.zh_rules(),
-        )
-
         self._frame_task = None
         self._resource_task = None
         self._running = False
+        self._capture_started = False
+        self._playback_started = False
+        self._closed = False
+        self._stopping = False
         self._turn_children = set()
         self._turn_task = None
         self._busy = asyncio.Lock()
-        self.last_language = self.store.last_language(self.session_id)
-
-        self.store.start_session(
-            self.session_id,
-            settings.session.routing,
-            {
-                "llm_profile": settings.llm.profile,
-                "asr_backend": settings.asr.backend,
-                "perf_mode": settings.perf_mode,
-                "placement": settings.resolved_placement(),
-            },
-        )
+        self._stop_lock = asyncio.Lock()
 
     # -- lifecycle -------------------------------------------------------
     async def start(
         self,
         /,
     ) -> None:
+        if self._closed or self._stopping:
+            raise RuntimeError("orchestrator cannot restart after shutdown")
+        if self._running:
+            return
         loop = asyncio.get_running_loop()
         self.capture.loop = loop
-        await asyncio.to_thread(self.capture.start)
-        await asyncio.to_thread(self.playback.start, loop)
-        self._running = True
-        self._frame_task = asyncio.create_task(self._frame_loop(), name="frame-loop")
-        self.services.start_probes()
-        self._resource_task = create_timer(
-            self._probe_resources,
-            RESOURCE_POLL_SECONDS,
-        )
+        try:
+            if self.settings.session.mode != "text":
+                self.ring = await asyncio.to_thread(self._create_audio_ring)
+            await asyncio.to_thread(self.capture.start)
+            self._capture_started = True
+            await asyncio.to_thread(self.playback.start, loop)
+            self._playback_started = True
+            self._running = True
+            self._frame_task = asyncio.create_task(self._frame_loop(), name="frame-loop")
+            self.services.start_probes()
+            self._resource_task = create_timer(
+                self._probe_resources,
+                RESOURCE_POLL_SECONDS,
+            )
+        except BaseException:
+            await self.stop()
+            raise
         log.info(
             "orchestrator.started",
             session=self.session_id,
@@ -202,10 +241,36 @@ class Orchestrator:
         self,
         /,
     ) -> None:
-        if not self._running and self._frame_task is None and self._resource_task is None:
-            return
+        async with self._stop_lock:
+            if self._closed:
+                return
+            self._stopping = True
+            cleanup_task = asyncio.create_task(
+                self._stop_components(),
+                name="orchestrator-stop",
+            )
+            try:
+                await asyncio.shield(cleanup_task)
+            except asyncio.CancelledError:
+                # Shutdown owns process resources. Complete it before propagating
+                # cancellation so sockets, threads, and shared memory cannot leak.
+                await cleanup_task
+                self._closed = True
+                raise
+            else:
+                self._closed = True
+            finally:
+                self._stopping = False
+
+    async def _stop_components(
+        self,
+        /,
+    ) -> None:
         self._running = False
-        self.capture.close_gate()
+        try:
+            self.capture.close_gate()
+        except Exception as error:  # noqa: BLE001
+            log.warning("orchestrator.capture_gate_close_failed", error=repr(error))
 
         current_task = asyncio.current_task()
         frame_task = self._frame_task
@@ -226,21 +291,73 @@ class Orchestrator:
         if self._resource_task:
             await cancel_and_wait(self._resource_task)
             self._resource_task = None
-        await asyncio.to_thread(self.capture.stop)
-        await asyncio.to_thread(self.playback.flush)
-        await asyncio.to_thread(self.playback.stop)
-        await self.services.aclose()
-        await asyncio.to_thread(self.ring.close)
-        await asyncio.to_thread(self.store.close)
+        await self._cancel_turn_children()
+
+        if self._playback_started:
+            try:
+                await asyncio.to_thread(self.playback.flush)
+            except Exception as error:  # noqa: BLE001
+                log.warning("orchestrator.playback_flush_failed", error=repr(error))
+
+        cleanup_operations = [
+            ("services", self.services.aclose()),
+            ("store", asyncio.to_thread(self.store.close)),
+        ]
+        if self.ring is not None:
+            cleanup_operations.append(
+                ("shared_memory", asyncio.to_thread(self.ring.close))
+            )
+        if self._capture_started:
+            cleanup_operations.append(("capture", asyncio.to_thread(self.capture.stop)))
+        if self._playback_started:
+            cleanup_operations.append(("playback", asyncio.to_thread(self.playback.stop)))
+        cleanup_results = await asyncio.gather(
+            *(operation for _name, operation in cleanup_operations),
+            return_exceptions=True,
+        )
+        for (name, _operation), result in zip(
+            cleanup_operations,
+            cleanup_results,
+            strict=True,
+        ):
+            if isinstance(result, BaseException):
+                log.error("orchestrator.cleanup_failed", component=name, error=repr(result))
+        self._capture_started = False
+        self._playback_started = False
+        self.ring = None
         log.info("orchestrator.stopped")
+
+    def _create_audio_ring(
+        self,
+        /,
+    ) -> AudioRing:
+        return AudioRing.create(
+            name=self.settings.shm.name,
+            slots=self.settings.shm.slots,
+            slot_seconds=self.settings.shm.slot_seconds,
+            sample_rate=self.settings.shm.sample_rate,
+        )
 
     async def _probe_services(
         self,
         /,
     ) -> None:
         resource_status: dict[str, Any] = {}
-        for role in self.services.all():
-            health = await role.active.health()
+        roles = self.services.all()
+        health_results = await asyncio.gather(
+            *(role.active.health() for role in roles),
+            return_exceptions=True,
+        )
+        for role, health_result in zip(roles, health_results, strict=True):
+            health = (
+                {
+                    "ok": False,
+                    "error": repr(health_result),
+                    "service": role.name,
+                }
+                if isinstance(health_result, BaseException)
+                else health_result
+            )
             resource_status[role.name] = health.get("resources", {})
             self.event_bus.emit(
                 "service",
@@ -423,6 +540,8 @@ class Orchestrator:
 
         # Both carriers are prepared: the shm reference for an on-board service
         # and the PCM itself for one on the A6000. The client picks (transport.py).
+        if self.ring is None:
+            self.ring = await asyncio.to_thread(self._create_audio_ring)
         payload = AudioPayload(
             pcm=pcm,
             audio_reference=self.ring.publish(pcm),
@@ -436,8 +555,8 @@ class Orchestrator:
             self.settings.context.history_turns,
         )
         expect_tw = "zh-TW" in self.settings.session.languages
-        glossary = await asyncio.to_thread(self.store.all_glossary)
-        context = build_asr_context(history, glossary[:40], expect_tw)
+        glossary = await asyncio.to_thread(self.store.all_glossary, 40)
+        context = build_asr_context(history, glossary, expect_tw)
 
         try:
             asr_result = await self.primary_asr.run(
@@ -568,7 +687,7 @@ class Orchestrator:
         metrics.llm_profile = self.settings.llm.profile
 
         translation: str | None = None
-        for target_index, target_language in enumerate(targets):
+        for target_language in targets:
             translation = await self._translate_and_speak(
                 metrics,
                 n_best,
@@ -576,7 +695,6 @@ class Orchestrator:
                 source_language,
                 target_language,
                 history,
-                first=(target_index == 0),
             )
 
         await self._finish(
@@ -712,7 +830,6 @@ class Orchestrator:
         source_language: str,
         target_language: str,
         history: Any,
-        first: bool,
     ) -> str | None:
         glossary = await asyncio.to_thread(
             self.store.glossary_for,
@@ -731,7 +848,7 @@ class Orchestrator:
             verify_divergent=bool(metrics.cross_verify_divergent),
         )
 
-        clause_queue: asyncio.Queue[str | None] = asyncio.Queue()
+        clause_queue: asyncio.Queue[str | None] = asyncio.Queue(maxsize=8)
         first_clause = asyncio.Event()
         streamer = ClauseStreamer()
         generation_statistics = GenerationStatistics()
@@ -771,15 +888,12 @@ class Orchestrator:
             return_when=asyncio.FIRST_COMPLETED,
         )
 
-        if first_clause_task not in completed and not first_clause.is_set():
-            first_clause_task.cancel()
-            language_model_task.cancel()
+        if not completed and not first_clause.is_set():
+            await cancel_and_wait(first_clause_task)
+            await cancel_and_wait(language_model_task)
             await clause_queue.put(None)
-            await asyncio.gather(
-                speaker_task,
-                first_audio_task,
-                return_exceptions=True,
-            )
+            await asyncio.gather(speaker_task, return_exceptions=True)
+            await cancel_and_wait(first_audio_task)
             metrics.outcome = "llm_timeout"
             self.playback.flush()
             self.event_bus.emit(
@@ -790,24 +904,80 @@ class Orchestrator:
             self.event_bus.emit("translation", text=None, timeout=True)
             return None
 
-        first_clause_task.cancel()
+        await cancel_and_wait(first_clause_task)
+        if language_model_task in completed and not first_clause.is_set():
+            try:
+                await language_model_task
+            except asyncio.CancelledError:
+                raise
+            except (ServiceTimeout, ServiceError) as error:
+                message = str(error)
+                log.error("llm.failed_before_clause", error=repr(error))
+            except Exception as error:  # noqa: BLE001
+                message = "translation service failed before producing a clause"
+                log.exception("llm.failed_before_clause", error=repr(error))
+            else:
+                message = "translation produced no speakable clause"
+                log.error("llm.empty_translation")
+            await clause_queue.put(None)
+            await asyncio.gather(speaker_task, return_exceptions=True)
+            await cancel_and_wait(first_audio_task)
+            metrics.outcome = "llm_timeout"
+            self.playback.flush()
+            self.event_bus.emit("error", where="llm", message=message)
+            self.event_bus.emit("translation", text=None, timeout=False)
+            return None
+
+        speaker_completed_early = False
+        if not language_model_task.done():
+            pipeline_completed, _pipeline_pending = await asyncio.wait(
+                {language_model_task, speaker_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            speaker_completed_early = (
+                speaker_task in pipeline_completed and not language_model_task.done()
+            )
+        if speaker_completed_early:
+            await cancel_and_wait(language_model_task)
+
         try:
-            await language_model_task
+            if not speaker_completed_early:
+                await language_model_task
         except asyncio.CancelledError:
-            pass
+            raise
         except (ServiceTimeout, ServiceError) as error:
             log.error("llm.failed", error=repr(error))
             self.event_bus.emit("error", where="llm", message=str(error))
             metrics.outcome = "llm_timeout"
+        except Exception as error:  # noqa: BLE001
+            log.exception("llm.failed", error=repr(error))
+            self.event_bus.emit(
+                "error",
+                where="llm",
+                message="translation service failed",
+            )
+            metrics.outcome = "llm_timeout"
 
-        await clause_queue.put(None)
-        await asyncio.gather(speaker_task, return_exceptions=True)
+        if not speaker_task.done():
+            await clause_queue.put(None)
+        speaker_results = await asyncio.gather(speaker_task, return_exceptions=True)
+        speaker_error = speaker_results[0]
+        if isinstance(speaker_error, BaseException):
+            metrics.outcome = "tts_failed"
+            log.error("tts.worker_failed", error=repr(speaker_error))
+            self.event_bus.emit("error", where="tts", message=str(speaker_error))
         self.playback.finish_turn()
 
         # Wait for the queue to drain. SPEAKING lasts until here.
-        drained = await self.playback.wait_drained(timeout=60.0)
+        drain_timeout = min(
+            60.0,
+            max(5.0, self.playback.pending_seconds + 5.0),
+        )
+        drained = await self.playback.wait_drained(timeout=drain_timeout)
         if not drained:
-            log.warning("playback.drain_timeout")
+            log.warning("playback.drain_timeout", timeout_s=round(drain_timeout, 3))
+            self.playback.flush()
+            metrics.outcome = "tts_failed"
         metrics.mark("queue_drained")
         await cancel_and_wait(first_audio_task)
 
@@ -885,11 +1055,15 @@ class Orchestrator:
                     language,
                 )
                 async for chunk in self.text_to_speech.stream(stream_factory):
-                    self.playback.enqueue(chunk, self.settings.tts.sample_rate)
+                    await self.playback.enqueue_bounded(
+                        chunk,
+                        rate=self.settings.tts.sample_rate,
+                        maximum_seconds=self.settings.tts.playback_buffer_seconds,
+                    )
             except (ServiceTimeout, ServiceError) as error:
                 # The router may retry a remote request against the resident
                 # onboard vLLM-Omni service before this failure reaches the turn.
-                log.error("tts.failed", error=repr(error), clause=clause[:40])
+                log.error("tts.failed", error=repr(error), characters=len(clause))
                 metrics.outcome = "tts_failed"
                 self.event_bus.emit("error", where="tts", message=str(error))
 
@@ -910,16 +1084,15 @@ class Orchestrator:
         /,
     ) -> None:
         del self
-        peak = float(np.max(np.abs(pcm), initial=0.0))
-        root_mean_square = (
-            float(np.sqrt(np.mean(np.square(pcm), dtype=np.float64)))
-            if pcm.size
-            else 0.0
-        )
+        statistics = signal_statistics(pcm)
+        peak = statistics.peak
+        root_mean_square = statistics.root_mean_square
         peak_dbfs = round(20.0 * np.log10(max(peak, 1e-12)), 1)
         rms_dbfs = round(20.0 * np.log10(max(root_mean_square, 1e-12)), 1)
         clipped_fraction = (
-            round(float(np.mean(np.abs(pcm) >= 0.999)), 6) if pcm.size else 0.0
+            round(statistics.clipped_sample_count / statistics.sample_count, 6)
+            if statistics.sample_count
+            else 0.0
         )
         metrics.notes.update(
             {
@@ -989,7 +1162,7 @@ class Orchestrator:
             return text
         output = self.traditionalizer(text)
         if looks_simplified(output):
-            log.warning("zh.simplified_leak", stage=stage, sample=output[:40])
+            log.warning("zh.simplified_leak", stage=stage, characters=len(output))
         return output
 
     # -- wrap-up -----------------------------------------------------------
@@ -1011,22 +1184,34 @@ class Orchestrator:
         # Report failovers for *this* turn, not the session total.
         metrics.failovers = max(0, self._failover_total() - failover_baseline)
         metrics.placement = dict(self.services.placement)
-        record = await self.turn_log.write(metrics)
-        stored_at = await asyncio.to_thread(
-            self.store.add_turn,
-            turn_id=metrics.turn_id,
-            session_id=self.session_id,
-            src_lang=source_language or metrics.lang_detected,
-            tgt_lang=metrics.target_lang,
-            source_text=source_text,
-            translation=translation,
-            lang_source=metrics.lang_source,
-            lid_confidence=metrics.lid_confidence,
-            asr_avg_logprob=metrics.asr_avg_logprob,
-            cross_verified=metrics.cross_verify_fired,
-            audio_seconds=metrics.audio_seconds,
-            outcome=metrics.outcome,
-        )
+        try:
+            record = await self.turn_log.write(metrics)
+        except OSError as error:
+            record = metrics.to_dict(self.settings.budget_ms)
+            log.error("turn_log.write_failed", error=repr(error))
+        try:
+            observe_turn(metrics, self.settings.budget_ms)
+        except Exception as error:  # noqa: BLE001
+            log.error("metrics.observe_failed", error=repr(error))
+        try:
+            stored_at = await asyncio.to_thread(
+                self.store.add_turn,
+                turn_id=metrics.turn_id,
+                session_id=self.session_id,
+                src_lang=source_language or metrics.lang_detected,
+                tgt_lang=metrics.target_lang,
+                source_text=source_text,
+                translation=translation,
+                lang_source=metrics.lang_source,
+                lid_confidence=metrics.lid_confidence,
+                asr_avg_logprob=metrics.asr_avg_logprob,
+                cross_verified=metrics.cross_verify_fired,
+                audio_seconds=metrics.audio_seconds,
+                outcome=metrics.outcome,
+            )
+        except (OSError, sqlite3.Error) as error:
+            stored_at = metrics.wall_start
+            log.error("history.write_failed", error=repr(error))
         log.info("turn", **record)
         self.event_bus.emit("turn", **record)
         if source_text or translation:
@@ -1055,6 +1240,11 @@ class Orchestrator:
         /,
         reason: str,
     ) -> None:
+        if self.machine.state is State.SPEAKING:
+            try:
+                self.playback.flush()
+            except Exception as error:  # noqa: BLE001
+                log.warning("playback.flush_failed", error=repr(error))
         self.machine.force_idle(reason)
 
     def _on_state_change(
@@ -1086,7 +1276,7 @@ def _rms(
     samples: np.ndarray,
     /,
 ) -> float:
-    return round(
-        float(np.sqrt(np.mean(np.square(samples, dtype=np.float64)) + 1e-12)),
-        5,
-    )
+    if samples.size == 0:
+        return 0.0
+    square_sum = float(np.dot(samples, samples))
+    return round(float(np.sqrt(square_sum / samples.size + 1e-12)), 5)

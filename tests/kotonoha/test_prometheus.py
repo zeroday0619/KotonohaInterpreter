@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import ClassVar
 
 import httpx2
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from prometheus_client import generate_latest
+from prometheus_client import REGISTRY, generate_latest
+from prometheus_client.parser import text_string_to_metric_families
 
 from kotonoha._config import load_settings
 from kotonoha._metrics import TurnMetrics
 from kotonoha._prometheus import (
+    MAXIMUM_METRICS_PAYLOAD_BYTES,
     MetricsAggregator,
     create_unified_registry,
     install_metrics,
@@ -20,12 +24,14 @@ from kotonoha._prometheus import (
     observe_service_health,
     observe_turn,
 )
+from kotonoha._typing import override
 
 
 class MetricsResponse:
-    __slots__: ClassVar[tuple[str, ...]] = ("text",)
+    __slots__: ClassVar[tuple[str, ...]] = ("_payload", "text")
 
     text: str
+    _payload: bytes
 
     def __init__(
         self,
@@ -33,12 +39,19 @@ class MetricsResponse:
         /,
     ) -> None:
         self.text = text
+        self._payload = text.encode("utf-8")
 
     def raise_for_status(
         self,
         /,
     ) -> None:
         return None
+
+    async def aiter_bytes(
+        self,
+        /,
+    ) -> AsyncIterator[bytes]:
+        yield self._payload
 
 
 class MetricsClient:
@@ -66,17 +79,42 @@ class MetricsClient:
     ) -> None:
         return None
 
-    async def get(
+    @asynccontextmanager
+    async def stream(
         self,
+        method: str,
         url: str,
         /,
         **_: object,
-    ) -> MetricsResponse:
-        return MetricsResponse(
+    ) -> AsyncIterator[MetricsResponse]:
+        del method, url
+        yield MetricsResponse(
             "# HELP kotonoha_remote_test A remote test metric.\n"
             "# TYPE kotonoha_remote_test gauge\n"
             "kotonoha_remote_test 1\n"
         )
+
+    async def aclose(
+        self,
+        /,
+    ) -> None:
+        return None
+
+
+class OversizedMetricsClient(MetricsClient):
+    __slots__: ClassVar[tuple[str, ...]] = ()
+
+    @override
+    @asynccontextmanager
+    async def stream(
+        self,
+        method: str,
+        url: str,
+        /,
+        **_: object,
+    ) -> AsyncIterator[MetricsResponse]:
+        del method, url
+        yield MetricsResponse("x" * (MAXIMUM_METRICS_PAYLOAD_BYTES + 1))
 
 
 def test_metrics_endpoint_exports_http_samples() -> None:
@@ -97,6 +135,25 @@ def test_metrics_endpoint_exports_http_samples() -> None:
         'kotonoha_http_requests_total{method="GET",path="/ping",service="test-http"'
         in response.text
     )
+
+
+def test_unmatched_paths_share_one_bounded_metric_label() -> None:
+    application = FastAPI()
+    install_metrics(application, "test-unmatched")
+
+    with TestClient(application) as client:
+        for sequence in range(20):
+            assert client.get(f"/random-{sequence}").status_code == 404
+        response = client.get("/metrics")
+
+    service_lines = [
+        line
+        for line in response.text.splitlines()
+        if 'service="test-unmatched"' in line and "http_requests_total" in line
+    ]
+    assert len(service_lines) == 1
+    assert 'path="unmatched"' in service_lines[0]
+    assert service_lines[0].endswith("20.0")
 
 
 def test_service_health_exports_accelerator_and_memory_samples() -> None:
@@ -172,3 +229,35 @@ async def test_remote_service_metrics_are_merged_into_one_registry(
     output = generate_latest(create_unified_registry(aggregator)).decode("utf-8")
     assert 'kotonoha_remote_test{role="asr",source="local"} 1.0' in output
     assert 'kotonoha_remote_test{role="asr",source="remote"}' not in output
+
+
+@pytest.mark.asyncio
+async def test_remote_metrics_payload_is_bounded() -> None:
+    settings = load_settings()
+    aggregator = MetricsAggregator(settings, settings.resolved_placement())
+
+    role, source, payload = await aggregator._fetch(
+        OversizedMetricsClient(),
+        "asr",
+        "remote",
+        "http://remote.test:8001",
+        {},
+    )
+
+    assert (role, source, payload) == ("asr", "remote", None)
+
+
+def test_unified_registry_emits_metric_metadata_once() -> None:
+    settings = load_settings()
+    aggregator = MetricsAggregator(settings, settings.resolved_placement())
+    payload = generate_latest(REGISTRY).decode("utf-8")
+    aggregator._payloads[("asr", "local")] = tuple(
+        family
+        for family in text_string_to_metric_families(payload)
+        if family.name.startswith("kotonoha_")
+    )
+
+    output = generate_latest(create_unified_registry(aggregator)).decode("utf-8")
+
+    assert output.count("# HELP kotonoha_http_requests_total") == 1
+    assert output.count("# TYPE kotonoha_http_requests_total") == 1

@@ -12,7 +12,14 @@ from kotonoha._config import TextToSpeechConfig
 from kotonoha._logging_setup import get_logger
 from kotonoha._transport import decode_pcm
 from kotonoha._typing import override
-from kotonoha.clients._base import BaseClient, ServiceError, ServiceTimeout
+from kotonoha.audio._statistics import signal_statistics
+from kotonoha.clients._base import (
+    BaseClient,
+    ServiceError,
+    ServiceTimeout,
+    read_json_object_response,
+    service_error_from_status,
+)
 
 _SAMPLE_WIDTH = 2
 _SUPPORTED_MEDIA_TYPES = {"", "application/octet-stream", "audio/pcm"}
@@ -58,11 +65,14 @@ class TextToSpeechClient(BaseClient):
     ) -> dict:
         """Return the vLLM-Omni server health state."""
         try:
-            response = await self._client.get("/health", timeout=2.0)
+            async with self._client.stream("GET", "/health", timeout=2.0) as response:
+                payload = await read_json_object_response(response, allow_empty=True)
+                status_code = response.status_code
             return {
-                "ok": response.status_code == 200,
+                **payload,
+                "ok": status_code == 200 and payload.get("ok", True) is not False,
                 "service": "tts",
-                "status": response.status_code,
+                "status": status_code,
                 "side": self.side,
             }
         except Exception as error:  # noqa: BLE001
@@ -155,11 +165,10 @@ class TextToSpeechClient(BaseClient):
                                 f"{self.label} exceeded the configured "
                                 f"{self.config.max_audio_seconds:.1f}-second audio limit"
                             )
-                        peak = max(peak, float(np.max(np.abs(samples), initial=0.0)))
-                        square_sum += float(
-                            np.sum(np.square(samples, dtype=np.float64), dtype=np.float64)
-                        )
-                        clipped_sample_count += int(np.count_nonzero(np.abs(samples) >= 0.999))
+                        statistics = signal_statistics(samples)
+                        peak = max(peak, statistics.peak)
+                        square_sum += statistics.square_sum
+                        clipped_sample_count += statistics.clipped_sample_count
                         yield samples
                 if not format_checked and pending_prefix:
                     if pending_prefix[:4] == b"RIFF":
@@ -177,13 +186,10 @@ class TextToSpeechClient(BaseClient):
                                 f"{self.label} exceeded the configured "
                                 f"{self.config.max_audio_seconds:.1f}-second audio limit"
                             )
-                        peak = max(peak, float(np.max(np.abs(samples), initial=0.0)))
-                        square_sum += float(
-                            np.sum(np.square(samples, dtype=np.float64), dtype=np.float64)
-                        )
-                        clipped_sample_count += int(
-                            np.count_nonzero(np.abs(samples) >= 0.999)
-                        )
+                        statistics = signal_statistics(samples)
+                        peak = max(peak, statistics.peak)
+                        square_sum += statistics.square_sum
+                        clipped_sample_count += statistics.clipped_sample_count
                         yield samples
                 if remainder:
                     raise ServiceError(
@@ -206,7 +212,6 @@ class TextToSpeechClient(BaseClient):
         except httpx2.TimeoutException as error:
             raise ServiceTimeout(f"{self.label} timeout") from error
         except httpx2.HTTPStatusError as error:
-            detail = f"{self.label} {error.response.status_code}: {error.response.text[:200]}"
-            raise ServiceError(detail) from error
+            raise service_error_from_status(error, self.label) from error
         except httpx2.HTTPError as error:
             raise ServiceError(f"{self.label} transport error: {error!r}") from error

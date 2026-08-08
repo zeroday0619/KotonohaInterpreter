@@ -19,6 +19,7 @@ class Resampler:
     """Streaming resampler. Keeps state so phase does not break at block edges."""
     __slots__: ClassVar[tuple[str, ...]] = (
         "_passthrough",
+        "_quality",
         "_stream",
         "input_rate",
         "output_rate",
@@ -27,6 +28,7 @@ class Resampler:
     input_rate: int
     output_rate: int
     _passthrough: bool
+    _quality: str
     _stream: Any | None
 
     @override
@@ -39,6 +41,7 @@ class Resampler:
     ) -> None:
         self.input_rate = input_rate
         self.output_rate = output_rate
+        self._quality = quality
         self._passthrough = input_rate == output_rate
         self._stream = None
         if not self._passthrough:
@@ -49,7 +52,7 @@ class Resampler:
                 output_rate,
                 num_channels=1,
                 dtype="float32",
-                quality=quality,
+                quality=self._quality,
             )
 
     def __call__(
@@ -76,6 +79,7 @@ class Resampler:
                 self.output_rate,
                 num_channels=1,
                 dtype="float32",
+                quality=self._quality,
             )
 
 

@@ -11,11 +11,13 @@ import logging
 import sys
 import threading
 from collections import deque
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, TextIO
 
 import structlog
 
+from kotonoha._secure_files import open_append_text
 from kotonoha._typing import override
 
 _TERMINAL_LOG_CAPACITY = 500
@@ -40,6 +42,19 @@ class TerminalInterfaceLogHandler(logging.Handler):
             return
         with _terminal_log_lock:
             _terminal_log_messages.append(message)
+
+
+class SecureFileHandler(RotatingFileHandler):
+    """Append owner-only logs without following symbolic links."""
+
+    __slots__: ClassVar[tuple[str, ...]] = ()
+
+    @override
+    def _open(
+        self,
+        /,
+    ) -> TextIO:
+        return open_append_text(Path(self.baseFilename))
 
 
 def reset_terminal_interface_logs() -> None:
@@ -69,12 +84,19 @@ def setup_logging(
     console: bool = False,
     service: str = "orchestrator",
     terminal_interface: bool = False,
+    maximum_bytes: int = 64 * 1024 * 1024,
+    backup_count: int = 5,
 ) -> structlog.stdlib.BoundLogger:
     handlers: list[logging.Handler] = []
 
     if json_path is not None:
         json_path.parent.mkdir(parents=True, exist_ok=True)
-        file_handler = logging.FileHandler(json_path, encoding="utf-8")
+        file_handler = SecureFileHandler(
+            json_path,
+            maxBytes=maximum_bytes,
+            backupCount=backup_count,
+            encoding="utf-8",
+        )
         file_handler.setFormatter(logging.Formatter("%(message)s"))
         handlers.append(file_handler)
 
@@ -94,6 +116,7 @@ def setup_logging(
     root = logging.getLogger()
     for handler in list(root.handlers):
         root.removeHandler(handler)
+        handler.close()
     for handler in handlers:
         root.addHandler(handler)
     root.setLevel(getattr(logging, level.upper(), logging.INFO))

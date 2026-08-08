@@ -16,13 +16,15 @@ from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from kotonoha._call_compatibility import keyword_compatible
 from kotonoha._config import LanguageModelConfig, load_settings
 from kotonoha._logging_setup import setup_logging
 from kotonoha._prometheus import install_metrics, observe_service_health
+from kotonoha.prompts._translate import MAXIMUM_TRANSLATION_PROMPT_CHARACTERS
 from kotonoha.services._auth import install_auth, websocket_authorized
+from kotonoha.services._request_limits import RequestBodyLimitMiddleware
 from kotonoha.services._resources import resource_report
 
 log = setup_logging(service="llm", console=True)
@@ -42,7 +44,10 @@ class TranslateGemmaTextContent(BaseModel):
     type: Literal["text"] = "text"
     source_lang_code: Literal["ko", "en", "ja", "zh-TW"]
     target_lang_code: Literal["ko", "en", "ja", "zh-TW"]
-    text: str = Field(min_length=1)
+    text: str = Field(
+        min_length=1,
+        max_length=MAXIMUM_TRANSLATION_PROMPT_CHARACTERS,
+    )
 
 
 class TranslateGemmaMessage(BaseModel):
@@ -54,22 +59,22 @@ class TranslateGemmaMessage(BaseModel):
 class TranslationRequest(BaseModel):
     __slots__: ClassVar[tuple[str, ...]] = ()
     type: Literal["translation.create"] = "translation.create"
-    model: str
+    model: str = Field(min_length=1, max_length=256)
     messages: list[TranslateGemmaMessage] = Field(min_length=1, max_length=1)
     temperature: float = Field(0.0, ge=0.0)
     top_p: float = Field(1.0, gt=0.0, le=1.0)
     repetition_penalty: float = Field(1.0, gt=0.0)
-    max_tokens: int = Field(512, ge=1)
+    max_tokens: int = Field(512, ge=1, le=2048)
 
 
 class ChatCompletionRequest(BaseModel):
     __slots__: ClassVar[tuple[str, ...]] = ()
-    model: str
+    model: str = Field(min_length=1, max_length=256)
     messages: list[TranslateGemmaMessage] = Field(min_length=1, max_length=1)
     temperature: float = Field(0.0, ge=0.0)
     top_p: float = Field(1.0, gt=0.0, le=1.0)
     repetition_penalty: float = Field(1.0, gt=0.0)
-    max_tokens: int = Field(512, ge=1)
+    max_tokens: int = Field(512, ge=1, le=2048)
     stream: bool = True
 
     def translation_request(
@@ -348,22 +353,30 @@ class VllmTranslationBackend:
         try:
             while True:
                 event = await websocket.receive_json()
+                if not isinstance(event, dict):
+                    await websocket.send_json(
+                        {"type": "error", "error": "invalid translation request"}
+                    )
+                    continue
                 if event.get("type") != "translation.create":
                     await websocket.send_json(
                         {"type": "error", "error": "expected translation.create"}
                     )
                     continue
-                request = TranslationRequest.model_validate(event)
+                try:
+                    request = TranslationRequest.model_validate(event)
+                except ValidationError:
+                    await websocket.send_json(
+                        {"type": "error", "error": "invalid translation request"}
+                    )
+                    continue
                 completion_tokens = 0
-                complete_text = ""
                 async for delta, current_completion_tokens in self.stream(request):
                     completion_tokens = current_completion_tokens
-                    complete_text += delta
                     await websocket.send_json({"type": "translation.delta", "delta": delta})
                 await websocket.send_json(
                     {
                         "type": "translation.done",
-                        "text": complete_text,
                         "usage": {"completion_tokens": completion_tokens},
                     }
                 )
@@ -371,7 +384,9 @@ class VllmTranslationBackend:
             return
         except Exception as error:  # noqa: BLE001
             log.exception("llm.websocket_failed", error=repr(error))
-            await websocket.send_json({"type": "error", "error": repr(error)})
+            await websocket.send_json(
+                {"type": "error", "error": "translation service failure"}
+            )
 
 
 STATE: dict[str, Any] = {"backend": None, "error": None}
@@ -403,6 +418,7 @@ async def lifespan(
 
 
 app = FastAPI(title="kotonoha-translation", lifespan=lifespan)
+app.add_middleware(RequestBodyLimitMiddleware)
 install_auth(app, "llm")
 install_metrics(app, "llm")
 
@@ -460,6 +476,8 @@ async def chat_completions(
     if not request.stream:
         raise HTTPException(400, "only streaming chat completions are supported")
     backend = _backend()
+    if request.model != backend.config.served_model_name:
+        raise HTTPException(400, f"unknown served model: {request.model}")
     translation_request = request.translation_request()
 
     async def events() -> AsyncIterator[str]:

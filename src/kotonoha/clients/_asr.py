@@ -4,12 +4,36 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Final
+
+from pydantic import BaseModel, Field, ValidationError
 
 from kotonoha._config import AsrConfig
 from kotonoha._transport import AudioPayload, Encoding
 from kotonoha._typing import override
 from kotonoha.clients._base import BaseClient, ServiceError
+
+MAXIMUM_ASR_TEXT_CHARACTERS: Final[int] = 4096
+
+
+class HypothesisResponse(BaseModel):
+    __slots__: ClassVar[tuple[str, ...]] = ()
+    text: str = Field("", max_length=MAXIMUM_ASR_TEXT_CHARACTERS)
+    avg_logprob: float = Field(-99.0, allow_inf_nan=False)
+
+
+class AsrResponse(BaseModel):
+    __slots__: ClassVar[tuple[str, ...]] = ()
+    hypotheses: list[HypothesisResponse] = Field(default_factory=list, max_length=5)
+    language: str | None = Field(None, max_length=128)
+    language_confidence: float | None = Field(
+        None,
+        ge=0.0,
+        le=1.0,
+        allow_inf_nan=False,
+    )
+    duration_s: float | None = Field(None, ge=0.0, le=3600.0, allow_inf_nan=False)
+    infer_ms: float = Field(0.0, ge=0.0, le=3_600_000.0, allow_inf_nan=False)
 
 
 @dataclass(slots=True)
@@ -119,20 +143,33 @@ class AsrClient(BaseClient):
                 },
             )
 
-        return AsrResult(
-            hypotheses=[
-                Hypothesis(
-                    text=hypothesis["text"],
-                    avg_logprob=float(hypothesis.get("avg_logprob", -99.0)),
-                )
-                for hypothesis in result.get("hypotheses", [])
-            ],
-            language=result.get("language"),
-            language_confidence=(
-                float(result["language_confidence"])
-                if result.get("language_confidence") is not None
-                else None
-            ),
-            duration_s=float(result.get("duration_s", payload.seconds)),
-            infer_ms=float(result.get("infer_ms", 0.0)),
-        )
+        return _parse_asr_response(result, payload.seconds)
+
+
+def _parse_asr_response(
+    result: dict[str, Any],
+    /,
+    fallback_duration_seconds: float,
+) -> AsrResult:
+    """Validate the service boundary before response data reaches quality logic."""
+    try:
+        response = AsrResponse.model_validate(result)
+    except ValidationError as error:
+        raise ServiceError("asr returned an invalid response") from error
+    return AsrResult(
+        hypotheses=[
+            Hypothesis(
+                text=hypothesis.text,
+                avg_logprob=hypothesis.avg_logprob,
+            )
+            for hypothesis in response.hypotheses
+        ],
+        language=response.language,
+        language_confidence=response.language_confidence,
+        duration_s=(
+            response.duration_s
+            if response.duration_s is not None
+            else fallback_duration_seconds
+        ),
+        infer_ms=response.infer_ms,
+    )

@@ -50,7 +50,7 @@ frontend:
 shm:
   name: kotonoha_audio # POSIX shm name (§3: audio never rides in an HTTP body)
   slots: 8
-  slot_seconds: 30
+  slot_seconds: 31 # 30-second utterance plus one 32 ms VAD frame
   sample_rate: 16000
 
 services:
@@ -97,6 +97,8 @@ asr:
   backend: vllm # vllm | transformers
   # Jetson uses the compact Qwen checkpoint. The A6000 overlay selects Voxtral.
   model_id: Qwen/Qwen3-ASR-0.6B-hf
+  # Hugging Face commit confirmed through the official model API on 2026-08-08.
+  model_revision: 7f1569a48a89f3e3f4dc3a5c9d28bddd903bc76c
   vllm_model_id: Qwen/Qwen3-ASR-0.6B
   vllm_served_model_name: kotonoha-asr
   # qwen3_asr applies the realtime architecture override required by vLLM.
@@ -170,6 +172,7 @@ tts:
   # cannot change it silently. The duration guard stops runaway codec generation.
   max_new_tokens: 2048
   max_audio_seconds: 30.0
+  playback_buffer_seconds: 5.0 # bound queued PCM while retaining synthesis headroom
   # Qwen3-TTS CustomVoice presets, constrained to each voice's native language.
   voices:
     ko: Sohee # Warm Korean female voice.
@@ -196,11 +199,15 @@ context:
 
 store:
   path: ./data/kotonoha.db
+  maximum_turns: 10000 # bound long-running interpretation history growth
+  maximum_sessions: 1000 # retain recent session summaries
 
 logging:
   level: INFO
   log_path: ./data/logs/kotonoha.jsonl # application log
   turn_log_path: ./data/logs/turns.jsonl # §11 turn metrics, one line per turn
+  max_bytes: 67108864 # rotate each JSONL file at 64 MiB
+  backup_count: 5 # retain five prior JSONL generations
   console: true # rendered as structured records in the TUI; raw JSON in service consoles
   prometheus_port: null # A6000 metrics receiver port; disabled in the Jetson baseline
 

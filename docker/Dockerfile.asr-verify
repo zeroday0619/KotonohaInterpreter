@@ -41,4 +41,4 @@ RUN if [ "$VLLM_NVML_PATCH" = "1" ]; then \
 ENV KOTONOHA_DISABLE_NVML=0
 
 EXPOSE 8002
-CMD ["uvicorn", "kotonoha.services._asr_verify_server:app", "--host", "0.0.0.0", "--port", "8002", "--loop", "uvloop", "--timeout-graceful-shutdown", "30"]
+CMD ["uvicorn", "kotonoha.services._asr_verify_server:app", "--host", "0.0.0.0", "--port", "8002", "--loop", "uvloop", "--ws-max-size", "4194304", "--timeout-graceful-shutdown", "30"]

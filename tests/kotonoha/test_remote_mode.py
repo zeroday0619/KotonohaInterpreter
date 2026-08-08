@@ -11,10 +11,72 @@ import pytest
 
 from kotonoha._config import RemoteConfig, load_settings
 from kotonoha._transport import AudioPayload, decode_pcm, encode_pcm, encoded_size
-from kotonoha.clients._base import ServiceError, ServiceTimeout, remote_transport_kwargs
-from kotonoha.clients._llm import LanguageModelClient
+from kotonoha.clients._asr import MAXIMUM_ASR_TEXT_CHARACTERS, _parse_asr_response
+from kotonoha.clients._asr_verify import (
+    MAXIMUM_VERIFICATION_TEXT_CHARACTERS,
+    _parse_verification_response,
+)
+from kotonoha.clients._base import (
+    MAXIMUM_SERVICE_RESPONSE_BYTES,
+    BaseClient,
+    ServiceApplicationError,
+    ServiceError,
+    ServiceTimeout,
+    remote_transport_kwargs,
+)
+from kotonoha.clients._llm import LanguageModelClient, _decode_websocket_event
 from kotonoha.clients._router import AllEndpointsFailed, FailoverClient
 from kotonoha.clients._tts import TextToSpeechClient
+
+
+async def test_service_client_rejects_an_oversized_json_response() -> None:
+    def handle_request(
+        request: httpx2.Request,
+        /,
+    ) -> httpx2.Response:
+        del request
+        return httpx2.Response(
+            200,
+            content=b"x" * (MAXIMUM_SERVICE_RESPONSE_BYTES + 1),
+        )
+
+    client = BaseClient("http://test", 1.0, "test")
+    await client._client.aclose()
+    client._client = httpx2.AsyncClient(
+        base_url="http://test",
+        transport=httpx2.MockTransport(handle_request),
+    )
+    try:
+        with pytest.raises(ServiceError, match="exceeded"):
+            await client._post_json("/response", {})
+    finally:
+        await client.aclose()
+
+
+def test_asr_clients_reject_malformed_or_unbounded_service_output() -> None:
+    with pytest.raises(ServiceError, match="asr returned an invalid response"):
+        _parse_asr_response(
+            {
+                "hypotheses": [
+                    {"text": "x" * (MAXIMUM_ASR_TEXT_CHARACTERS + 1)}
+                ]
+            },
+            1.0,
+        )
+    with pytest.raises(ServiceError, match="asr-verify returned an invalid response"):
+        _parse_verification_response(
+            {"text": "x" * (MAXIMUM_VERIFICATION_TEXT_CHARACTERS + 1)}
+        )
+
+
+def test_asr_response_validation_rejects_non_finite_metrics() -> None:
+    with pytest.raises(ServiceError, match="asr returned an invalid response"):
+        _parse_asr_response(
+            {"hypotheses": [{"text": "hello", "avg_logprob": float("nan")}]},
+            1.0,
+        )
+    with pytest.raises(ServiceError, match="asr-verify returned an invalid response"):
+        _parse_verification_response({"text": "hello", "infer_ms": float("inf")})
 
 
 # -- placement -------------------------------------------------------------
@@ -128,10 +190,47 @@ def test_payload_carries_both_forms() -> None:
     assert len(payload.encoded("s16le")) == 32_000
 
 
+def test_payload_reuses_the_encoded_audio_for_multiple_remote_consumers() -> None:
+    payload = AudioPayload(pcm=np.zeros(16000, dtype=np.float32))
+
+    first = payload.encoded("s16le")
+    second = payload.encoded("s16le")
+
+    assert first is second
+
+
+@pytest.mark.parametrize(
+    ("data", "encoding", "message"),
+    (
+        (b"\x00", "s16le", "divisible by two"),
+        (b"\x00\x00", "f32le", "divisible by four"),
+        (b"\x00\x00", "ulaw", "unsupported PCM encoding"),
+    ),
+)
+def test_pcm_decoder_rejects_truncated_or_unknown_input(
+    _positional_only: object | None = None,
+    /,
+    *,
+    data: bytes,
+    encoding: Any,
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        decode_pcm(data, encoding)
+
+
 def test_bearer_token_and_tls_flags_reach_httpx2() -> None:
-    tk = remote_transport_kwargs(RemoteConfig(token="secret", verify_tls=False))
-    assert tk["headers"]["authorization"] == "Bearer secret"
-    assert tk["verify"] is False
+    service_token = "test-service-token-0123456789abcdef"
+    transport = remote_transport_kwargs(
+        RemoteConfig(token=service_token, verify_tls=False)
+    )
+    assert transport["headers"]["authorization"] == f"Bearer {service_token}"
+    assert transport["verify"] is False
+
+
+def test_llm_websocket_rejects_non_object_events() -> None:
+    with pytest.raises(ServiceError, match="non-object"):
+        _decode_websocket_event('["translation.delta"]')
 
 
 async def test_translation_request_uses_realtime_websocket_fields(
@@ -211,6 +310,7 @@ async def test_translation_request_uses_realtime_websocket_fields(
     monkeypatch.setattr("kotonoha.clients._llm.connect", fake_connect)
     client = LanguageModelClient("http://test", settings.llm)
     try:
+        assert client._timeout == settings.llm.timeout_s
         chunks = [
             chunk
             async for chunk in client.stream_chat(
@@ -360,6 +460,31 @@ async def test_vllm_omni_health_accepts_an_empty_success_response() -> None:
     assert health == {"ok": True, "service": "tts", "status": 200, "side": "local"}
 
 
+async def test_tts_health_respects_a_not_ready_response_body() -> None:
+    settings = load_settings()
+
+    def handle_request(
+        request: httpx2.Request,
+        /,
+    ) -> httpx2.Response:
+        del request
+        return httpx2.Response(200, json={"ok": False, "error": "loading"})
+
+    client = TextToSpeechClient("http://test", settings.tts)
+    await client._client.aclose()
+    client._client = httpx2.AsyncClient(
+        base_url="http://test",
+        transport=httpx2.MockTransport(handle_request),
+    )
+    try:
+        health = await client.health()
+    finally:
+        await client.aclose()
+
+    assert health["ok"] is False
+    assert health["error"] == "loading"
+
+
 # -- failover ---------------------------------------------------------------
 class FakeClient:
     """Stands in for a service client; fails on demand."""
@@ -473,6 +598,24 @@ async def test_no_fallback_propagates_the_error() -> None:
     failover_client = FailoverClient("asr", remote, None, RemoteConfig())
     with pytest.raises(ServiceTimeout):
         await failover_client.run(lambda client: client.work())
+
+
+async def test_application_error_does_not_retry_on_the_fallback() -> None:
+    failover_client, remote, local = _route(False)
+
+    async def reject(
+        client: FakeClient,
+        /,
+    ) -> str:
+        client.calls += 1
+        raise ServiceApplicationError("invalid request")
+
+    with pytest.raises(ServiceApplicationError):
+        await failover_client.run(reject)
+
+    assert remote.calls == 1
+    assert local.calls == 0
+    assert failover_client.failover_count == 0
 
 
 async def test_stream_fails_over_before_the_first_chunk() -> None:

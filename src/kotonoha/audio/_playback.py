@@ -26,14 +26,16 @@ log = get_logger(__name__)
 
 class Playback:
     __slots__: ClassVar[tuple[str, ...]] = (
-        "_closing",
         "_current",
         "_lock",
         "_loop",
         "_output_channels",
         "_output_device",
         "_output_sample_rate",
+        "_pending_samples",
         "_position",
+        "_production_finished",
+        "_queue_progress",
         "_queue",
         "_resampler",
         "_stream",
@@ -46,14 +48,16 @@ class Playback:
     text_to_speech: TextToSpeechConfig
     first_packet: asyncio.Event
     drained: asyncio.Event
+    _queue_progress: asyncio.Event
     _queue: deque[np.ndarray]
     _lock: threading.Lock
     _current: np.ndarray | None
     _position: int
+    _pending_samples: int
     _stream: Any | None
     _resampler: Resampler
     _loop: asyncio.AbstractEventLoop | None
-    _closing: bool
+    _production_finished: bool
     _output_channels: int
     _output_device: int | None
     _output_sample_rate: int
@@ -71,6 +75,7 @@ class Playback:
         self._lock = threading.Lock()
         self._current = None
         self._position = 0
+        self._pending_samples = 0
         self._stream = None
         self._output_channels = 1
         self._output_device = None
@@ -83,8 +88,10 @@ class Playback:
         self._loop = None
         self.first_packet = asyncio.Event()
         self.drained = asyncio.Event()
+        self._queue_progress = asyncio.Event()
+        self._queue_progress.set()
         self.drained.set()
-        self._closing = False
+        self._production_finished = True
 
     # -- lifecycle -------------------------------------------------------
     def start(
@@ -94,6 +101,8 @@ class Playback:
     ) -> None:
         import sounddevice
 
+        if self._stream is not None:
+            return
         self._loop = loop or asyncio.get_event_loop()
         stream_settings = resolve_audio_stream(
             self.audio.output_device,
@@ -120,34 +129,47 @@ class Playback:
                 log.debug("playback.status", status=str(status))
             written = 0
             while written < frame_count:
-                if self._current is None or self._position >= self._current.size:
-                    with self._lock:
+                with self._lock:
+                    if self._current is None or self._position >= self._current.size:
                         self._current = self._queue.popleft() if self._queue else None
-                    self._position = 0
+                        self._position = 0
                     if self._current is None:
                         output_data[written:, :] = 0.0
-                        if written > 0 or not self.drained.is_set():
+                        if self._production_finished and not self.drained.is_set():
                             self._signal_drained()
+                        self._signal_queue_progress()
                         return
-                write_count = min(
-                    frame_count - written,
-                    self._current.size - self._position,
-                )
-                samples = self._current[self._position : self._position + write_count]
-                output_data[written : written + write_count, :] = samples[:, np.newaxis]
-                self._position += write_count
+                    write_count = min(
+                        frame_count - written,
+                        self._current.size - self._position,
+                    )
+                    samples = self._current[
+                        self._position : self._position + write_count
+                    ]
+                    output_data[written : written + write_count, :] = samples[:, np.newaxis]
+                    self._position += write_count
+                    self._pending_samples -= write_count
                 written += write_count
                 if not self.first_packet.is_set():
                     self._signal_first()
+            self._signal_queue_progress()
 
-        self._stream = sounddevice.OutputStream(
+        stream = sounddevice.OutputStream(
             samplerate=self._output_sample_rate,
             channels=self._output_channels,
             dtype="float32",
             device=self._output_device,
             callback=playback_callback,
         )
-        self._stream.start()
+        try:
+            stream.start()
+        except Exception:
+            try:
+                stream.close()
+            except Exception as close_error:  # noqa: BLE001
+                log.warning("playback.close_failed", error=repr(close_error))
+            raise
+        self._stream = stream
         log.info(
             "playback.started",
             rate=self._output_sample_rate,
@@ -160,11 +182,18 @@ class Playback:
         self,
         /,
     ) -> None:
-        self._closing = True
-        if self._stream is not None:
-            self._stream.stop()
-            self._stream.close()
-            self._stream = None
+        stream = self._stream
+        self._stream = None
+        if stream is not None:
+            try:
+                stream.stop()
+            except Exception as error:  # noqa: BLE001
+                log.warning("playback.stop_failed", error=repr(error))
+            try:
+                stream.close()
+            except Exception as error:  # noqa: BLE001
+                log.warning("playback.close_failed", error=repr(error))
+        self.flush()
 
     # -- queue -----------------------------------------------------------
     def begin_turn(
@@ -172,6 +201,13 @@ class Playback:
         /,
     ) -> None:
         """New turn — rearm the instrumentation events."""
+        with self._lock:
+            self._queue.clear()
+            self._current = None
+            self._position = 0
+            self._pending_samples = 0
+            self._production_finished = False
+        self._resampler.reset()
         self.first_packet.clear()
         self.drained.clear()
 
@@ -192,10 +228,46 @@ class Playback:
                 if source_rate == self.text_to_speech.sample_rate
                 else Resampler(source_rate, self._output_sample_rate)
             )
-            samples = resampler(samples)
+            samples = resampler(samples, last=resampler is not self._resampler)
+        if samples.size == 0:
+            return
         with self._lock:
             self._queue.append(samples)
+            self._pending_samples += samples.size
         self.drained.clear()
+
+    async def enqueue_bounded(
+        self,
+        pcm: np.ndarray,
+        /,
+        *,
+        rate: int | None = None,
+        maximum_seconds: float,
+    ) -> None:
+        """Enqueue PCM while limiting audio waiting ahead of the speaker."""
+        if maximum_seconds <= 0:
+            raise ValueError("maximum_seconds must be positive")
+        samples = np.asarray(pcm, dtype=np.float32).reshape(-1)
+        if samples.size == 0:
+            return
+        source_rate = rate or self.text_to_speech.sample_rate
+        segment_sample_count = max(
+            1,
+            int(source_rate * min(0.25, maximum_seconds)),
+        )
+        for offset in range(0, samples.size, segment_sample_count):
+            segment = samples[offset : offset + segment_sample_count]
+            segment_seconds = segment.size / float(source_rate)
+            while True:
+                self._queue_progress.clear()
+                if self.pending_seconds + segment_seconds <= maximum_seconds:
+                    break
+                await self._queue_progress.wait()
+            # A slice otherwise retains the complete source chunk until playback
+            # reaches this segment, defeating the queue's memory bound.
+            if segment.size != samples.size:
+                segment = segment.copy()
+            self.enqueue(segment, source_rate)
 
     def finish_turn(
         self,
@@ -208,9 +280,15 @@ class Playback:
         future invocation that can discover an empty queue, so the producer
         must complete the drained event explicitly.
         """
+        tail = self._resampler(np.zeros(0, dtype=np.float32), last=True)
+        self._resampler.reset()
         with self._lock:
-            queue_empty = not self._queue
-        if queue_empty and self._current is None:
+            if tail.size:
+                self._queue.append(tail)
+                self._pending_samples += tail.size
+            self._production_finished = True
+            queue_empty = not self._queue and self._current is None
+        if queue_empty:
             self._signal_drained()
 
     def flush(
@@ -220,9 +298,13 @@ class Playback:
         """Abort playback (cancellation or error) and empty the queue."""
         with self._lock:
             self._queue.clear()
-        self._current = None
-        self._position = 0
+            self._current = None
+            self._position = 0
+            self._pending_samples = 0
+            self._production_finished = True
+        self._resampler.reset()
         self._signal_drained()
+        self._signal_queue_progress()
 
     @property
     def pending_seconds(
@@ -230,10 +312,8 @@ class Playback:
         /,
     ) -> float:
         with self._lock:
-            sample_count = sum(chunk.size for chunk in self._queue)
-        if self._current is not None:
-            sample_count += max(0, self._current.size - self._position)
-        return sample_count / float(self._output_sample_rate)
+            pending_samples = self._pending_samples
+        return pending_samples / float(self._output_sample_rate)
 
     async def wait_drained(
         self,
@@ -251,15 +331,45 @@ class Playback:
         self,
         /,
     ) -> None:
-        if self._loop and not self._loop.is_closed():
-            self._loop.call_soon_threadsafe(self.first_packet.set)
+        if self._loop is None or self._loop.is_closed():
+            return
+        try:
+            if asyncio.get_running_loop() is self._loop:
+                self.first_packet.set()
+                return
+        except RuntimeError:
+            pass
+        self._loop.call_soon_threadsafe(self.first_packet.set)
 
     def _signal_drained(
         self,
         /,
     ) -> None:
-        if self._loop and not self._loop.is_closed():
-            self._loop.call_soon_threadsafe(self.drained.set)
+        if self._loop is None or self._loop.is_closed():
+            return
+        try:
+            if asyncio.get_running_loop() is self._loop:
+                self.drained.set()
+                return
+        except RuntimeError:
+            pass
+        self._loop.call_soon_threadsafe(self.drained.set)
+
+    def _signal_queue_progress(
+        self,
+        /,
+    ) -> None:
+        if self._queue_progress.is_set():
+            return
+        if self._loop is None or self._loop.is_closed():
+            return
+        try:
+            if asyncio.get_running_loop() is self._loop:
+                self._queue_progress.set()
+                return
+        except RuntimeError:
+            pass
+        self._loop.call_soon_threadsafe(self._queue_progress.set)
 
 
 class NullPlayback(Playback):
@@ -295,4 +405,3 @@ class NullPlayback(Playback):
     ) -> None:
         if not self.first_packet.is_set():
             self._signal_first()
-        self._signal_drained()

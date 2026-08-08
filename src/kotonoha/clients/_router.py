@@ -30,7 +30,12 @@ from kotonoha._async_tools import cancel_and_wait, create_timer
 from kotonoha._config import RemoteConfig
 from kotonoha._logging_setup import get_logger
 from kotonoha._typing import override
-from kotonoha.clients._base import BaseClient, ServiceError, ServiceTimeout
+from kotonoha.clients._base import (
+    BaseClient,
+    ServiceApplicationError,
+    ServiceError,
+    ServiceTimeout,
+)
 
 log = get_logger(__name__)
 
@@ -143,6 +148,8 @@ class FailoverClient:
             output = await request_factory(client)
             self._note_success(client)
             return output
+        except ServiceApplicationError:
+            raise
         except (ServiceTimeout, ServiceError) as error:
             self._note_failure(client, error)
             alternate = self._other(client)
@@ -177,6 +184,8 @@ class FailoverClient:
                 yield item
             self._note_success(client)
             return
+        except ServiceApplicationError:
+            raise
         except (ServiceTimeout, ServiceError) as error:
             self._note_failure(client, error)
             alternate = self._other(client)
@@ -284,6 +293,18 @@ class FailoverClient:
         if self._probe_task is not None:
             await cancel_and_wait(self._probe_task)
             self._probe_task = None
-        await self.preferred.aclose()
+        clients = [self.preferred]
         if self.fallback is not None:
-            await self.fallback.aclose()
+            clients.append(self.fallback)
+        results = await asyncio.gather(
+            *(client.aclose() for client in clients),
+            return_exceptions=True,
+        )
+        for client, result in zip(clients, results, strict=True):
+            if isinstance(result, BaseException):
+                log.error(
+                    "route.close_failed",
+                    role=self.role,
+                    side=client.side,
+                    error=repr(result),
+                )

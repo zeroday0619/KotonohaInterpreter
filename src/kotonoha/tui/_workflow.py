@@ -40,6 +40,8 @@ async def run_unified_tui(
                 settings.logging.console,
                 "orchestrator",
                 terminal_interface=True,
+                maximum_bytes=settings.logging.max_bytes,
+                backup_count=settings.logging.backup_count,
             )
             orchestrator = await asyncio.to_thread(build_orchestrator, settings)
             await KotonohaApp(orchestrator).run_async()

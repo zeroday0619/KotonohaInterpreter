@@ -167,7 +167,7 @@ class ClauseStreamer:
                     clauses.append(segment)
                     self._count += 1
                 start = index + 1
-            elif segment_length >= self.max_chars and character in " 　":
+            elif segment_length >= self.max_chars:
                 segment = region[start : index + 1].strip()
                 if segment:
                     clauses.append(segment)

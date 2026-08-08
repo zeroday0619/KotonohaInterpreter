@@ -97,7 +97,7 @@ def test_cer_is_punctuation_and_space_insensitive() -> None:
 
 def test_default_config_loads_and_is_consistent() -> None:
     s = load_settings()
-    assert 200 <= s.frontend.vad.preroll_ms <= 500  # §5.1
+    assert 200 <= s.frontend.vad.preroll_ms <= 300  # §5.1
     assert s.asr.n_best == 5  # §5.2
     assert s.session.mode == "push_to_talk"  # §4
     assert (s.llm.model_path / "config.json").name == "config.json"

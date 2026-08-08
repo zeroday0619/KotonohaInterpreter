@@ -9,11 +9,13 @@ e.g. KOTONOHA__LLM__PROFILE=translategemma
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Any, ClassVar, Final, Literal
+from urllib.parse import urlsplit
 
 import yaml
-from pydantic import AliasChoices, BaseModel, Field, model_validator
+from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from kotonoha._typing import override
@@ -21,6 +23,7 @@ from kotonoha._typing import override
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG = REPO_ROOT / "config" / "default.yaml"
 ACCELERATOR_PROFILES_ROOT = REPO_ROOT / "config" / "profiles" / "accelerators"
+ACCELERATOR_PROFILE_COMPONENT = re.compile(r"[a-z0-9][a-z0-9_-]*\Z")
 
 SupportedLanguage = Literal["ko", "en", "zh-TW", "ja"]
 ChineseVoice = Literal["Vivian", "Serena", "Uncle_Fu", "Dylan", "Eric"]
@@ -64,18 +67,34 @@ class SessionConfig(BaseModel):
     # Source language for typed input. auto reads it from the script.
     text_source_language: Literal["auto", "ko", "en", "zh-TW", "ja"] = "auto"
     routing: Literal["pair", "fixed", "broadcast"] = "pair"
-    pair: list[SupportedLanguage] = ["ko", "en"]
+    pair: list[SupportedLanguage] = Field(
+        default_factory=lambda: ["ko", "en"],
+        min_length=2,
+        max_length=2,
+    )
     fixed_target: SupportedLanguage = "en"
-    broadcast_targets: list[SupportedLanguage] = ["ko", "en", "zh-TW", "ja"]
-    languages: list[SupportedLanguage] = ["ko", "en", "zh-TW", "ja"]
+    broadcast_targets: list[SupportedLanguage] = Field(
+        default_factory=lambda: ["ko", "en", "zh-TW", "ja"],
+        min_length=1,
+        max_length=4,
+    )
+    languages: list[SupportedLanguage] = Field(
+        default_factory=lambda: ["ko", "en", "zh-TW", "ja"],
+        min_length=1,
+        max_length=4,
+    )
 
     @model_validator(mode="after")
     def _check_pair(
         self,
         /,
     ) -> SessionConfig:
-        if self.routing == "pair" and len(self.pair) != 2:
+        if len(self.pair) != 2:
             raise ValueError("session.pair must contain exactly 2 languages")
+        for field_name in ("pair", "broadcast_targets", "languages"):
+            values = getattr(self, field_name)
+            if len(values) != len(set(values)):
+                raise ValueError(f"session.{field_name} must not contain duplicate languages")
         return self
 
 
@@ -83,11 +102,11 @@ class AudioConfig(BaseModel):
     __slots__: ClassVar[tuple[str, ...]] = ()
     input_device: int | str | None = None
     output_device: int | str | None = None
-    capture_sample_rate: int = 48000
-    capture_block_ms: int = 20
-    channels: int = 1
-    work_sample_rate: int = 16000
-    playback_sample_rate: int = 24000
+    capture_sample_rate: int = Field(48000, ge=8000, le=192000)
+    capture_block_ms: int = Field(20, ge=5, le=200)
+    channels: int = Field(1, ge=1, le=8)
+    work_sample_rate: int = Field(16000, ge=16000, le=16000)
+    playback_sample_rate: int = Field(24000, ge=8000, le=192000)
 
     @property
     def capture_block_frames(
@@ -101,7 +120,7 @@ class DenoiseConfig(BaseModel):
     __slots__: ClassVar[tuple[str, ...]] = ()
     enabled: bool = True
     backend: Literal["deepfilternet3", "none"] = "deepfilternet3"
-    post_filter_beta: float = 0.02
+    post_filter_beta: float = Field(0.02, ge=0.0, le=1.0)
 
 
 class VadConfig(BaseModel):
@@ -109,35 +128,74 @@ class VadConfig(BaseModel):
     __slots__: ClassVar[tuple[str, ...]] = ()
     backend: Literal["silero_onnx", "energy"] = "silero_onnx"
     model_path: Path = Path("./models/silero_vad.onnx")
-    threshold: float = 0.5
-    neg_threshold: float = 0.35
-    preroll_ms: int = Field(300, ge=200, le=500, description="non-negotiable, see §5.1")
-    min_speech_ms: int = 120
-    silence_ms: int = 800
-    max_utterance_ms: int = 30000
-    frame_ms: int = 32
+    threshold: float = Field(0.5, ge=0.0, le=1.0)
+    neg_threshold: float = Field(0.35, ge=0.0, le=1.0)
+    preroll_ms: int = Field(300, ge=200, le=300, description="non-negotiable, see §5.1")
+    min_speech_ms: int = Field(120, ge=0, le=5000)
+    silence_ms: int = Field(800, ge=100, le=5000)
+    max_utterance_ms: int = Field(30000, ge=1000, le=120000)
+    frame_ms: int = Field(32, ge=32, le=32)
+
+    @model_validator(mode="after")
+    def _check_thresholds(
+        self,
+        /,
+    ) -> VadConfig:
+        if self.neg_threshold > self.threshold:
+            raise ValueError("frontend.vad.neg_threshold must not exceed threshold")
+        if self.min_speech_ms > self.max_utterance_ms:
+            raise ValueError("frontend.vad.min_speech_ms must not exceed max_utterance_ms")
+        return self
 
 
 class FrontendConfig(BaseModel):
     __slots__: ClassVar[tuple[str, ...]] = ()
-    denoise: DenoiseConfig = DenoiseConfig()
-    vad: VadConfig = VadConfig()
+    denoise: DenoiseConfig = Field(default_factory=DenoiseConfig)
+    vad: VadConfig = Field(default_factory=VadConfig)
 
 
 class SharedMemoryConfig(BaseModel):
     __slots__: ClassVar[tuple[str, ...]] = ()
-    name: str = "kotonoha_audio"
-    slots: int = 8
-    slot_seconds: int = 30
-    sample_rate: int = 16000
+    name: str = Field(
+        "kotonoha_audio",
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9_.-]+$",
+    )
+    slots: int = Field(8, ge=1, le=64)
+    slot_seconds: int = Field(31, ge=1, le=121)
+    sample_rate: int = Field(16000, ge=16000, le=16000)
 
 
 class ServiceEndpointsConfig(BaseModel):
     __slots__: ClassVar[tuple[str, ...]] = ()
-    asr: str = "http://127.0.0.1:8001"
-    asr_verify: str = "http://127.0.0.1:8002"
-    llm: str = "http://127.0.0.1:8003"
-    tts: str = "http://127.0.0.1:8004"
+    asr: str = Field("http://127.0.0.1:8001", max_length=2048)
+    asr_verify: str = Field("http://127.0.0.1:8002", max_length=2048)
+    llm: str = Field("http://127.0.0.1:8003", max_length=2048)
+    tts: str = Field("http://127.0.0.1:8004", max_length=2048)
+
+    @field_validator("asr", "asr_verify", "llm", "tts")
+    @classmethod
+    def _validate_endpoint(
+        cls,
+        value: str,
+        /,
+    ) -> str:
+        del cls
+        parsed = urlsplit(value)
+        try:
+            endpoint_port = parsed.port
+        except ValueError as error:
+            raise ValueError(f"invalid service endpoint port: {value}") from error
+        if parsed.scheme not in {"http", "https"} or parsed.hostname is None:
+            raise ValueError(f"service endpoint must be an HTTP(S) URL: {value}")
+        if parsed.username is not None or parsed.password is not None:
+            raise ValueError("service endpoint credentials must use bearer-token configuration")
+        if endpoint_port == 0:
+            raise ValueError("service endpoint port must be greater than zero")
+        if parsed.query or parsed.fragment:
+            raise ValueError("service endpoint must not contain a query or fragment")
+        return value
 
 
 class AcceleratorConfig(BaseModel):
@@ -181,23 +239,25 @@ class RemoteConfig(BaseModel):
     __slots__: ClassVar[tuple[str, ...]] = ()
 
     enabled: bool = False
-    services: ServiceEndpointsConfig = ServiceEndpointsConfig(
-        asr="http://a6000.lan:8001",
-        asr_verify="http://a6000.lan:8002",
-        llm="http://a6000.lan:8003",
-        tts="http://a6000.lan:8004",
+    services: ServiceEndpointsConfig = Field(
+        default_factory=lambda: ServiceEndpointsConfig(
+            asr="http://a6000.lan:8001",
+            asr_verify="http://a6000.lan:8002",
+            llm="http://a6000.lan:8003",
+            tts="http://a6000.lan:8004",
+        )
     )
-    token: str | None = None  # bearer token; prefer KOTONOHA__REMOTE__TOKEN
+    token: str | None = Field(None, min_length=32, max_length=4096)
     verify_tls: bool = True
     ca_bundle: Path | None = None
-    connect_timeout_s: float = 1.5
+    connect_timeout_s: float = Field(1.5, gt=0.0, le=60.0)
 
     # Failover (§10 applied to the link): drop to the on-board service after
     # this many consecutive transport failures, and only return once the remote
     # has been healthy again for recover_after_s.
-    failover_after: int = 2
-    recover_after_s: float = 30.0
-    health_interval_s: float = 10.0
+    failover_after: int = Field(2, ge=1, le=100)
+    recover_after_s: float = Field(30.0, ge=0.0, le=3600.0)
+    health_interval_s: float = Field(10.0, gt=0.0, le=3600.0)
 
     # Audio upload encoding. s16le halves the bytes on the wire against f32le
     # and costs nothing in ASR quality at 16 kHz.
@@ -206,27 +266,31 @@ class RemoteConfig(BaseModel):
 
 class LanguageIdentificationConfig(BaseModel):
     __slots__: ClassVar[tuple[str, ...]] = ()
-    min_confidence: float = 0.60
-    min_duration_s: float = 1.0
+    min_confidence: float = Field(0.60, ge=0.0, le=1.0)
+    min_duration_s: float = Field(1.0, ge=0.0, le=10.0)
 
 
 class AsrConfig(BaseModel):
     __slots__: ClassVar[tuple[str, ...]] = ()
     backend: Literal["vllm", "transformers"] = "vllm"
-    model_id: str = "Qwen/Qwen3-ASR-0.6B-hf"
-    vllm_model_id: str = "Qwen/Qwen3-ASR-0.6B"
-    vllm_served_model_name: str = "kotonoha-asr"
+    model_id: str = Field("Qwen/Qwen3-ASR-0.6B-hf", min_length=1, max_length=512)
+    model_revision: str = Field(
+        "7f1569a48a89f3e3f4dc3a5c9d28bddd903bc76c",
+        pattern=r"^[0-9a-f]{40}$",
+    )
+    vllm_model_id: str = Field("Qwen/Qwen3-ASR-0.6B", min_length=1, max_length=512)
+    vllm_served_model_name: str = Field("kotonoha-asr", min_length=1, max_length=128)
     vllm_realtime_architecture: Literal["qwen3_asr", "voxtral"] = "qwen3_asr"
-    dtype: str = "float16"
+    dtype: str = Field("float16", min_length=1, max_length=64)
     vllm_gpu_memory_utilization: float = Field(0.80, gt=0.0, le=1.0)
-    vllm_max_model_len: int = Field(4096, ge=512)
+    vllm_max_model_len: int = Field(4096, ge=512, le=131072)
     vllm_enforce_eager: bool = True
-    n_best: int = 5
-    num_beams: int = 5
-    max_new_tokens: int = 256
-    timeout_s: float = Field(15.0, gt=0.0)
-    avg_logprob_threshold: float = -0.55
-    lid: LanguageIdentificationConfig = LanguageIdentificationConfig()
+    n_best: int = Field(5, ge=5, le=5)
+    num_beams: int = Field(5, ge=5, le=10)
+    max_new_tokens: int = Field(256, ge=1, le=512)
+    timeout_s: float = Field(15.0, gt=0.0, le=300.0)
+    avg_logprob_threshold: float = Field(-0.55, ge=-100.0, le=0.0)
+    lid: LanguageIdentificationConfig = Field(default_factory=LanguageIdentificationConfig)
 
 
 class AsrVerificationConfig(BaseModel):
@@ -236,47 +300,74 @@ class AsrVerificationConfig(BaseModel):
     # The policy remains configurable for measured remote deployments.
     mode: Literal["conditional", "always"] = "conditional"
     backend: Literal["faster_whisper", "whisper_cpp"] = "faster_whisper"
-    model_id: str = "large-v3"
+    model_id: str = Field("large-v3", min_length=1, max_length=512)
     # The Jetson AArch64 wheel uses the CPU path. Remote overlays can select CUDA.
-    compute_type: str = "int8"
-    device: str = "cpu"
-    beam_size: int = 5
-    timeout_s: float = 3.0
-    divergence_cer: float = 0.25
+    compute_type: str = Field("int8", min_length=1, max_length=64)
+    device: str = Field("cpu", min_length=1, max_length=64)
+    beam_size: int = Field(5, ge=1, le=20)
+    timeout_s: float = Field(3.0, gt=0.0, le=300.0)
+    divergence_cer: float = Field(0.25, ge=0.0, le=1.0)
 
 
 class LanguageModelProfile(BaseModel):
     __slots__: ClassVar[tuple[str, ...]] = ()
-    repo: str
-    directory: str
-    quantization: str | None = None
-    dtype: str = "bfloat16"
+    repo: str = Field(min_length=1, max_length=256)
+    directory: str = Field(
+        min_length=1,
+        max_length=256,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$",
+    )
+    quantization: str | None = Field(None, max_length=64)
+    dtype: str = Field("bfloat16", min_length=1, max_length=64)
 
 
 class LanguageModelConfig(BaseModel):
     __slots__: ClassVar[tuple[str, ...]] = ()
     profile: Literal["translategemma"] = "translategemma"
-    profiles: dict[str, LanguageModelProfile]
+    profiles: dict[str, LanguageModelProfile] = Field(min_length=1, max_length=8)
     models_dir: Path = Path("./models/llm")
-    served_model_name: str = "kotonoha-translation"
-    max_model_len: int = Field(2048, ge=512)
+    served_model_name: str = Field("kotonoha-translation", min_length=1, max_length=128)
+    max_model_len: int = Field(2048, ge=512, le=131072)
     gpu_memory_utilization: float = Field(0.35, gt=0.0, le=1.0)
     kv_cache_dtype: Literal["auto", "fp8", "fp8_e4m3", "fp8_e5m2"] = "auto"
-    max_num_seqs: int = Field(1, ge=1)
-    max_num_batched_tokens: int | None = Field(None, ge=1)
+    max_num_seqs: int = Field(1, ge=1, le=1024)
+    max_num_batched_tokens: int | None = Field(None, ge=1, le=1048576)
     enable_prefix_caching: bool = False
     limit_mm_per_prompt: dict[Literal["image", "audio", "video"], int] | None = None
     compilation_mode: int | None = Field(None, ge=0, le=3)
-    compilation_cudagraph_capture_sizes: tuple[int, ...] = ()
+    compilation_cudagraph_capture_sizes: tuple[int, ...] = Field(
+        default_factory=tuple,
+        max_length=128,
+    )
     compilation_cache_dir: Path | None = None
     enforce_eager: bool = True
-    temperature: float = 0.0
-    top_p: float = 1.0
-    repetition_penalty: float = 1.0
-    max_tokens: int = 512
+    temperature: float = Field(0.0, ge=0.0, le=2.0)
+    top_p: float = Field(1.0, gt=0.0, le=1.0)
+    repetition_penalty: float = Field(1.0, gt=0.0, le=10.0)
+    max_tokens: int = Field(512, ge=1, le=2048)
     stream: bool = True
-    timeout_s: float = 3.0
-    min_tok_per_s: float = 5.0
+    timeout_s: float = Field(3.0, gt=0.0, le=300.0)
+    min_tok_per_s: float = Field(5.0, gt=0.0, le=1000.0)
+
+    @model_validator(mode="after")
+    def _check_engine_limits(
+        self,
+        /,
+    ) -> LanguageModelConfig:
+        if self.profile not in self.profiles:
+            raise ValueError(f"llm.profiles does not define the active profile: {self.profile}")
+        if self.limit_mm_per_prompt is not None and any(
+            value < 0 or value > 16 for value in self.limit_mm_per_prompt.values()
+        ):
+            raise ValueError("llm.limit_mm_per_prompt values must be between 0 and 16")
+        capture_sizes = self.compilation_cudagraph_capture_sizes
+        if any(value <= 0 or value > 1024 for value in capture_sizes):
+            raise ValueError(
+                "llm.compilation_cudagraph_capture_sizes values must be between 1 and 1024"
+            )
+        if len(capture_sizes) != len(set(capture_sizes)):
+            raise ValueError("llm.compilation_cudagraph_capture_sizes must not contain duplicates")
+        return self
 
     @property
     def active(
@@ -321,25 +412,38 @@ class TextToSpeechVoices(BaseModel):
 class TextToSpeechConfig(BaseModel):
     __slots__: ClassVar[tuple[str, ...]] = ()
     backend: Literal["vllm_omni"] = "vllm_omni"
-    served_model_name: str = "kotonoha-tts"
+    served_model_name: str = Field("kotonoha-tts", min_length=1, max_length=128)
     task_type: Literal["CustomVoice"] = "CustomVoice"
     sample_rate: int = Field(24000, ge=24000, le=24000)
-    timeout_s: float = Field(5.0, gt=0.0)
+    timeout_s: float = Field(5.0, gt=0.0, le=300.0)
     max_new_tokens: int = Field(2048, ge=1, le=4096)
     max_audio_seconds: float = Field(30.0, gt=0.0, le=120.0)
+    playback_buffer_seconds: float = Field(5.0, ge=1.0, le=30.0)
     voices: TextToSpeechVoices = Field(default_factory=TextToSpeechVoices)
 
 
 class TraditionalChineseConfig(BaseModel):
     __slots__: ClassVar[tuple[str, ...]] = ()
-    opencc_config: str = "s2twp"
-    apply_to: list[Literal["asr", "translation"]] = ["asr", "translation"]
+    opencc_config: Literal["s2twp"] = "s2twp"
+    apply_to: list[Literal["asr", "translation"]] = Field(
+        default_factory=lambda: ["asr", "translation"],
+        max_length=2,
+    )
+
+    @model_validator(mode="after")
+    def _check_unique_targets(
+        self,
+        /,
+    ) -> TraditionalChineseConfig:
+        if len(self.apply_to) != len(set(self.apply_to)):
+            raise ValueError("zh.apply_to must not contain duplicates")
+        return self
 
 
 class ContextConfig(BaseModel):
     __slots__: ClassVar[tuple[str, ...]] = ()
-    history_turns: int = 6
-    glossary_max_terms: int = 64
+    history_turns: int = Field(6, ge=0, le=100)
+    glossary_max_terms: int = Field(64, ge=0, le=1000)
 
 
 class UserInterfaceConfig(BaseModel):
@@ -354,15 +458,19 @@ class UserInterfaceConfig(BaseModel):
 class StoreConfig(BaseModel):
     __slots__: ClassVar[tuple[str, ...]] = ()
     path: Path = Path("./data/kotonoha.db")
+    maximum_turns: int = Field(10_000, ge=100, le=1_000_000)
+    maximum_sessions: int = Field(1_000, ge=10, le=100_000)
 
 
 class LoggingConfig(BaseModel):
     __slots__: ClassVar[tuple[str, ...]] = ()
-    level: str = "INFO"
+    level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     # Application logs and turn metrics go to separate files. Mixed together, the
     # turn log (§11) can no longer be parsed as-is and every reader needs a filter.
     log_path: Path = Path("./data/logs/kotonoha.jsonl")
     turn_log_path: Path = Path("./data/logs/turns.jsonl")
+    max_bytes: int = Field(64 * 1024 * 1024, ge=1024 * 1024, le=10 * 1024**3)
+    backup_count: int = Field(5, ge=1, le=100)
     console: bool = True
     prometheus_port: int | None = Field(None, ge=1024, le=65535)
 
@@ -371,13 +479,22 @@ class LatencyBudgetConfig(BaseModel):
     """Latency budget in milliseconds (§6)."""
     __slots__: ClassVar[tuple[str, ...]] = ()
 
-    silence: int = 800
-    frontend: int = 100
-    asr: int = 900
-    verify: int = 100
-    llm_first_clause: int = 700
-    tts_first_packet: int = 300
-    total: int = 2900
+    silence: int = Field(800, ge=0, le=600_000)
+    frontend: int = Field(100, ge=0, le=600_000)
+    asr: int = Field(900, ge=0, le=600_000)
+    verify: int = Field(100, ge=0, le=600_000)
+    llm_first_clause: int = Field(700, ge=0, le=600_000)
+    tts_first_packet: int = Field(300, ge=0, le=600_000)
+    total: int = Field(2900, ge=0, le=600_000)
+
+    @model_validator(mode="after")
+    def _check_total(
+        self,
+        /,
+    ) -> LatencyBudgetConfig:
+        if self.total < self.silence:
+            raise ValueError("budget_ms.total must not be less than budget_ms.silence")
+        return self
 
 
 class Settings(BaseSettings):
@@ -392,28 +509,48 @@ class Settings(BaseSettings):
     perf_mode: Literal["onboard", "hybrid", "remote", "custom"] = "onboard"
     # Custom mode uses this map for each resident model role. Other modes retain
     # their preset and accept explicit per-role overrides for compatibility.
-    placement: dict[str, Placement] = {}
+    placement: dict[str, Placement] = Field(default_factory=dict, max_length=4)
 
-    session: SessionConfig = SessionConfig()
-    audio: AudioConfig = AudioConfig()
-    frontend: FrontendConfig = FrontendConfig()
-    shm: SharedMemoryConfig = SharedMemoryConfig()
-    services: ServiceEndpointsConfig = ServiceEndpointsConfig()
-    remote: RemoteConfig = RemoteConfig()
-    accelerator: AcceleratorConfig = AcceleratorConfig()
-    asr: AsrConfig = AsrConfig()
-    asr_verify: AsrVerificationConfig = AsrVerificationConfig()
+    session: SessionConfig = Field(default_factory=SessionConfig)
+    audio: AudioConfig = Field(default_factory=AudioConfig)
+    frontend: FrontendConfig = Field(default_factory=FrontendConfig)
+    shm: SharedMemoryConfig = Field(default_factory=SharedMemoryConfig)
+    services: ServiceEndpointsConfig = Field(default_factory=ServiceEndpointsConfig)
+    remote: RemoteConfig = Field(default_factory=RemoteConfig)
+    accelerator: AcceleratorConfig = Field(default_factory=AcceleratorConfig)
+    asr: AsrConfig = Field(default_factory=AsrConfig)
+    asr_verify: AsrVerificationConfig = Field(default_factory=AsrVerificationConfig)
     llm: LanguageModelConfig
-    tts: TextToSpeechConfig = TextToSpeechConfig()
-    zh: TraditionalChineseConfig = TraditionalChineseConfig()
-    context: ContextConfig = ContextConfig()
-    ui: UserInterfaceConfig = UserInterfaceConfig()
-    store: StoreConfig = StoreConfig()
-    logging: LoggingConfig = LoggingConfig()
-    budget_ms: LatencyBudgetConfig = LatencyBudgetConfig()
+    tts: TextToSpeechConfig = Field(default_factory=TextToSpeechConfig)
+    zh: TraditionalChineseConfig = Field(default_factory=TraditionalChineseConfig)
+    context: ContextConfig = Field(default_factory=ContextConfig)
+    ui: UserInterfaceConfig = Field(default_factory=UserInterfaceConfig)
+    store: StoreConfig = Field(default_factory=StoreConfig)
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    budget_ms: LatencyBudgetConfig = Field(default_factory=LatencyBudgetConfig)
 
     # Kept so relative paths can be resolved against the repository root.
     root: Path = REPO_ROOT
+
+    @model_validator(mode="after")
+    def _check_audio_capacity(
+        self,
+        /,
+    ) -> Settings:
+        unknown_roles = set(self.placement) - set(ROLES)
+        if unknown_roles:
+            raise ValueError(
+                f"unknown role in placement: {', '.join(sorted(unknown_roles))}"
+            )
+        required_milliseconds = (
+            self.frontend.vad.max_utterance_ms + self.frontend.vad.frame_ms
+        )
+        if self.shm.slot_seconds * 1000 < required_milliseconds:
+            raise ValueError(
+                "shm.slot_seconds must hold frontend.vad.max_utterance_ms "
+                "plus one VAD frame"
+            )
+        return self
 
     def resolve(
         self,
@@ -525,7 +662,8 @@ def accelerator_profile_path(
     """Resolve a dotted accelerator profile identifier to its YAML source."""
     components = profile.split(".")
     invalid_component = any(
-        not component or component in {".", ".."} for component in components
+        ACCELERATOR_PROFILE_COMPONENT.fullmatch(component) is None
+        for component in components
     )
     if len(components) < 3 or invalid_component:
         raise ValueError(

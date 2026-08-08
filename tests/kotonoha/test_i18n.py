@@ -312,6 +312,26 @@ def test_dotted_path_helpers() -> None:
     assert get_path(data, "nothing.here") is None
 
 
+def test_configuration_defaults_are_isolated_between_instances() -> None:
+    first = load_settings()
+    second = load_settings()
+
+    first.session.pair.append("ja")
+    first.placement["llm"] = "remote"
+    first.remote.services.llm = "http://changed.test:8003"
+
+    assert second.session.pair == ["ko", "en"]
+    assert second.placement == {}
+    assert second.remote.services.llm == "http://a6000.lan:8003"
+
+
+def test_dotted_path_helper_rejects_invalid_and_conflicting_paths() -> None:
+    with pytest.raises(ValueError, match="non-empty"):
+        set_path({}, "remote..llm", "http://x")
+    with pytest.raises(ValueError, match="non-mapping"):
+        set_path({"remote": "disabled"}, "remote.services.llm", "http://x")
+
+
 def test_effective_value_reads_through_the_model() -> None:
     s = load_settings()
     assert effective_value(s, "frontend.vad.preroll_ms") == s.frontend.vad.preroll_ms
@@ -377,3 +397,19 @@ def test_apply_changes_preserves_unrelated_existing_values(
     written = yaml.safe_load(target.read_text(encoding="utf-8"))
     assert written["audio"]["input_device"] == 3
     assert written["perf_mode"] == "hybrid"
+
+
+def test_apply_changes_rejects_a_path_that_crosses_a_scalar(
+    _positional_only: object | None = None,
+    /,
+    *,
+    tmp_path: Any,
+) -> None:
+    target = tmp_path / "local.yaml"
+    target.write_text(yaml.safe_dump({"remote": "disabled"}), encoding="utf-8")
+
+    result = apply_changes({"remote.enabled": True}, local_path=target)
+
+    assert not result.written
+    assert result.error is not None and "non-mapping" in result.error
+    assert yaml.safe_load(target.read_text(encoding="utf-8")) == {"remote": "disabled"}

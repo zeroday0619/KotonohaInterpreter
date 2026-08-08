@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import pytest
@@ -167,6 +168,91 @@ def test_add_turn_returns_the_stored_timestamp(
     assert store.turn("t9").ts == ts
 
 
+def test_store_serializes_concurrent_worker_access(
+    _positional_only: object | None = None,
+    /,
+    *,
+    store: Store,
+) -> None:
+    def add_turn(
+        sequence: int,
+        /,
+    ) -> None:
+        store.add_turn(
+            f"concurrent-{sequence}",
+            "session-a",
+            "ko",
+            "en",
+            str(sequence),
+            str(sequence),
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        list(executor.map(add_turn, range(64)))
+
+    assert store.count_turns(session_id="session-a") == 66
+
+
+def test_store_file_is_owner_readable_and_writable_only(
+    _positional_only: object | None = None,
+    /,
+    *,
+    store: Store,
+) -> None:
+    assert store.path.stat().st_mode & 0o777 == 0o600
+    for suffix in ("-wal", "-shm"):
+        sidecar = store.path.with_name(f"{store.path.name}{suffix}")
+        if sidecar.exists():
+            assert sidecar.stat().st_mode & 0o777 == 0o600
+
+
+def test_store_prunes_turns_and_sessions_to_bounded_retention(
+    _positional_only: object | None = None,
+    /,
+    *,
+    tmp_path: Any,
+) -> None:
+    limited_store = Store(
+        tmp_path / "limited.db",
+        maximum_turns=10,
+        maximum_sessions=2,
+    )
+    try:
+        for session_index in range(3):
+            limited_store.start_session(f"session-{session_index}", "pair", {})
+        for turn_index in range(100):
+            limited_store.add_turn(
+                f"turn-{turn_index}",
+                "session-2",
+                "ko",
+                "en",
+                str(turn_index),
+                str(turn_index),
+            )
+
+        assert limited_store.count_turns() == 10
+        assert len(limited_store.session_summaries(limit=10)) == 2
+    finally:
+        limited_store.close()
+
+
+def test_store_rejects_a_symbolic_link_database_path(
+    _positional_only: object | None = None,
+    /,
+    *,
+    tmp_path: Any,
+) -> None:
+    protected_file = tmp_path / "protected.db"
+    protected_file.write_text("preserve", encoding="utf-8")
+    database_path = tmp_path / "kotonoha.db"
+    database_path.symlink_to(protected_file)
+
+    with pytest.raises(OSError):
+        Store(database_path)
+
+    assert protected_file.read_text(encoding="utf-8") == "preserve"
+
+
 # -- export -----------------------------------------------------------------
 def test_export_writes_one_json_object_per_turn(
     _positional_only: object | None = None,
@@ -182,6 +268,26 @@ def test_export_writes_one_json_object_per_turn(
     first = json.loads(lines[0])
     assert first["turn_id"] == "t5"
     assert "time" in first and first["source_text"] == "방송 모드입니다"
+    assert target.stat().st_mode & 0o777 == 0o600
+
+
+def test_export_replaces_a_symbolic_link_without_overwriting_its_target(
+    _positional_only: object | None = None,
+    /,
+    *,
+    store: Any,
+    tmp_path: Any,
+) -> None:
+    protected_file = tmp_path / "protected.txt"
+    protected_file.write_text("preserve", encoding="utf-8")
+    target = tmp_path / "history.jsonl"
+    target.symlink_to(protected_file)
+
+    export_jsonl(store.search_turns(limit=1), target)
+
+    assert protected_file.read_text(encoding="utf-8") == "preserve"
+    assert not target.is_symlink()
+    assert json.loads(target.read_text(encoding="utf-8"))["turn_id"] == "t5"
 
 
 def test_excerpt_truncates_and_flattens() -> None:

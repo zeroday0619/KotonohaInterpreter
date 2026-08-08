@@ -21,6 +21,10 @@ uv sync
 | `uv run kotonoha netcheck` | Measure remote latency and upload throughput |
 | `uv run kotonoha serve <service>` | Start a Python ASR service |
 
+`replay --seconds` accepts 0.1-600 seconds. The WAV loader reads only that duration and
+feeds a bounded frame queue, so an oversized recording cannot allocate an unbounded
+replay backlog.
+
 ## Integrated TUI
 
 The integrated TUI provides interpreter, configuration, history, operations, and license

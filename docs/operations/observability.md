@@ -23,6 +23,13 @@ failovers, and outcome.
 Application events and turn metrics use separate files. This separation allows turn
 records to parse without filtering application events.
 
+Both JSONL streams rotate at `logging.max_bytes`. The runtime retains
+`logging.backup_count` prior generations with numeric suffixes. The default policy limits
+each stream to one active 64 MiB file and five prior generations.
+
+`store.maximum_turns` and `store.maximum_sessions` bound SQLite growth. Pruning runs
+inside the existing write transaction and retains the newest records.
+
 ## Latency Analysis
 
 The end-of-utterance latency objective is 2.9 seconds to the first audio packet. Use the

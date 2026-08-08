@@ -8,15 +8,18 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar, Final
 
+from kotonoha._secure_files import reject_symbolic_link
 from kotonoha._typing import override
 
 SCHEMA = Path(__file__).with_name("schema.sql")
+RETENTION_CHECK_INTERVAL: Final[int] = 100
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,9 +104,28 @@ class SessionSummary:
     last_ts: float | None
 
 
-HISTORY_COLUMNS = (
-    "turn_id, ts, session_id, src_lang, tgt_lang, source_text, translation, "
-    "lang_source, lid_confidence, asr_avg_logprob, cross_verified, audio_seconds, outcome"
+HISTORY_SEARCH_STATEMENT = (
+    "SELECT turn_id, ts, session_id, src_lang, tgt_lang, source_text, translation, "
+    "lang_source, lid_confidence, asr_avg_logprob, cross_verified, audio_seconds, outcome "
+    "FROM turns"
+    " WHERE (? IS NULL OR source_text LIKE ? ESCAPE '\\' "
+    "OR translation LIKE ? ESCAPE '\\')"
+    " AND (? IS NULL OR src_lang = ?)"
+    " AND (? IS NULL OR tgt_lang = ? OR tgt_lang LIKE ? ESCAPE '\\')"
+    " AND (? IS NULL OR session_id = ?)"
+    " AND (? IS NULL OR outcome = ?)"
+    " AND (? IS NULL OR ts >= ?)"
+    " ORDER BY ts DESC LIMIT ? OFFSET ?"
+)
+HISTORY_COUNT_STATEMENT = (
+    "SELECT COUNT(*) AS n FROM turns"
+    " WHERE (? IS NULL OR source_text LIKE ? ESCAPE '\\' "
+    "OR translation LIKE ? ESCAPE '\\')"
+    " AND (? IS NULL OR src_lang = ?)"
+    " AND (? IS NULL OR tgt_lang = ? OR tgt_lang LIKE ? ESCAPE '\\')"
+    " AND (? IS NULL OR session_id = ?)"
+    " AND (? IS NULL OR outcome = ?)"
+    " AND (? IS NULL OR ts >= ?)"
 )
 
 
@@ -127,30 +149,119 @@ def _like(
 
 class Store:
     __slots__: ClassVar[tuple[str, ...]] = (
+        "_closed",
+        "_lock",
+        "_maximum_sessions",
+        "_maximum_turns",
+        "_turns_since_retention",
         "connection",
         "path",
     )
     path: Path
     connection: sqlite3.Connection
+    _lock: threading.RLock
+    _closed: bool
+    _maximum_turns: int
+    _maximum_sessions: int
+    _turns_since_retention: int
 
     @override
     def __init__(
         self,
         /,
         path: Path,
+        *,
+        maximum_turns: int = 10_000,
+        maximum_sessions: int = 1_000,
     ) -> None:
+        if maximum_turns <= 0 or maximum_sessions <= 0:
+            raise ValueError("store retention limits must be positive")
         path.parent.mkdir(parents=True, exist_ok=True)
+        reject_symbolic_link(path)
         self.path = path
+        self._lock = threading.RLock()
+        self._closed = False
+        self._maximum_turns = maximum_turns
+        self._maximum_sessions = maximum_sessions
+        self._turns_since_retention = 0
         self.connection = sqlite3.connect(str(path), check_same_thread=False)
-        self.connection.row_factory = sqlite3.Row
-        self.connection.executescript(SCHEMA.read_text(encoding="utf-8"))
-        self.connection.commit()
+        try:
+            self.connection.row_factory = sqlite3.Row
+            self.connection.execute("PRAGMA busy_timeout = 5000")
+            self.connection.execute("PRAGMA journal_mode = WAL")
+            self.connection.execute("PRAGMA synchronous = NORMAL")
+            self.connection.execute("PRAGMA foreign_keys = ON")
+            self.connection.executescript(SCHEMA.read_text(encoding="utf-8"))
+            self._prune_turns()
+            self._prune_sessions()
+            self.connection.commit()
+            self._secure_database_files()
+        except Exception:
+            self.connection.close()
+            self._closed = True
+            raise
+
+    def _secure_database_files(
+        self,
+        /,
+    ) -> None:
+        """Protect the database and SQLite sidecars that can contain transcripts."""
+        for suffix in ("", "-wal", "-shm"):
+            candidate = self.path.with_name(f"{self.path.name}{suffix}")
+            try:
+                candidate.chmod(0o600)
+            except FileNotFoundError:
+                continue
+
+    def _prune_turns(
+        self,
+        /,
+    ) -> None:
+        self.connection.execute(
+            "DELETE FROM turns WHERE id IN ("
+            "SELECT id FROM turns ORDER BY ts DESC, id DESC LIMIT -1 OFFSET ?)",
+            (self._maximum_turns,),
+        )
+        self._turns_since_retention = 0
+
+    def _prune_sessions(
+        self,
+        /,
+    ) -> None:
+        self.connection.execute(
+            "DELETE FROM sessions WHERE session_id IN ("
+            "SELECT session_id FROM sessions "
+            "ORDER BY started_at DESC LIMIT -1 OFFSET ?)",
+            (self._maximum_sessions,),
+        )
 
     def close(
         self,
         /,
     ) -> None:
-        self.connection.close()
+        with self._lock:
+            if self._closed:
+                return
+            self.connection.close()
+            self._closed = True
+
+    def _fetchall(
+        self,
+        /,
+        sql: str,
+        parameters: tuple[Any, ...] | list[Any] = (),
+    ) -> list[sqlite3.Row]:
+        with self._lock:
+            return self.connection.execute(sql, parameters).fetchall()
+
+    def _fetchone(
+        self,
+        /,
+        sql: str,
+        parameters: tuple[Any, ...] | list[Any] = (),
+    ) -> sqlite3.Row | None:
+        with self._lock:
+            return self.connection.execute(sql, parameters).fetchone()
 
     # -- glossary --------------------------------------------------------
     def upsert_glossary(
@@ -168,7 +279,7 @@ class Store:
             priority = excluded.priority,
             enabled  = 1
         """
-        with self.connection:
+        with self._lock, self.connection:
             self.connection.executemany(
                 sql,
                 [
@@ -199,32 +310,33 @@ class Store:
         Pasting the whole glossary into the prompt eats the 2048-token context
         fast, and unrelated terms contaminate the translation. Only matches go in.
         """
-        rows = self.connection.execute(
+        rows = self._fetchall(
             """
             SELECT src_lang, src_term, tgt_lang, tgt_term, kind, note, priority
             FROM glossary
             WHERE enabled = 1 AND tgt_lang = ? AND (src_lang = ? OR src_lang = '*')
+              AND src_term <> '' AND instr(?, src_term) > 0
             ORDER BY priority ASC, length(src_term) DESC
+            LIMIT ?
             """,
-            (tgt_lang, src_lang),
-        ).fetchall()
-
-        hits: list[GlossaryEntry] = []
-        for row in rows:
-            if row["src_term"] and row["src_term"] in text:
-                hits.append(GlossaryEntry(**dict(row)))
-                if len(hits) >= limit:
-                    break
-        return hits
+            (tgt_lang, src_lang, text, max(0, limit)),
+        )
+        return [GlossaryEntry(**dict(row)) for row in rows]
 
     def all_glossary(
         self,
         /,
+        limit: int | None = None,
     ) -> list[GlossaryEntry]:
-        rows = self.connection.execute(
+        sql = (
             "SELECT src_lang, src_term, tgt_lang, tgt_term, kind, note, priority "
             "FROM glossary WHERE enabled = 1 ORDER BY priority, src_term"
-        ).fetchall()
+        )
+        parameters: tuple[int, ...] = ()
+        if limit is not None:
+            sql += " LIMIT ?"
+            parameters = (max(0, limit),)
+        rows = self._fetchall(sql, parameters)
         return [GlossaryEntry(**dict(row)) for row in rows]
 
     # -- history ---------------------------------------------------------
@@ -250,7 +362,7 @@ class Store:
         database agree instead of drifting by a round trip.
         """
         timestamp = time.time()
-        with self.connection:
+        with self._lock, self.connection:
             self.connection.execute(
                 """
                 INSERT OR REPLACE INTO turns
@@ -275,6 +387,9 @@ class Store:
                     outcome,
                 ),
             )
+            self._turns_since_retention += 1
+            if self._turns_since_retention >= RETENTION_CHECK_INTERVAL:
+                self._prune_turns()
         return timestamp
 
     def recent_turns(
@@ -283,15 +398,15 @@ class Store:
         session_id: str,
         limit: int = 6,
     ) -> list[TurnRecord]:
-        rows = self.connection.execute(
+        rows = self._fetchall(
             """
             SELECT turn_id, ts, src_lang, tgt_lang, source_text, translation
             FROM turns
             WHERE session_id = ? AND outcome = 'ok' AND source_text IS NOT NULL
             ORDER BY ts DESC LIMIT ?
             """,
-            (session_id, limit),
-        ).fetchall()
+            (session_id, max(0, limit)),
+        )
         return [TurnRecord(**dict(row)) for row in reversed(rows)]
 
     def last_language(
@@ -300,15 +415,15 @@ class Store:
         session_id: str,
     ) -> str | None:
         """§5 short-utterance LID fallback — inherit the previous verdict."""
-        row = self.connection.execute(
+        row = self._fetchone(
             "SELECT src_lang FROM turns WHERE session_id = ? AND src_lang IS NOT NULL "
             "ORDER BY ts DESC LIMIT 1",
             (session_id,),
-        ).fetchone()
+        )
         return row["src_lang"] if row else None
 
     # -- history browsing ---------------------------------------------------
-    def _history_where(
+    def _history_parameters(
         self,
         /,
         query: str | None,
@@ -317,33 +432,32 @@ class Store:
         session_id: str | None,
         outcome: str | None,
         since: float | None,
-    ) -> tuple[str, list]:
-        clauses: list[str] = []
-        params: list = []
-        if query:
-            # Both directions are searched: an operator looking for a turn
-            # remembers whichever side they were reading.
-            clauses.append(
-                "(source_text LIKE ? ESCAPE '\\' OR translation LIKE ? ESCAPE '\\')"
-            )
-            params += [_like(query), _like(query)]
-        if src_lang:
-            clauses.append("src_lang = ?")
-            params.append(src_lang)
-        if tgt_lang:
-            # tgt_lang holds a comma-separated list under broadcast routing.
-            clauses.append("(tgt_lang = ? OR tgt_lang LIKE ? ESCAPE '\\')")
-            params += [tgt_lang, _like(tgt_lang)]
-        if session_id:
-            clauses.append("session_id = ?")
-            params.append(session_id)
-        if outcome:
-            clauses.append("outcome = ?")
-            params.append(outcome)
-        if since is not None:
-            clauses.append("ts >= ?")
-            params.append(since)
-        return (" WHERE " + " AND ".join(clauses) if clauses else ""), params
+    ) -> list[Any]:
+        query_value = query or None
+        query_pattern = _like(query_value) if query_value is not None else None
+        source_value = src_lang or None
+        target_value = tgt_lang or None
+        target_pattern = _like(target_value) if target_value is not None else None
+        session_value = session_id or None
+        outcome_value = outcome or None
+        # Both text directions are searched. tgt_lang can contain a comma-separated
+        # broadcast route, so it retains exact and escaped substring comparisons.
+        return [
+            query_value,
+            query_pattern,
+            query_pattern,
+            source_value,
+            source_value,
+            target_value,
+            target_value,
+            target_pattern,
+            session_value,
+            session_value,
+            outcome_value,
+            outcome_value,
+            since,
+            since,
+        ]
 
     def search_turns(
         self,
@@ -358,11 +472,18 @@ class Store:
         offset: int = 0,
     ) -> list[HistoryEntry]:
         """Newest first, for the history browser."""
-        where, params = self._history_where(query, src_lang, tgt_lang, session_id, outcome, since)
-        rows = self.connection.execute(
-            f"SELECT {HISTORY_COLUMNS} FROM turns{where} ORDER BY ts DESC LIMIT ? OFFSET ?",
-            [*params, limit, offset],
-        ).fetchall()
+        parameters = self._history_parameters(
+            query,
+            src_lang,
+            tgt_lang,
+            session_id,
+            outcome,
+            since,
+        )
+        rows = self._fetchall(
+            HISTORY_SEARCH_STATEMENT,
+            [*parameters, max(0, limit), max(0, offset)],
+        )
         return [_entry(row) for row in rows]
 
     def count_turns(
@@ -375,11 +496,18 @@ class Store:
         outcome: str | None = None,
         since: float | None = None,
     ) -> int:
-        where, params = self._history_where(query, src_lang, tgt_lang, session_id, outcome, since)
-        row = self.connection.execute(
-            f"SELECT COUNT(*) AS n FROM turns{where}",
-            params,
-        ).fetchone()
+        parameters = self._history_parameters(
+            query,
+            src_lang,
+            tgt_lang,
+            session_id,
+            outcome,
+            since,
+        )
+        row = self._fetchone(
+            HISTORY_COUNT_STATEMENT,
+            parameters,
+        )
         return int(row["n"])
 
     def recent_history(
@@ -393,13 +521,24 @@ class Store:
         Sessions are not filtered by default: after a restart the operator still
         wants the preceding exchanges on screen.
         """
-        rows = self.connection.execute(
-            f"SELECT {HISTORY_COLUMNS} FROM turns "
-            "WHERE outcome = 'ok' AND translation IS NOT NULL"
-            + (" AND session_id = ?" if session_id else "")
-            + " ORDER BY ts DESC LIMIT ?",
-            ([session_id, limit] if session_id else [limit]),
-        ).fetchall()
+        if session_id:
+            rows = self._fetchall(
+                "SELECT turn_id, ts, session_id, src_lang, tgt_lang, source_text, "
+                "translation, lang_source, lid_confidence, asr_avg_logprob, "
+                "cross_verified, audio_seconds, outcome FROM turns "
+                "WHERE outcome = 'ok' AND translation IS NOT NULL AND session_id = ? "
+                "ORDER BY ts DESC LIMIT ?",
+                (session_id, max(0, limit)),
+            )
+        else:
+            rows = self._fetchall(
+                "SELECT turn_id, ts, session_id, src_lang, tgt_lang, source_text, "
+                "translation, lang_source, lid_confidence, asr_avg_logprob, "
+                "cross_verified, audio_seconds, outcome FROM turns "
+                "WHERE outcome = 'ok' AND translation IS NOT NULL "
+                "ORDER BY ts DESC LIMIT ?",
+                (max(0, limit),),
+            )
         return [_entry(row) for row in reversed(rows)]
 
     def turn(
@@ -407,18 +546,21 @@ class Store:
         /,
         turn_id: str,
     ) -> HistoryEntry | None:
-        row = self.connection.execute(
-            f"SELECT {HISTORY_COLUMNS} FROM turns WHERE turn_id = ?", (turn_id,)
-        ).fetchone()
+        row = self._fetchone(
+            "SELECT turn_id, ts, session_id, src_lang, tgt_lang, source_text, "
+            "translation, lang_source, lid_confidence, asr_avg_logprob, cross_verified, "
+            "audio_seconds, outcome FROM turns WHERE turn_id = ?",
+            (turn_id,),
+        )
         return _entry(row) if row else None
 
     def history_languages(
         self,
         /,
     ) -> list[str]:
-        rows = self.connection.execute(
+        rows = self._fetchall(
             "SELECT DISTINCT src_lang FROM turns WHERE src_lang IS NOT NULL ORDER BY src_lang"
-        ).fetchall()
+        )
         return [row["src_lang"] for row in rows]
 
     def session_summaries(
@@ -426,7 +568,7 @@ class Store:
         /,
         limit: int = 50,
     ) -> list[SessionSummary]:
-        rows = self.connection.execute(
+        rows = self._fetchall(
             """
             SELECT s.session_id, s.started_at, s.routing,
                    COUNT(t.id) AS turns, MIN(t.ts) AS first_ts, MAX(t.ts) AS last_ts
@@ -434,8 +576,8 @@ class Store:
             GROUP BY s.session_id
             ORDER BY s.started_at DESC LIMIT ?
             """,
-            (limit,),
-        ).fetchall()
+            (max(0, limit),),
+        )
         return [SessionSummary(**dict(row)) for row in rows]
 
     # -- Traditional Chinese rules ----------------------------------------
@@ -443,10 +585,10 @@ class Store:
         self,
         /,
     ) -> list[tuple[str, str, bool]]:
-        rows = self.connection.execute(
+        rows = self._fetchall(
             "SELECT pattern, replacement, is_regex FROM zh_rules WHERE enabled = 1 "
             "ORDER BY length(pattern) DESC"
-        ).fetchall()
+        )
         return [
             (row["pattern"], row["replacement"], bool(row["is_regex"]))
             for row in rows
@@ -457,7 +599,12 @@ class Store:
         /,
         rules: list[tuple[str, str, bool, str | None]],
     ) -> int:
-        with self.connection:
+        if any(is_regex for _pattern, _replacement, is_regex, _note in rules):
+            raise ValueError(
+                "regular-expression Traditional Chinese rules are disabled because "
+                "the runtime cannot enforce an execution deadline"
+            )
+        with self._lock, self.connection:
             self.connection.executemany(
                 """
                 INSERT INTO zh_rules (pattern, replacement, is_regex, note)
@@ -483,9 +630,10 @@ class Store:
         routing: str,
         config: dict,
     ) -> None:
-        with self.connection:
+        with self._lock, self.connection:
             self.connection.execute(
                 "INSERT OR REPLACE INTO sessions (session_id, started_at, routing, config) "
                 "VALUES (?,?,?,?)",
                 (session_id, time.time(), routing, json.dumps(config, ensure_ascii=False)),
             )
+            self._prune_sessions()

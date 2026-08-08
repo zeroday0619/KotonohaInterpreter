@@ -127,6 +127,8 @@ SQLite backup is mandatory before changes that affect storage models.
 - Restrict Jetson ports 8001-8004 to local or explicitly approved traffic.
 - Generate `KOTONOHA_SERVICE_TOKEN` from a cryptographically secure random source.
 - Store `.env`, `config/local.yaml`, and `config/remote-server.local.yaml` with mode 600.
+- Keep the remote source-tree mount disabled. Rebuild service images to deploy code
+  changes instead of mounting the repository into running containers.
 - Keep secrets out of Git, logs, screenshots, and support bundles.
 - Block outbound network access after container images and model artifacts are staged if
   full offline operation is required.

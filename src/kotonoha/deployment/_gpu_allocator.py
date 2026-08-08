@@ -6,7 +6,9 @@ import argparse
 import csv
 import io
 import os
-import subprocess
+
+# GPU discovery requires a local nvidia-smi process and never invokes a shell.
+import subprocess  # nosec B404
 import tempfile
 from dataclasses import dataclass
 from functools import partial
@@ -105,7 +107,8 @@ def query_gpu_inventory(
         "--format=csv,noheader,nounits",
     ]
     try:
-        completed = subprocess.run(
+        # The command is an argument vector and never enters a shell.
+        completed = subprocess.run(  # nosec B603
             command,
             check=True,
             capture_output=True,

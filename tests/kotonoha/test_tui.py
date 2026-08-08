@@ -15,7 +15,7 @@ from typing import Any, ClassVar
 import numpy as np
 import pytest
 import yaml
-from textual.widgets import Button, Select
+from textual.widgets import Button, Input, Select
 
 from kotonoha._config import load_settings
 from kotonoha._config_store import set_path
@@ -225,6 +225,26 @@ async def test_config_editor_uses_device_selectors(
             "",
             "Speaker, ALSA",
         }
+
+
+async def test_config_editor_masks_the_remote_service_token(
+    _positional_only: object | None = None,
+    /,
+    *,
+    tmp_path: Any,
+) -> None:
+    settings = load_settings()
+    settings.remote.token = "secret-token"
+    app = ConfigApp(local_path=tmp_path / "local.yaml", settings=settings)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        token_row = next(
+            row for row in app._rows if row.specification.path == "remote.token"
+        )
+        assert isinstance(token_row.editor, Input)
+        assert token_row.editor.password
+        assert token_row.editor.value == "secret-token"
 
 
 async def test_custom_mode_exposes_per_role_placement_selectors(

@@ -14,12 +14,15 @@ the source first would delay the first audio by exactly its length.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Final
 
 from kotonoha._languages import LANGUAGE_NAMES, LANGUAGE_NATIVE_NAMES
+from kotonoha._logging_setup import get_logger
 from kotonoha.store._db import GlossaryEntry, TurnRecord
 
 SRC_MARKER = "⟦SRC⟧"
+MAXIMUM_TRANSLATION_PROMPT_CHARACTERS: Final[int] = 32768
+log = get_logger(__name__)
 
 SYSTEM = """You are a professional consecutive interpreter. You are given automatic \
 speech-recognition (ASR) hypotheses of ONE utterance, plus conversation context.
@@ -93,26 +96,16 @@ def build_translate_messages(
     if target_language == "zh-TW":
         system += "\n" + _TW_RULE
 
-    blocks: list[str] = []
-
-    if history:
-        formatted_history = _format_history(history)
-        if formatted_history:
-            blocks.append("## Conversation so far\n" + formatted_history)
-
-    if glossary:
-        blocks.append("## Glossary (apply verbatim)\n" + _format_glossary(glossary))
-
     formatted_hypotheses = "\n".join(
         f"{index + 1}. {text}"
         for index, text in enumerate(hypotheses)
         if text.strip()
     )
-    blocks.append(
+    required_blocks = [
         "## ASR hypotheses "
         f"({LANGUAGE_NAMES.get(source_language, source_language)}), best first\n"
         f"{formatted_hypotheses}"
-    )
+    ]
 
     if verify_hypothesis:
         note = (
@@ -121,13 +114,41 @@ def build_translate_messages(
             if verify_divergent
             else "A second ASR engine produced this. Use it to break ties."
         )
-        blocks.append(f"## Second engine\n{verify_hypothesis}\n\n{note}")
+        required_blocks.append(f"## Second engine\n{verify_hypothesis}\n\n{note}")
 
-    blocks.append(
+    required_blocks.append(
         f"Now output the {LANGUAGE_NAMES.get(target_language, target_language)} translation."
     )
 
-    prompt = f"{system}\n\n" + "\n\n".join(blocks)
+    retained_history = list(history or [])
+    dropped_history_turns = 0
+    while True:
+        blocks: list[str] = []
+        if retained_history:
+            formatted_history = _format_history(retained_history)
+            if formatted_history:
+                blocks.append("## Conversation so far\n" + formatted_history)
+        if glossary:
+            blocks.append("## Glossary (apply verbatim)\n" + _format_glossary(glossary))
+        blocks.extend(required_blocks)
+        prompt = f"{system}\n\n" + "\n\n".join(blocks)
+        if len(prompt) <= MAXIMUM_TRANSLATION_PROMPT_CHARACTERS:
+            break
+        if not retained_history:
+            raise ValueError(
+                "translation prompt exceeds "
+                f"{MAXIMUM_TRANSLATION_PROMPT_CHARACTERS} characters without history"
+            )
+        retained_history.pop(0)
+        dropped_history_turns += 1
+
+    if dropped_history_turns:
+        log.warning(
+            "translation.history_truncated",
+            dropped_turns=dropped_history_turns,
+            retained_turns=len(retained_history),
+            prompt_characters=len(prompt),
+        )
     return [
         {
             "role": "user",

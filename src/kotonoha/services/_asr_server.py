@@ -38,18 +38,23 @@ from uuid import uuid4
 
 import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, ValidationError
 
 from kotonoha._call_compatibility import keyword_compatible
 from kotonoha._config import load_settings
 from kotonoha._logging_setup import setup_logging
 from kotonoha._prometheus import install_metrics, observe_service_health
-from kotonoha._shmring import AudioRef, StaleSlotError, attach_cached
+from kotonoha._shmring import AudioRef, StaleSlotError, close_attached, read_cached
 from kotonoha._transport import decode_pcm
 from kotonoha._typing import override
+from kotonoha.audio._statistics import signal_statistics
 from kotonoha.core._lid import detect_script
 from kotonoha.services._auth import install_auth, websocket_authorized
 from kotonoha.services._config_admin import router as config_admin_router
+from kotonoha.services._request_limits import (
+    RequestBodyLimitMiddleware,
+    parse_json_object,
+)
 from kotonoha.services._resources import resource_report
 
 log = setup_logging(service="asr", console=True)
@@ -189,11 +194,11 @@ class TranscribeRequest(BaseModel):
     # Present on the shared-memory path, absent on the upload path.
     __slots__: ClassVar[tuple[str, ...]] = ()
     audio: dict[str, Any] | None = None
-    n_best: int = 5
-    num_beams: int = 5
-    max_new_tokens: int = 256
-    context: str = ""
-    language_hint: str | None = None
+    n_best: int = Field(5, ge=5, le=5)
+    num_beams: int = Field(5, ge=5, le=10)
+    max_new_tokens: int = Field(256, ge=1, le=512)
+    context: str = Field("", max_length=8192)
+    language_hint: Literal["ko", "en", "ja", "zh-TW"] | None = None
 
 
 class TransformersBackend:
@@ -214,6 +219,7 @@ class TransformersBackend:
         self,
         /,
         model_id: str,
+        model_revision: str,
         dtype: str = "float16",
     ) -> None:
         import torch
@@ -226,11 +232,17 @@ class TransformersBackend:
             "float32": torch.float32,
         }[dtype]
         start_time = time.perf_counter()
-        self.processor = AutoProcessor.from_pretrained(model_id)
+        self.processor = AutoProcessor.from_pretrained(
+            model_id,
+            revision=model_revision,
+            local_files_only=True,
+        )
         self.model = AutoModelForMultimodalLM.from_pretrained(
             model_id,
+            revision=model_revision,
             dtype=torch_dtype,
             device_map="auto",
+            local_files_only=True,
         )
         self.model.eval()
         self.load_seconds = round(time.perf_counter() - start_time, 2)
@@ -535,11 +547,14 @@ class VllmBackend:
 
         start_time = time.perf_counter()
         request_id = f"kotonoha-{uuid4()}"
-        preprocessed = await self.transcription._preprocess_speech_to_text(
-            request=transcription_request,
-            audio_data=audio_bytes,
-            request_id=request_id,
-        )
+        try:
+            preprocessed = await self.transcription._preprocess_speech_to_text(
+                request=transcription_request,
+                audio_data=audio_bytes,
+                request_id=request_id,
+            )
+        finally:
+            await upload.close()
         engine_inputs = preprocessed[0]
         parameters = transcription_request.to_beam_search_params(
             request.max_new_tokens,
@@ -556,8 +571,15 @@ class VllmBackend:
                 params=parameters,
                 request_id=f"{request_id}-{chunk_index}",
             )
-            async for output in generator:
-                final_output = output
+            try:
+                async for output in generator:
+                    final_output = output
+            finally:
+                close_generator = getattr(generator, "aclose", None)
+                if callable(close_generator):
+                    close_result = close_generator()
+                    if inspect.isawaitable(close_result):
+                        await close_result
             if final_output is None:
                 raise RuntimeError("vLLM returned no ASR output")
             if len(final_output.outputs) < candidate_count:
@@ -803,7 +825,12 @@ def _vote_language(
     return most_common, round(count / len(available), 3)
 
 
-STATE: dict[str, Any] = {"backend": None, "error": None}
+STATE: dict[str, Any] = {
+    "backend": None,
+    "error": None,
+    "maximum_audio_frames": None,
+    "shm_name": None,
+}
 
 
 @asynccontextmanager
@@ -818,6 +845,8 @@ async def lifespan(
         load_settings,
         os.environ.get("KOTONOHA_CONFIG"),
     )
+    STATE["shm_name"] = settings.shm.name
+    STATE["maximum_audio_frames"] = settings.shm.slot_seconds * settings.shm.sample_rate
     try:
         if settings.asr.backend == "vllm":
             backend = VllmBackend(
@@ -835,6 +864,7 @@ async def lifespan(
             STATE["backend"] = await asyncio.to_thread(
                 TransformersBackend,
                 settings.asr.model_id,
+                settings.asr.model_revision,
                 settings.asr.dtype,
             )
     except Exception as error:  # noqa: BLE001
@@ -846,10 +876,14 @@ async def lifespan(
         backend = STATE["backend"]
         if isinstance(backend, VllmBackend):
             await backend.shutdown()
+        close_attached(STATE["shm_name"])
         STATE["backend"] = None
+        STATE["maximum_audio_frames"] = None
+        STATE["shm_name"] = None
 
 
 app = FastAPI(title="kotonoha-asr", lifespan=lifespan)
+app.add_middleware(RequestBodyLimitMiddleware)
 install_auth(app, "asr")
 install_metrics(app, "asr")
 app.include_router(config_admin_router)
@@ -884,17 +918,19 @@ def _audio_statistics(
     /,
 ) -> dict[str, float]:
     samples = np.asarray(audio, dtype=np.float32).reshape(-1)
-    peak = float(np.max(np.abs(samples), initial=0.0))
-    root_mean_square = (
-        float(np.sqrt(np.mean(np.square(samples), dtype=np.float64)))
-        if samples.size
+    statistics = signal_statistics(samples)
+    clipped_fraction = (
+        statistics.clipped_sample_count / statistics.sample_count
+        if statistics.sample_count
         else 0.0
     )
-    clipped_fraction = float(np.mean(np.abs(samples) >= 0.999)) if samples.size else 0.0
     return {
         "duration_s": round(samples.size / 16000.0, 3),
-        "peak_dbfs": round(20.0 * np.log10(max(peak, 1e-12)), 1),
-        "rms_dbfs": round(20.0 * np.log10(max(root_mean_square, 1e-12)), 1),
+        "peak_dbfs": round(20.0 * np.log10(max(statistics.peak, 1e-12)), 1),
+        "rms_dbfs": round(
+            20.0 * np.log10(max(statistics.root_mean_square, 1e-12)),
+            1,
+        ),
         "clipped_fraction": round(clipped_fraction, 6),
     }
 
@@ -956,9 +992,11 @@ async def transcribe(
     backend = _backend()
     if request.audio is None:
         raise HTTPException(400, "missing audio reference; use /transcribe/upload instead")
-    audio_reference = AudioRef.from_json(request.audio)
     try:
-        audio = attach_cached(audio_reference.name).read(audio_reference)
+        audio_reference = AudioRef.from_json(request.audio)
+        audio = read_cached(audio_reference, STATE["shm_name"])
+    except (KeyError, TypeError, ValueError) as error:
+        raise HTTPException(400, f"invalid audio reference: {error}") from error
     except StaleSlotError as error:
         raise HTTPException(409, str(error)) from error
     except FileNotFoundError as error:
@@ -980,28 +1018,46 @@ async def transcribe_upload(
     """
     backend = _backend()
     try:
-        data = json.loads(params or "{}")
-    except json.JSONDecodeError as error:
+        data = parse_json_object(params)
+    except ValueError as error:
         raise HTTPException(400, f"bad params json: {error}") from error
 
     encoding = data.pop("encoding", "s16le")
-    sample_rate = int(data.pop("sample_rate", 16000))
+    try:
+        sample_rate = int(data.pop("sample_rate", 16000))
+    except (TypeError, ValueError) as error:
+        raise HTTPException(400, "sample_rate must be an integer") from error
     if sample_rate != 16000:
         raise HTTPException(400, f"expected 16 kHz audio, got {sample_rate}")
 
-    raw = await audio.read()
+    try:
+        raw = await audio.read()
+    finally:
+        await audio.close()
     if not raw:
         raise HTTPException(400, "empty audio")
-    pcm = decode_pcm(raw, encoding)
+    try:
+        pcm = decode_pcm(raw, encoding)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    maximum_audio_frames = STATE["maximum_audio_frames"]
+    if isinstance(maximum_audio_frames, int) and pcm.size > maximum_audio_frames:
+        raise HTTPException(
+            413,
+            f"audio exceeds the configured {maximum_audio_frames / 16000:.1f}-second limit",
+        )
 
     known_fields = set(TranscribeRequest.model_fields)
-    request = TranscribeRequest(
-        **{
-            key: value
-            for key, value in data.items()
-            if key in known_fields and key != "audio"
-        }
-    )
+    try:
+        request = TranscribeRequest(
+            **{
+                key: value
+                for key, value in data.items()
+                if key in known_fields and key != "audio"
+            }
+        )
+    except ValidationError as error:
+        raise HTTPException(422, str(error)) from error
     result = await _transcribe_audio(backend, pcm, request, "multipart")
     result["received_bytes"] = len(raw)
     return result
@@ -1044,7 +1100,10 @@ async def echo(
     the number measures the link and nothing else.
     """
     start_time = time.perf_counter()
-    raw = await audio.read()
+    try:
+        raw = await audio.read()
+    finally:
+        await audio.close()
     return {
         "bytes": len(raw),
         "read_ms": round((time.perf_counter() - start_time) * 1000, 3),

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import hmac
 import os
-from typing import Any
+from typing import Any, Final
 
 from fastapi import FastAPI, Request, WebSocket
 from fastapi.responses import JSONResponse
@@ -27,8 +27,18 @@ from kotonoha._logging_setup import get_logger
 log = get_logger(__name__)
 
 ENV_VAR = "KOTONOHA_SERVICE_TOKEN"
+MINIMUM_TOKEN_CHARACTERS: Final[int] = 32
 # /health stays open so a load balancer or `netcheck` can see the service.
-OPEN_PATHS = frozenset({"/health", "/docs", "/openapi.json"})
+OPEN_PATHS = frozenset({"/health"})
+
+
+def _service_token() -> str:
+    token = os.environ.get(ENV_VAR, "").strip()
+    if token and len(token) < MINIMUM_TOKEN_CHARACTERS:
+        raise RuntimeError(
+            f"{ENV_VAR} must contain at least {MINIMUM_TOKEN_CHARACTERS} characters"
+        )
+    return token
 
 
 def websocket_authorized(
@@ -37,7 +47,7 @@ def websocket_authorized(
     service: str,
 ) -> bool:
     """Check the shared service token for a WebSocket handshake."""
-    token = os.environ.get(ENV_VAR, "").strip()
+    token = _service_token()
     if not token:
         return True
     header = websocket.headers.get("authorization", "")
@@ -56,7 +66,7 @@ def install_auth(
     /,
     service: str,
 ) -> None:
-    token = os.environ.get(ENV_VAR, "").strip()
+    token = _service_token()
     if not token:
         log.warning("auth.disabled", service=service, hint=f"set {ENV_VAR} to require a token")
         return

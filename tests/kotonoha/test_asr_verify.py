@@ -5,10 +5,18 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+import httpx2
+import numpy as np
 import pytest
 
 from kotonoha._config import DEFAULT_CONFIG, AsrVerificationConfig, load_settings, read_yaml
-from kotonoha.services._asr_verify_server import STATE, health
+from kotonoha.services._asr_verify_server import (
+    MAXIMUM_WHISPER_CPP_RESPONSE_BYTES,
+    STATE,
+    VerificationRequest,
+    WhisperCppBackend,
+    health,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -60,3 +68,27 @@ def test_verification_health_reports_the_effective_runtime(
     assert response["device"] == "cpu"
     assert response["compute_type"] == "int8"
     assert response["resources"]["system"]["kernel"]["release"]
+
+
+def test_whisper_cpp_response_is_bounded() -> None:
+    def oversized_response(
+        request: httpx2.Request,
+        /,
+    ) -> httpx2.Response:
+        del request
+        return httpx2.Response(
+            200,
+            content=b"x" * (MAXIMUM_WHISPER_CPP_RESPONSE_BYTES + 1),
+        )
+
+    backend = object.__new__(WhisperCppBackend)
+    backend.url = "http://whisper.test"
+    backend.client = httpx2.Client(transport=httpx2.MockTransport(oversized_response))
+    try:
+        with pytest.raises(RuntimeError, match="response exceeded"):
+            backend.transcribe(
+                np.zeros(160, dtype=np.float32),
+                VerificationRequest(),
+            )
+    finally:
+        backend.shutdown()

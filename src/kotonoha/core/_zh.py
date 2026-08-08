@@ -8,7 +8,6 @@ the zh_rules table in the database gets one final pass.
 
 from __future__ import annotations
 
-import re
 from typing import Any, ClassVar
 
 from kotonoha._logging_setup import get_logger
@@ -22,12 +21,10 @@ class TraditionalChineseConverter:
         "_config",
         "_converter",
         "_plain_rules",
-        "_regex_rules",
     )
     _converter: Any | None
     _config: str
     _plain_rules: list[tuple[str, str]]
-    _regex_rules: list[tuple[re.Pattern[str], str]]
 
     @override
     def __init__(
@@ -52,12 +49,13 @@ class TraditionalChineseConverter:
         rules: list[tuple[str, str, bool]],
     ) -> None:
         self._plain_rules = []
-        self._regex_rules = []
         for pattern, replacement, is_regex in rules:
             if is_regex:
-                self._regex_rules.append((re.compile(pattern), replacement))
-            else:
-                self._plain_rules.append((pattern, replacement))
+                # The stdlib engine has no execution timeout. A persisted nested
+                # repetition could otherwise block the complete interpreter turn.
+                log.warning("zh.regex_rule_disabled", pattern_length=len(pattern))
+                continue
+            self._plain_rules.append((pattern, replacement))
         # Longest first, so a partial match cannot break a longer replacement.
         self._plain_rules.sort(key=lambda rule: len(rule[0]), reverse=True)
 
@@ -78,8 +76,6 @@ class TraditionalChineseConverter:
         output = self._converter.convert(text) if self._converter is not None else text
         for pattern, replacement in self._plain_rules:
             output = output.replace(pattern, replacement)
-        for expression, replacement in self._regex_rules:
-            output = expression.sub(replacement, output)
         return output
 
 

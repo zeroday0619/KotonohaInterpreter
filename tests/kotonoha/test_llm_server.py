@@ -10,13 +10,18 @@ from fastapi import WebSocketDisconnect
 from pydantic import ValidationError
 
 from kotonoha._config import load_settings
-from kotonoha.prompts._translate import SRC_MARKER, build_translate_messages
+from kotonoha.prompts._translate import (
+    MAXIMUM_TRANSLATION_PROMPT_CHARACTERS,
+    SRC_MARKER,
+    build_translate_messages,
+)
 from kotonoha.services._llm_server import (
     TranslationRequest,
     VllmRuntimeBindings,
     VllmTranslationBackend,
     _engine_arguments,
 )
+from kotonoha.store._db import TurnRecord
 
 
 class FakeSamplingParameters:
@@ -91,7 +96,7 @@ class FakeWebSocket:
 
     def __init__(
         self,
-        request: dict[str, Any],
+        request: Any,
         /,
     ) -> None:
         self.accepted = False
@@ -114,7 +119,7 @@ class FakeWebSocket:
     async def receive_json(
         self,
         /,
-    ) -> dict[str, Any]:
+    ) -> Any:
         if self.events:
             return self.events.pop(0)
         raise WebSocketDisconnect()
@@ -152,6 +157,41 @@ def test_translate_messages_follow_translategemma_content_contract() -> None:
     assert content[0]["target_lang_code"] == "en"
     assert "1. 안녕하세요" in content[0]["text"]
     assert SRC_MARKER in content[0]["text"]
+
+
+def test_translate_prompt_drops_oldest_history_before_exceeding_service_limit() -> None:
+    history = [
+        TurnRecord(
+            turn_id=f"turn-{index}",
+            ts=float(index),
+            src_lang="ko",
+            tgt_lang="en",
+            source_text=f"source-{index}-" + "가" * 8000,
+            translation=f"translation-{index}-" + "x" * 8000,
+        )
+        for index in range(3)
+    ]
+
+    messages = build_translate_messages(
+        ["현재 발화"],
+        source_language="ko",
+        target_language="en",
+        history=history,
+    )
+    prompt = messages[0]["content"][0]["text"]
+
+    assert len(prompt) <= MAXIMUM_TRANSLATION_PROMPT_CHARACTERS
+    assert "source-2-" in prompt
+    assert "source-0-" not in prompt
+
+
+def test_translate_prompt_rejects_oversized_required_evidence() -> None:
+    with pytest.raises(ValueError, match="without history"):
+        build_translate_messages(
+            ["가" * MAXIMUM_TRANSLATION_PROMPT_CHARACTERS],
+            source_language="ko",
+            target_language="en",
+        )
 
 
 def test_engine_arguments_select_local_bfloat16_snapshot() -> None:
@@ -246,5 +286,18 @@ async def test_websocket_streams_translation_events() -> None:
         "translation.delta",
         "translation.done",
     ]
-    assert websocket.sent[-1]["text"] == "Hello world"
+    assert "text" not in websocket.sent[-1]
     assert websocket.sent[-1]["usage"] == {"completion_tokens": 2}
+
+
+async def test_websocket_rejects_non_object_events_without_closing_session() -> None:
+    backend = _backend()
+    websocket = FakeWebSocket(["translation.create"])
+
+    await backend.handle_websocket(websocket)
+
+    assert websocket.accepted
+    assert websocket.sent == [
+        {"type": "session.created", "model": "kotonoha-translation"},
+        {"type": "error", "error": "invalid translation request"},
+    ]

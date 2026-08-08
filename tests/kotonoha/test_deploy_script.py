@@ -354,6 +354,39 @@ def test_remote_compose_uses_distinct_role_images_and_in_process_translation() -
     )
 
 
+def test_remote_compose_does_not_mount_the_host_source_tree() -> None:
+    compose = yaml.safe_load(
+        (PROJECT_ROOT / "docker" / "compose.remote.yaml").read_text(encoding="utf-8")
+    )
+    common_volumes = set(compose["x-a6000"]["volumes"])
+    metrics_volumes = set(compose["services"]["metrics"]["volumes"])
+
+    assert "../:/app" not in common_volumes
+    assert "../:/app" not in metrics_volumes
+    assert "../config:/app/config" in common_volumes
+    assert "../data:/app/data" in common_volumes
+    assert "../config:/app/config:ro" in metrics_volumes
+    assert "../data:/app/data" in metrics_volumes
+
+
+def test_jetson_compose_mounts_source_read_only() -> None:
+    compose = yaml.safe_load(
+        (PROJECT_ROOT / "docker" / "compose.yaml").read_text(encoding="utf-8")
+    )
+    volumes = set(compose["x-jetson"]["volumes"])
+
+    assert "../:/app" not in volumes
+    assert "../:/app:ro" in volumes
+    assert "../config:/app/config" in volumes
+    assert "../data:/app/data" in volumes
+
+
+def test_remote_deployment_rejects_weak_service_tokens() -> None:
+    deploy_script = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+
+    assert deploy_script.count("KOTONOHA_SERVICE_TOKEN must contain at least 32 characters") == 2
+
+
 def test_asr_images_use_target_vllm_runtimes_with_realtime_support_checks() -> None:
     jetson_compose = yaml.safe_load(
         (PROJECT_ROOT / "docker" / "compose.yaml").read_text(encoding="utf-8")
@@ -701,19 +734,22 @@ def test_python_service_containers_force_uvloop() -> None:
     )
     for compose_path in compose_paths:
         compose = yaml.safe_load(compose_path.read_text(encoding="utf-8"))
-        for role in ("asr", "asr-verify", "tts"):
+        for role in ("asr", "asr-verify", "llm", "tts"):
             assert "--loop uvloop" in compose["services"][role]["command"]
+            assert "--ws-max-size 4194304" in compose["services"][role]["command"]
             assert "--timeout-graceful-shutdown 30" in compose["services"][role]["command"]
 
     dockerfile_paths = (
         PROJECT_ROOT / "docker" / "Dockerfile.asr",
         PROJECT_ROOT / "docker" / "Dockerfile.asr-verify",
+        PROJECT_ROOT / "docker" / "Dockerfile.llm",
         PROJECT_ROOT / "docker" / "Dockerfile.remote",
         PROJECT_ROOT / "docker" / "Dockerfile.tts",
     )
     for dockerfile_path in dockerfile_paths:
         dockerfile = dockerfile_path.read_text(encoding="utf-8")
         assert '"--loop", "uvloop"' in dockerfile
+        assert '"--ws-max-size", "4194304"' in dockerfile
         assert '"--timeout-graceful-shutdown", "30"' in dockerfile
 
 
