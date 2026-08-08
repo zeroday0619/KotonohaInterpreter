@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Final
 
 from rich.text import Text
 from textual import on
@@ -25,10 +25,10 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding, BindingsMap
 from textual.containers import Container, Horizontal, Vertical
 from textual.reactive import reactive
-from textual.widgets import Footer, Header, Input, RichLog, Static
+from textual.widgets import Footer, Header, Input, RichLog, Select, Static
 
 from kotonoha._config import LatencyBudgetConfig
-from kotonoha._i18n import _
+from kotonoha._i18n import N_, _
 from kotonoha._logging_setup import drain_terminal_interface_logs
 from kotonoha._typing import override
 from kotonoha.core._events import UiEvent
@@ -46,6 +46,12 @@ STATE_STYLE = {
 METER_WIDTH = 8
 METER_PARTIALS = " ▏▎▍▌▋▊▉"
 LOG_RECORDS_PER_FRAME = 32
+LANGUAGE_NAMES: Final[dict[str, str]] = {
+    "ko": N_("Korean"),
+    "en": N_("English"),
+    "zh-TW": N_("Traditional Chinese"),
+    "ja": N_("Japanese"),
+}
 
 
 def level_meter_units(
@@ -515,17 +521,23 @@ class KotonohaApp(App):
     latency_panel: LatencyPanel
     service_panel: ServicePanel
     text_input: Input
+    target_language_select: Select
     log_output: RichLog
     title: str
     sub_title: str
     _talking: bool
     _voice_mode: str
+    _target_languages: tuple[str, ...]
     _frame_accumulator: FrameAccumulator
     _bindings: BindingsMap
 
     CSS: ClassVar[str] = """
     Screen { layout: vertical; }
     StatusBar { height: 1; background: $panel; }
+    #language-controls { height: 3; padding: 0 1; }
+    #source-language-mode { width: 1fr; content-align: left middle; }
+    #target-language-label { width: auto; margin-right: 1; content-align: right middle; }
+    #target-language-select { width: 28; }
     #panes { height: 1fr; overflow-y: auto; }
     #current-turn { height: 1fr; }
     #src, #tgt {
@@ -555,7 +567,7 @@ class KotonohaApp(App):
     BINDINGS: ClassVar[list[tuple[str, str, str]]] = [
         ("space", "talk", ""),
         ("a", "toggle_mode", ""),
-        ("r", "cycle_routing", ""),
+        ("r", "cycle_target_language", ""),
         ("c", "clear", ""),
         ("h", "toggle_history", ""),
         ("t", "text_mode", ""),
@@ -572,6 +584,11 @@ class KotonohaApp(App):
         super().__init__()
         self.orchestrator = orchestrator
         self._talking = False
+        self._target_languages = tuple(orchestrator.settings.session.languages)
+        target_language = orchestrator.settings.session.fixed_target
+        if target_language not in self._target_languages:
+            target_language = self._target_languages[0]
+        orchestrator.set_target_language(target_language)
         # Restored when text mode is left, so `t` is a round trip rather than a
         # one-way switch out of whatever the operator had configured.
         self._voice_mode = (
@@ -587,7 +604,7 @@ class KotonohaApp(App):
             [
                 Binding("space", "talk", _("Talk (toggle)")),
                 Binding("a", "toggle_mode", _("PTT/auto")),
-                Binding("r", "cycle_routing", _("Routing")),
+                Binding("r", "cycle_target_language", _("Target language")),
                 Binding("c", "clear", _("Clear")),
                 Binding("h", "toggle_history", _("History")),
                 Binding("t", "text_mode", _("Text input")),
@@ -612,6 +629,16 @@ class KotonohaApp(App):
         yield Header(show_clock=True)
         self.status = StatusBar()
         yield self.status
+        with Horizontal(id="language-controls"):
+            yield Static(_("Input language: Automatic detection"), id="source-language-mode")
+            yield Static(_("Translate to"), id="target-language-label")
+            self.target_language_select = Select(
+                [(_(LANGUAGE_NAMES[language]), language) for language in self._target_languages],
+                value=self.orchestrator.settings.session.fixed_target,
+                allow_blank=False,
+                id="target-language-select",
+            )
+            yield self.target_language_select
         with Vertical(id="panes"):
             with Horizontal(id="current-turn"):
                 self.source_pane = Pane(_("Source (ASR)"), "white", id="src")
@@ -880,14 +907,26 @@ class KotonohaApp(App):
         # submit_text runs the whole turn, so it cannot block the input handler.
         self.run_worker(self.orchestrator.submit_text(text), exclusive=False)
 
-    def action_cycle_routing(
+    def action_cycle_target_language(
         self,
         /,
     ) -> None:
-        session = self.orchestrator.settings.session
-        order = ["pair", "fixed", "broadcast"]
-        session.routing = order[(order.index(session.routing) + 1) % len(order)]
-        self.status.routing = session.routing
+        current = str(self.target_language_select.value)
+        current_index = self._target_languages.index(current)
+        self.target_language_select.value = self._target_languages[
+            (current_index + 1) % len(self._target_languages)
+        ]
+
+    @on(Select.Changed, "#target-language-select")
+    def target_language_changed(
+        self,
+        event: Select.Changed,
+        /,
+    ) -> None:
+        if event.value is Select.BLANK:
+            return
+        self.orchestrator.set_target_language(str(event.value))
+        self.status.routing = self.orchestrator.settings.session.routing
 
     def action_clear(
         self,

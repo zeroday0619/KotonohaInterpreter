@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Kotonoha Interpreter 0.1.0\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-08-08 00:51+0800\n"
+"POT-Creation-Date: 2026-08-08 12:38+0800\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,244 +17,244 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-#: kotonoha/_cli.py:159
+#: kotonoha/_cli.py:202
 msgid "Consecutive four-language offline speech interpreter"
 msgstr ""
 
-#: kotonoha/_cli.py:167
+#: kotonoha/_cli.py:210
 msgid "Manage the glossary"
 msgstr ""
 
-#: kotonoha/_cli.py:174
+#: kotonoha/_cli.py:217
 msgid "Browse past interpretation turns"
 msgstr ""
 
-#: kotonoha/_cli.py:187
+#: kotonoha/_cli.py:230
 msgid "Path to a YAML configuration file"
 msgstr ""
 
-#: kotonoha/_cli.py:192
+#: kotonoha/_cli.py:235
 msgid "Interface language: auto, en, ko, ja, zh-TW"
 msgstr ""
 
-#: kotonoha/_cli.py:219
+#: kotonoha/_cli.py:262
 msgid "Start the terminal interface"
 msgstr ""
 
-#: kotonoha/_cli.py:238
+#: kotonoha/_cli.py:283
 msgid "Start the integrated terminal interface"
 msgstr ""
 
-#: kotonoha/_cli.py:251
+#: kotonoha/_cli.py:296
 msgid "Run the pipeline from a WAV file, without a microphone"
 msgstr ""
 
-#: kotonoha/_cli.py:258
+#: kotonoha/_cli.py:303
 msgid "16-bit PCM WAV file"
 msgstr ""
 
-#: kotonoha/_cli.py:260
+#: kotonoha/_cli.py:308
 msgid "Run duration in seconds"
 msgstr ""
 
-#: kotonoha/_cli.py:282
+#: kotonoha/_cli.py:344
 #, python-brace-format
 msgid "Turn log: {path}"
 msgstr ""
 
-#: kotonoha/_cli.py:288
+#: kotonoha/_cli.py:350
 msgid "Interpret typed text without a microphone"
 msgstr ""
 
-#: kotonoha/_cli.py:294
+#: kotonoha/_cli.py:356
 msgid "Text to interpret"
 msgstr ""
 
-#: kotonoha/_cli.py:299
+#: kotonoha/_cli.py:361
 msgid "Source language; omit to detect it from the writing system"
 msgstr ""
 
-#: kotonoha/_cli.py:303
+#: kotonoha/_cli.py:365
 msgid "Play the synthesized translation"
 msgstr ""
 
-#: kotonoha/_cli.py:337
+#: kotonoha/_cli.py:403
 msgid "The turn cannot start because the input is empty or another turn is running"
 msgstr ""
 
-#: kotonoha/_cli.py:339 kotonoha/_cli.py:341
+#: kotonoha/_cli.py:405 kotonoha/_cli.py:407
 #, python-brace-format
 msgid "[{lang}] {text}"
 msgstr ""
 
-#: kotonoha/_cli.py:345 kotonoha/tui/_tools_app.py:176
+#: kotonoha/_cli.py:411 kotonoha/tui/_tools_app.py:176
 msgid "List audio devices"
 msgstr ""
 
-#: kotonoha/_cli.py:351
+#: kotonoha/_cli.py:417
 msgid "Default input/output:"
 msgstr ""
 
-#: kotonoha/_cli.py:354 kotonoha/tui/_tools_app.py:182
+#: kotonoha/_cli.py:420 kotonoha/tui/_tools_app.py:182
 msgid "Start a model service"
 msgstr ""
 
-#: kotonoha/_cli.py:357
+#: kotonoha/_cli.py:423
 msgid "Service to start"
 msgstr ""
 
-#: kotonoha/_cli.py:359 kotonoha/tui/_tools_app.py:131 kotonoha/tui/_tools_app.py:199
+#: kotonoha/_cli.py:425 kotonoha/tui/_tools_app.py:131 kotonoha/tui/_tools_app.py:199
 msgid "Bind address"
 msgstr ""
 
-#: kotonoha/_cli.py:361
+#: kotonoha/_cli.py:427
 msgid "Port; defaults to the port assigned to the service"
 msgstr ""
 
-#: kotonoha/_cli.py:381
+#: kotonoha/_cli.py:448
 msgid "Load glossary and Traditional Chinese rules from YAML"
 msgstr ""
 
-#: kotonoha/_cli.py:388 kotonoha/tui/_tools_app.py:158 kotonoha/tui/_tools_app.py:198
+#: kotonoha/_cli.py:455 kotonoha/tui/_tools_app.py:158 kotonoha/tui/_tools_app.py:198
 msgid "Glossary YAML file"
 msgstr ""
 
-#: kotonoha/_cli.py:415
+#: kotonoha/_cli.py:482
 #, python-brace-format
 msgid "{terms} terms and {rules} rules applied to {path}"
 msgstr ""
 
-#: kotonoha/_cli.py:426
+#: kotonoha/_cli.py:493
 msgid "List registered terms"
 msgstr ""
 
-#: kotonoha/_cli.py:449
+#: kotonoha/_cli.py:516
 msgid "Report environment, role placement and service health"
 msgstr ""
 
-#: kotonoha/_cli.py:478
+#: kotonoha/_cli.py:545
 msgid "! In this mode utterance audio leaves the device"
-msgstr ""
-
-#: kotonoha/_cli.py:514
-#, python-brace-format
-msgid "Translation catalogs not compiled: {locales}"
-msgstr ""
-
-#: kotonoha/_cli.py:515
-msgid "Run: uv run python scripts/py/i18n.py compile"
-msgstr ""
-
-#: kotonoha/_cli.py:517
-#, python-brace-format
-msgid "Translation catalogs compiled: {locales}"
-msgstr ""
-
-#: kotonoha/_cli.py:525
-msgid "Services:"
-msgstr ""
-
-#: kotonoha/_cli.py:540
-msgid "Measure latency and throughput to the external server"
-msgstr ""
-
-#: kotonoha/_cli.py:546 kotonoha/tui/_tools_app.py:145 kotonoha/tui/_tools_app.py:201
-msgid "Measurements per role"
-msgstr ""
-
-#: kotonoha/_cli.py:547
-msgid "Probe utterance length in seconds"
-msgstr ""
-
-#: kotonoha/_cli.py:561
-msgid "remote.enabled is false. Use config/performance.yaml, or enable it and retry."
-msgstr ""
-
-#: kotonoha/_cli.py:567
-#, python-brace-format
-msgid "No role is routed remotely under perf_mode={mode}."
 msgstr ""
 
 #: kotonoha/_cli.py:581
 #, python-brace-format
+msgid "Translation catalogs not compiled: {locales}"
+msgstr ""
+
+#: kotonoha/_cli.py:582
+msgid "Run: uv run python scripts/py/i18n.py compile"
+msgstr ""
+
+#: kotonoha/_cli.py:584
+#, python-brace-format
+msgid "Translation catalogs compiled: {locales}"
+msgstr ""
+
+#: kotonoha/_cli.py:593
+msgid "Services:"
+msgstr ""
+
+#: kotonoha/_cli.py:619
+msgid "Measure latency and throughput to the external server"
+msgstr ""
+
+#: kotonoha/_cli.py:625 kotonoha/tui/_tools_app.py:145 kotonoha/tui/_tools_app.py:201
+msgid "Measurements per role"
+msgstr ""
+
+#: kotonoha/_cli.py:626
+msgid "Probe utterance length in seconds"
+msgstr ""
+
+#: kotonoha/_cli.py:640
+msgid "remote.enabled is false. Use config/performance.yaml, or enable it and retry."
+msgstr ""
+
+#: kotonoha/_cli.py:646
+#, python-brace-format
+msgid "No role is routed remotely under perf_mode={mode}."
+msgstr ""
+
+#: kotonoha/_cli.py:660
+#, python-brace-format
 msgid "probe       {seconds}s utterance, {encoding}, {size} bytes"
 msgstr ""
 
-#: kotonoha/_cli.py:663
+#: kotonoha/_cli.py:742
 #, python-brace-format
 msgid "Connection failed: {roles}. These roles will use onboard fallback services."
 msgstr ""
 
-#: kotonoha/_cli.py:678
+#: kotonoha/_cli.py:757
 #, python-brace-format
 msgid "Estimated link overhead per turn  {ms} ms"
 msgstr ""
 
-#: kotonoha/_cli.py:679
+#: kotonoha/_cli.py:758
 #, python-brace-format
 msgid "Budget, end-of-utterance to first audio  {ms} ms"
 msgstr ""
 
-#: kotonoha/_cli.py:681
+#: kotonoha/_cli.py:760
 #, python-format
 msgid "  ! The link consumes more than 25% of the budget. Consider hybrid mode."
 msgstr ""
 
-#: kotonoha/_cli.py:683
+#: kotonoha/_cli.py:762
 msgid "  The link fits within the budget. The remainder is model inference time."
 msgstr ""
 
-#: kotonoha/_cli.py:693
+#: kotonoha/_cli.py:772
 msgid "Edit the configuration in a terminal interface"
 msgstr ""
 
-#: kotonoha/_cli.py:707
+#: kotonoha/_cli.py:786
 msgid "Match text in the source or the translation"
 msgstr ""
 
-#: kotonoha/_cli.py:710
+#: kotonoha/_cli.py:789
 msgid "Filter by detected source language"
 msgstr ""
 
-#: kotonoha/_cli.py:714
+#: kotonoha/_cli.py:793
 msgid "Filter by turn outcome, for example ok or llm_timeout"
 msgstr ""
 
-#: kotonoha/_cli.py:730
+#: kotonoha/_cli.py:809
 msgid "Open the history browser"
 msgstr ""
 
-#: kotonoha/_cli.py:745
+#: kotonoha/_cli.py:824
 msgid "Print past turns to standard output"
 msgstr ""
 
-#: kotonoha/_cli.py:754 kotonoha/_cli.py:804
+#: kotonoha/_cli.py:833 kotonoha/_cli.py:883
 msgid "Maximum turns to return"
 msgstr ""
 
-#: kotonoha/_cli.py:756
+#: kotonoha/_cli.py:835
 msgid "Print complete text instead of an excerpt"
 msgstr ""
 
-#: kotonoha/_cli.py:774 kotonoha/_cli.py:818 kotonoha/tui/_history_app.py:244
-#: kotonoha/tui/_history_app.py:361
+#: kotonoha/_cli.py:853 kotonoha/_cli.py:897 kotonoha/tui/_history_app.py:252
+#: kotonoha/tui/_history_app.py:369
 msgid "No turns match"
 msgstr ""
 
-#: kotonoha/_cli.py:788
+#: kotonoha/_cli.py:867
 #, python-brace-format
 msgid "{shown} of {total} turns"
 msgstr ""
 
-#: kotonoha/_cli.py:794
+#: kotonoha/_cli.py:873
 msgid "Export past turns as JSONL"
 msgstr ""
 
-#: kotonoha/_cli.py:800
+#: kotonoha/_cli.py:879
 msgid "Destination JSONL file"
 msgstr ""
 
-#: kotonoha/_cli.py:821 kotonoha/tui/_history_app.py:370
+#: kotonoha/_cli.py:900 kotonoha/tui/_history_app.py:378
 #, python-brace-format
 msgid "Exported {count} turns to {path}"
 msgstr ""
@@ -318,137 +318,161 @@ msgstr ""
 msgid "Usage: "
 msgstr ""
 
-#: kotonoha/tui/_app.py:116
+#: kotonoha/tui/_app.py:50
+msgid "Korean"
+msgstr ""
+
+#: kotonoha/tui/_app.py:51
+msgid "English"
+msgstr ""
+
+#: kotonoha/tui/_app.py:52
+msgid "Traditional Chinese"
+msgstr ""
+
+#: kotonoha/tui/_app.py:53
+msgid "Japanese"
+msgstr ""
+
+#: kotonoha/tui/_app.py:122
 msgid "OPEN"
 msgstr ""
 
-#: kotonoha/tui/_app.py:116
+#: kotonoha/tui/_app.py:122
 msgid "SHUT"
 msgstr ""
 
 #. i18n: Preserve the leading space because this is appended to an icon.
-#: kotonoha/tui/_app.py:135
+#: kotonoha/tui/_app.py:141
 msgid " audio sent remotely"
 msgstr ""
 
-#: kotonoha/tui/_app.py:305
+#: kotonoha/tui/_app.py:311
 msgid "No past turns"
 msgstr ""
 
-#: kotonoha/tui/_app.py:385
+#: kotonoha/tui/_app.py:391
 msgid "ASR (+verify)"
 msgstr ""
 
-#: kotonoha/tui/_app.py:390
+#: kotonoha/tui/_app.py:396
 msgid "LLM first clause"
 msgstr ""
 
-#: kotonoha/tui/_app.py:395
+#: kotonoha/tui/_app.py:401
 msgid "TTS first packet"
 msgstr ""
 
-#: kotonoha/tui/_app.py:400
+#: kotonoha/tui/_app.py:406
 msgid "EOU to audio"
 msgstr ""
 
-#: kotonoha/tui/_app.py:407
+#: kotonoha/tui/_app.py:413
 msgid "Latency (ms)        measured / budget"
 msgstr ""
 
-#: kotonoha/tui/_app.py:423
+#: kotonoha/tui/_app.py:429
 msgid "Over: "
 msgstr ""
 
-#: kotonoha/tui/_app.py:476
+#: kotonoha/tui/_app.py:482
 msgid "Services"
 msgstr ""
 
-#: kotonoha/tui/_app.py:500
+#: kotonoha/tui/_app.py:506
 msgid "Recent errors"
 msgstr ""
 
-#: kotonoha/tui/_app.py:588
+#: kotonoha/tui/_app.py:605
 msgid "Talk (toggle)"
 msgstr ""
 
-#: kotonoha/tui/_app.py:589
+#: kotonoha/tui/_app.py:606
 msgid "PTT/auto"
 msgstr ""
 
-#: kotonoha/tui/_app.py:590
-msgid "Routing"
+#: kotonoha/tui/_app.py:607
+msgid "Target language"
 msgstr ""
 
-#: kotonoha/tui/_app.py:591
+#: kotonoha/tui/_app.py:608
 msgid "Clear"
 msgstr ""
 
-#: kotonoha/tui/_app.py:592 kotonoha/tui/_app.py:622
+#: kotonoha/tui/_app.py:609 kotonoha/tui/_app.py:649
 msgid "History"
 msgstr ""
 
-#: kotonoha/tui/_app.py:593
+#: kotonoha/tui/_app.py:610
 msgid "Text input"
 msgstr ""
 
-#: kotonoha/tui/_app.py:600
+#: kotonoha/tui/_app.py:617
 msgid "Leave text input"
 msgstr ""
 
-#: kotonoha/tui/_app.py:603 kotonoha/tui/_config_app.py:698
-#: kotonoha/tui/_history_app.py:131
+#: kotonoha/tui/_app.py:620 kotonoha/tui/_config_app.py:699
+#: kotonoha/tui/_history_app.py:139
 msgid "Quit"
 msgstr ""
 
-#: kotonoha/tui/_app.py:617
+#: kotonoha/tui/_app.py:633
+msgid "Input language: Automatic detection"
+msgstr ""
+
+#: kotonoha/tui/_app.py:634
+msgid "Translate to"
+msgstr ""
+
+#: kotonoha/tui/_app.py:644
 msgid "Source (ASR)"
 msgstr ""
 
-#: kotonoha/tui/_app.py:618 kotonoha/tui/_history_app.py:180
-#: kotonoha/tui/_history_app.py:269
+#: kotonoha/tui/_app.py:645 kotonoha/tui/_history_app.py:188
+#: kotonoha/tui/_history_app.py:277
 msgid "Translation"
 msgstr ""
 
-#: kotonoha/tui/_app.py:631
+#: kotonoha/tui/_app.py:658
 msgid "Type an utterance and press Enter. Press t to return to voice."
 msgstr ""
 
-#: kotonoha/tui/_app.py:636
+#: kotonoha/tui/_app.py:663
 msgid "Application logs"
 msgstr ""
 
-#: kotonoha/tui/_app.py:650 kotonoha/tui/_menu_app.py:122
+#: kotonoha/tui/_app.py:677 kotonoha/tui/_menu_app.py:122
 msgid "Kotonoha Interpreter"
 msgstr ""
 
-#: kotonoha/tui/_app.py:651
+#: kotonoha/tui/_app.py:678
 #, python-brace-format
 msgid "session {session}"
 msgstr ""
 
-#: kotonoha/tui/_app.py:659
+#: kotonoha/tui/_app.py:686
 msgid "TUI logging is disabled by logging.console=false"
 msgstr ""
 
-#: kotonoha/tui/_app.py:734
+#: kotonoha/tui/_app.py:761
 #, python-brace-format
 msgid "[{seconds}s, preroll {preroll}ms, {reason}]"
 msgstr ""
 
-#: kotonoha/tui/_app.py:744
+#: kotonoha/tui/_app.py:771
 msgid "(silence, returning without playback)"
 msgstr ""
 
-#: kotonoha/tui/_app.py:752
+#: kotonoha/tui/_app.py:779
 #, python-brace-format
 msgid "verifying ({reason})"
 msgstr ""
 
-#: kotonoha/tui/_app.py:761
+#: kotonoha/tui/_app.py:788
 msgid "(LLM timeout, transcript only, TTS skipped)"
 msgstr ""
 
-#: kotonoha/tui/_app.py:788
+#: kotonoha/tui/_app.py:815
 #, python-brace-format
 msgid "{role} to {side} ({reason})"
 msgstr ""
@@ -664,210 +688,210 @@ msgstr ""
 msgid "Select an audio device"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:497
+#: kotonoha/tui/_config_app.py:498
 #, python-brace-format
 msgid "{path}: value required"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:514
+#: kotonoha/tui/_config_app.py:515
 #, python-brace-format
 msgid "Configured device: {device}"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:534
+#: kotonoha/tui/_config_app.py:535
 msgid "Local"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:535
+#: kotonoha/tui/_config_app.py:536
 msgid "Remote"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:695
+#: kotonoha/tui/_config_app.py:696
 msgid "Save"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:696 kotonoha/tui/_history_app.py:126
+#: kotonoha/tui/_config_app.py:697 kotonoha/tui/_history_app.py:134
 msgid "Reload"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:697 kotonoha/tui/_config_app.py:724
+#: kotonoha/tui/_config_app.py:698 kotonoha/tui/_config_app.py:725
 msgid "Categories"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:719
+#: kotonoha/tui/_config_app.py:720
 msgid "Local device"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:719
+#: kotonoha/tui/_config_app.py:720
 msgid "Remote A6000"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:747
+#: kotonoha/tui/_config_app.py:748
 msgid "Test selected devices"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:759
+#: kotonoha/tui/_config_app.py:760
 msgid "Kotonoha configuration"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:766
+#: kotonoha/tui/_config_app.py:767
 #, python-brace-format
 msgid "Audio device list unavailable: {error}"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:787
+#: kotonoha/tui/_config_app.py:788
 msgid "Audio device testing is available only for the local device"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:798
+#: kotonoha/tui/_config_app.py:799
 msgid "Speak while the microphone and speaker test runs..."
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:851
+#: kotonoha/tui/_config_app.py:852
 msgid "Loading configuration from the remote server"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:858 kotonoha/tui/_config_app.py:1106
+#: kotonoha/tui/_config_app.py:859 kotonoha/tui/_config_app.py:1107
 #, python-brace-format
 msgid "Remote configuration failed: {error}"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:862
+#: kotonoha/tui/_config_app.py:863
 #, python-brace-format
 msgid "Loaded remote configuration from {path}"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:874
+#: kotonoha/tui/_config_app.py:875
 msgid "Reloaded from disk"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:904
+#: kotonoha/tui/_config_app.py:905
 #, python-brace-format
 msgid "Changes are written to {path}"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:927
+#: kotonoha/tui/_config_app.py:928
 #, python-brace-format
 msgid "Audio setting is not available: {path}"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:936
+#: kotonoha/tui/_config_app.py:937
 msgid "Audio device test passed"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:940
+#: kotonoha/tui/_config_app.py:941
 msgid "unknown level"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:945
+#: kotonoha/tui/_config_app.py:946
 #, python-brace-format
 msgid "Microphone signal detected at {level}; speaker test tone sent"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:954
+#: kotonoha/tui/_config_app.py:955
 #, python-brace-format
 msgid "Input device test failed: {error}"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:956
+#: kotonoha/tui/_config_app.py:957
 msgid "Input stream opened but no microphone signal was detected"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:958
+#: kotonoha/tui/_config_app.py:959
 #, python-brace-format
 msgid "Output device test failed: {error}"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:1008
+#: kotonoha/tui/_config_app.py:1009
 msgid "System default"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:1056 kotonoha/tui/_config_app.py:1079
+#: kotonoha/tui/_config_app.py:1057 kotonoha/tui/_config_app.py:1080
 #, python-brace-format
 msgid "Rejected because the configuration would be invalid: {error}"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:1063
+#: kotonoha/tui/_config_app.py:1064
 msgid "No changes to save"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:1089
+#: kotonoha/tui/_config_app.py:1090
 #, python-brace-format
 msgid "Saved {count} settings to {path}"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:1091
+#: kotonoha/tui/_config_app.py:1092
 msgid "Restart the interpreter for these values to take effect"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:1101
+#: kotonoha/tui/_config_app.py:1102
 msgid "The remote configuration service is not connected"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:1111
+#: kotonoha/tui/_config_app.py:1112
 #, python-brace-format
 msgid "Saved {count} settings to the remote file {path}"
 msgstr ""
 
-#: kotonoha/tui/_config_app.py:1116
+#: kotonoha/tui/_config_app.py:1117
 msgid "Restart the remote services to apply these values"
 msgstr ""
 
-#: kotonoha/tui/_history_app.py:125
+#: kotonoha/tui/_history_app.py:133
 msgid "Search"
 msgstr ""
 
-#: kotonoha/tui/_history_app.py:127
+#: kotonoha/tui/_history_app.py:135
 msgid "Export"
 msgstr ""
 
-#: kotonoha/tui/_history_app.py:128
+#: kotonoha/tui/_history_app.py:136
 msgid "Next page"
 msgstr ""
 
-#: kotonoha/tui/_history_app.py:129
+#: kotonoha/tui/_history_app.py:137
 msgid "Previous page"
 msgstr ""
 
-#: kotonoha/tui/_history_app.py:130 kotonoha/tui/_license_app.py:151
+#: kotonoha/tui/_history_app.py:138 kotonoha/tui/_license_app.py:151
 #: kotonoha/tui/_tools_app.py:265 kotonoha/tui/_tools_app.py:319
 msgid "Back"
 msgstr ""
 
-#: kotonoha/tui/_history_app.py:143
+#: kotonoha/tui/_history_app.py:151
 msgid "Search source or translation, then press Enter"
 msgstr ""
 
-#: kotonoha/tui/_history_app.py:146 kotonoha/tui/_history_app.py:185
+#: kotonoha/tui/_history_app.py:154 kotonoha/tui/_history_app.py:193
 msgid "All languages"
 msgstr ""
 
-#: kotonoha/tui/_history_app.py:152
+#: kotonoha/tui/_history_app.py:160
 msgid "All outcomes"
 msgstr ""
 
-#: kotonoha/tui/_history_app.py:174 kotonoha/tui/_menu_app.py:61
+#: kotonoha/tui/_history_app.py:182 kotonoha/tui/_menu_app.py:61
 #: kotonoha/tui/_menu_app.py:103
 msgid "Interpretation history"
 msgstr ""
 
-#: kotonoha/tui/_history_app.py:177
+#: kotonoha/tui/_history_app.py:185
 msgid "Time"
 msgstr ""
 
-#: kotonoha/tui/_history_app.py:178
+#: kotonoha/tui/_history_app.py:186
 msgid "Direction"
 msgstr ""
 
-#: kotonoha/tui/_history_app.py:179 kotonoha/tui/_history_app.py:267
+#: kotonoha/tui/_history_app.py:187 kotonoha/tui/_history_app.py:275
 msgid "Source"
 msgstr ""
 
-#: kotonoha/tui/_history_app.py:181
+#: kotonoha/tui/_history_app.py:189
 msgid "Outcome"
 msgstr ""
 
-#: kotonoha/tui/_history_app.py:250
+#: kotonoha/tui/_history_app.py:258
 #, python-brace-format
 msgid "{first}-{last} of {total}"
 msgstr ""

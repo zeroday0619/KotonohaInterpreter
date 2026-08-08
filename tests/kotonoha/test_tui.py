@@ -15,7 +15,7 @@ from typing import Any, ClassVar
 import numpy as np
 import pytest
 import yaml
-from textual.widgets import Button, Input, Select
+from textual.widgets import Button, Input, Select, Static
 
 from kotonoha._config import load_settings
 from kotonoha._config_store import set_path
@@ -631,6 +631,15 @@ async def test_main_interface_composes_with_localized_labels(
         current_turn = app.query_one("#current-turn")
         assert app.history_pane.region.y == current_turn.region.bottom
         assert app.history_pane.region.width == app.query_one("#panes").region.width
+        assert str(app.query_one("#source-language-mode", Static).render()) == translate_to(
+            "ko", "Input language: Automatic detection"
+        )
+        assert app.target_language_select.value == "en"
+        assert orchestrator.settings.session.text_source_language == "auto"
+        assert orchestrator.settings.session.routing == "fixed"
+        app.target_language_select.value = "ja"
+        await pilot.pause()
+        assert orchestrator.settings.session.fixed_target == "ja"
         assert str(app.query_one("#log-title").render()) == translate_to("ko", "Application logs")
         get_logger().info("tui.test", readable=True)
         await pilot.pause(0.2)
@@ -640,7 +649,7 @@ async def test_main_interface_composes_with_localized_labels(
         assert [b.description for b in app._bindings.shown_keys] == [
             translate_to("ko", "Talk (toggle)"),
             translate_to("ko", "PTT/auto"),
-            translate_to("ko", "Routing"),
+            translate_to("ko", "Target language"),
             translate_to("ko", "Clear"),
             translate_to("ko", "History"),
             translate_to("ko", "Text input"),

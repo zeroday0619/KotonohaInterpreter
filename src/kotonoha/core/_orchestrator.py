@@ -135,8 +135,10 @@ class Orchestrator:
         self.machine = Machine(on_change=self._on_state_change)
 
         self.ring = None
-        if settings.session.mode != "text":
-            prepare_shared_memory_tracking()
+        # Text input can switch to voice input after the terminal interface starts.
+        # Starting the tracker during construction prevents that later transition
+        # from spawning it with terminal-owned file descriptors.
+        prepare_shared_memory_tracking()
         self.store = Store(
             settings.resolve(settings.store.path),
             maximum_turns=settings.store.maximum_turns,
@@ -204,7 +206,9 @@ class Orchestrator:
         loop = asyncio.get_running_loop()
         self.capture.loop = loop
         try:
-            if self.settings.session.mode != "text":
+            if self.settings.session.mode == "text":
+                self.capture.close_gate()
+            else:
                 self.ring = await asyncio.to_thread(self._create_audio_ring)
             await asyncio.to_thread(self.capture.start)
             self._capture_started = True
@@ -712,6 +716,24 @@ class Orchestrator:
     ) -> bool:
         return self.settings.session.mode == "text"
 
+    def set_target_language(
+        self,
+        target_language: str,
+        /,
+    ) -> str:
+        """Use automatic source detection and route turns to one target language."""
+        if target_language not in self.settings.session.languages:
+            raise ValueError(f"unsupported target language: {target_language}")
+        self.settings.session.text_source_language = "auto"
+        self.settings.session.routing = "fixed"
+        self.settings.session.fixed_target = target_language
+        log.info(
+            "session.translation_target",
+            source_language="auto",
+            target_language=target_language,
+        )
+        return target_language
+
     def set_text_mode(
         self,
         /,
@@ -724,6 +746,11 @@ class Orchestrator:
         otherwise segment room noise into a turn while the operator is still
         composing, and in push-to-talk the space bar belongs to the text field.
         """
+        if not active and self.ring is None:
+            # Transport must be ready before capture resumes. Otherwise the first
+            # utterance can reach processing while shared memory is still being
+            # initialized.
+            self.ring = self._create_audio_ring()
         self.settings.session.mode = "text" if active else previous
         if active:
             self.capture.close_gate()

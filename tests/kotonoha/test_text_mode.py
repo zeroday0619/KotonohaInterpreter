@@ -120,6 +120,16 @@ def test_text_is_a_valid_session_mode() -> None:
     assert settings.session.text_source_language == "auto"
 
 
+def test_target_language_rejects_an_unsupported_language(
+    _positional_only: object | None = None,
+    /,
+    *,
+    interpreter: Any,
+) -> None:
+    with pytest.raises(ValueError, match="unsupported target language"):
+        interpreter.set_target_language("de")
+
+
 # -- interpreter interface --------------------------------------------------
 @pytest.fixture
 def wav_path(
@@ -285,6 +295,27 @@ async def test_text_mode_closes_the_microphone(
         app.action_text_mode()
         await pilot.pause()
         assert not interpreter.capture.gate_open
+
+
+async def test_initial_text_mode_prepares_voice_transport_before_opening_capture(
+    _positional_only: object | None = None,
+    /,
+    *,
+    interpreter: Any,
+) -> None:
+    interpreter.settings.session.mode = "text"
+    app = KotonohaApp(interpreter)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert interpreter.ring is None
+        assert not interpreter.capture.gate_open
+
+        app.action_exit_text_mode()
+        await pilot.pause()
+
+        assert interpreter.ring is not None
+        assert interpreter.capture.gate_open
+        assert interpreter.settings.session.mode == "push_to_talk"
 
 
 async def test_submitting_the_input_starts_a_turn(

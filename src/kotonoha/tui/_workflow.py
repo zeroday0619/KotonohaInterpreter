@@ -9,6 +9,7 @@ from typing import Any
 
 from kotonoha._config import Settings, load_settings, local_config_path, read_yaml
 from kotonoha._logging_setup import setup_logging
+from kotonoha._shmring import prepare_shared_memory_tracking
 from kotonoha.tui._app import KotonohaApp
 from kotonoha.tui._config_app import ConfigApp
 from kotonoha.tui._history_app import HistoryApp
@@ -30,6 +31,9 @@ async def run_unified_tui(
     build_orchestrator: Callable[[Settings], Any],
 ) -> None:
     """Run the menu and selected applications on one event loop."""
+    # The menu is itself a terminal application. Start the process tracker before
+    # Textual can replace standard-error file descriptors used by multiprocessing.
+    prepare_shared_memory_tracking()
     while True:
         settings = await asyncio.to_thread(load_settings, config_path)
         selection = await TuiMenuApp(settings).run_async()

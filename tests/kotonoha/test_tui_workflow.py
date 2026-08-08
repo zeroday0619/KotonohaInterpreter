@@ -41,6 +41,7 @@ async def test_unified_workflow_returns_to_menu_and_reloads_settings(
             self,
             /,
         ) -> Any:
+            events.append("menu")
             return next(selections)
 
     class ConfigApplication:
@@ -110,6 +111,11 @@ async def test_unified_workflow_returns_to_menu_and_reloads_settings(
     monkeypatch.setattr(workflow, "LicenseApp", LicenseApplication)
     monkeypatch.setattr(
         workflow,
+        "prepare_shared_memory_tracking",
+        lambda: events.append("shared_memory_tracking"),
+    )
+    monkeypatch.setattr(
+        workflow,
         "setup_logging",
         lambda *arguments, **keyword_arguments: None,
     )
@@ -121,5 +127,16 @@ async def test_unified_workflow_returns_to_menu_and_reloads_settings(
         ),
     )
 
-    assert events == ["configuration", "tools", "license", "interpreter"]
+    assert events == [
+        "shared_memory_tracking",
+        "menu",
+        "configuration",
+        "menu",
+        "tools",
+        "menu",
+        "license",
+        "menu",
+        "interpreter",
+        "menu",
+    ]
     assert load_count == 5
