@@ -656,11 +656,12 @@ deploy_jetson() {
   if ! start_jetson_service "$compose_file" asr http://127.0.0.1:8001 python \
     || ! start_jetson_service "$compose_file" asr-verify http://127.0.0.1:8002 python \
     || ! start_jetson_service "$compose_file" llm http://127.0.0.1:8003 http \
-    || ! start_jetson_service "$compose_file" tts http://127.0.0.1:8004 python; then
-    show_failed_health "$compose_file" "" asr asr-verify llm tts
+    || ! start_jetson_service "$compose_file" tts http://127.0.0.1:8004 python \
+    || ! start_jetson_service "$compose_file" web \
+      "http://127.0.0.1:${KOTONOHA_WEB_PORT:-8080}" python; then
+    show_failed_health "$compose_file" "" asr asr-verify llm tts web
   fi
 
-  run_docker compose -f "$compose_file" up -d web
   printf '\nJetson model services and Web interface are ready.\n'
   printf 'Web interface: http://%s:%s\n' \
     "${KOTONOHA_WEB_HOST:-127.0.0.1}" "${KOTONOHA_WEB_PORT:-8080}"
@@ -674,6 +675,10 @@ deploy_a6000() {
   local compose_command=(
     run_docker compose --env-file "$environment_file" -f "$compose_file"
   )
+  local web_compose_command=(
+    run_docker compose --env-file "$environment_file" \
+      -f "$base_compose_file" -f "$compose_file" -f "$web_compose_file"
+  )
   local models_path
   printf 'Deploying A6000 model services from %s\n' "$repository_root"
   ensure_a6000_environment
@@ -686,12 +691,13 @@ deploy_a6000() {
   fi
   allocate_a6000_gpus
   "${compose_command[@]}" config --quiet
+  "${web_compose_command[@]}" config --quiet
   if [ "$prepare_only" = true ]; then
     printf 'A6000 host configuration is prepared. No images or services were changed.\n'
     return
   fi
   if [ "$build_images" = true ]; then
-    "${compose_command[@]}" build metrics asr asr-verify llm tts
+    "${web_compose_command[@]}" build metrics asr asr-verify llm tts web
   fi
   select_hardware_profile \
     "$compose_file" "$environment_file" asr python3 nvidia.rtx.a6000
@@ -716,8 +722,17 @@ deploy_a6000() {
     show_failed_health "$compose_file" "$environment_file" metrics asr asr-verify llm tts
   fi
 
-  run_docker compose --env-file "$environment_file" \
-    -f "$base_compose_file" -f "$compose_file" -f "$web_compose_file" up -d web
+  if [ "$build_images" = false ]; then
+    "${web_compose_command[@]}" up -d --no-build web
+  else
+    "${web_compose_command[@]}" up -d web
+  fi
+  if ! wait_for_service web \
+    "http://127.0.0.1:${KOTONOHA_WEB_PORT:-8080}" python; then
+    printf '\nWeb startup failed. Recent logs:\n' >&2
+    "${web_compose_command[@]}" logs --tail=120 web >&2 || true
+    exit 1
+  fi
   printf '\nA6000 model services, metrics, and Web interface are ready.\n'
   printf 'Web interface: http://%s:%s\n' \
     "${KOTONOHA_WEB_HOST:-127.0.0.1}" "${KOTONOHA_WEB_PORT:-8080}"

@@ -321,10 +321,10 @@ def test_deploy_builds_and_validates_the_llm_image_before_start() -> None:
     validation_call = "verify_vllm_translation_runtime"
 
     assert "build asr asr-verify llm tts web" in jetson_body
-    assert "build metrics asr asr-verify llm tts" in a6000_body
+    assert "build metrics asr asr-verify llm tts web" in a6000_body
     for deploy_body, build_marker in (
         (jetson_body, "build asr asr-verify llm tts web"),
-        (a6000_body, "build metrics asr asr-verify llm tts"),
+        (a6000_body, "build metrics asr asr-verify llm tts web"),
     ):
         assert validation_call in deploy_body
         assert deploy_body.index(build_marker) < deploy_body.index(
@@ -334,6 +334,22 @@ def test_deploy_builds_and_validates_the_llm_image_before_start() -> None:
             "start_jetson_service" if "start_jetson_service" in deploy_body else "up -d"
         )
         assert deploy_body.index(validation_call) < deploy_body.index(start_marker)
+
+
+def test_deploy_starts_and_checks_the_web_service() -> None:
+    deploy_script = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+    jetson_body = deploy_script.split("deploy_jetson() {", 1)[1].split(
+        "deploy_a6000() {", 1
+    )[0]
+    a6000_body = deploy_script.split("deploy_a6000() {", 1)[1].split(
+        "remove_project_images() {", 1
+    )[0]
+
+    assert 'start_jetson_service "$compose_file" web' in jetson_body
+    assert 'show_failed_health "$compose_file" "" asr asr-verify llm tts web' in jetson_body
+    assert '"${web_compose_command[@]}" up -d --no-build web' in a6000_body
+    assert '"${web_compose_command[@]}" up -d web' in a6000_body
+    assert "wait_for_service web" in a6000_body
 
 
 def test_jetson_deployment_validates_budget_and_starts_roles_sequentially() -> None:
