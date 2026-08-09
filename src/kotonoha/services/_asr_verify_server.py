@@ -220,7 +220,7 @@ async def _reload_backend() -> bool:
         shutdown = getattr(backend, "shutdown", None)
         if callable(shutdown):
             await asyncio.to_thread(shutdown)
-        close_attached(STATE["shm_name"])
+        close_attached()
         STATE.update(
             backend=None,
             error=None,
@@ -264,7 +264,7 @@ async def lifespan(
         shutdown = getattr(backend, "shutdown", None)
         if callable(shutdown):
             await asyncio.to_thread(shutdown)
-        close_attached(STATE["shm_name"])
+        close_attached()
         STATE["maximum_audio_frames"] = None
         STATE["shm_name"] = None
 
@@ -319,6 +319,7 @@ def transcribe(
         audio_reference = AudioRef.from_json(request.audio)
         audio = read_cached(audio_reference, STATE["shm_name"])
     except (KeyError, TypeError, ValueError) as error:
+        log.warning("verify.audio_reference_rejected", error=str(error))
         raise HTTPException(400, f"invalid audio reference: {error}") from error
     except StaleSlotError as error:
         raise HTTPException(409, str(error)) from error

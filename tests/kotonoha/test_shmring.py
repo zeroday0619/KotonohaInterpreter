@@ -246,6 +246,40 @@ def test_cached_reader_rejects_an_unexpected_segment_name() -> None:
         read_cached(reference, "another_ring")
 
 
+def test_cached_reader_accepts_a_web_session_segment_name() -> None:
+    configured_name = "kotonoha_audio"
+    session_name = f"{configured_name}_0123456789ab"
+    ring = AudioRing.create(session_name, slots=2, slot_seconds=1, sample_rate=16000)
+    try:
+        reference = ring.publish(np.ones(160, dtype=np.float32))
+
+        assert np.all(read_cached(reference, configured_name) == 1.0)
+    finally:
+        close_attached()
+        ring.close()
+
+
+@pytest.mark.parametrize(
+    "session_name",
+    (
+        f"{NAME}_0123456789a",
+        f"{NAME}_0123456789abc",
+        f"{NAME}_0123456789ag",
+        "unrelated_0123456789ab",
+    ),
+)
+def test_cached_reader_rejects_an_invalid_web_session_segment_name(
+    _positional_only: object | None = None,
+    /,
+    *,
+    session_name: str,
+) -> None:
+    reference = AudioRef(session_name, 0, 1, 160, 16000, 1)
+
+    with pytest.raises(ValueError, match="unexpected shared-memory name"):
+        read_cached(reference, NAME)
+
+
 def test_cached_reader_evicts_handles_above_the_fixed_limit() -> None:
     rings: list[AudioRing] = []
     close_attached()

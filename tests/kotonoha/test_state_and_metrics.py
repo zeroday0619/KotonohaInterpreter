@@ -258,6 +258,40 @@ async def test_empty_translation_finishes_without_waiting_for_the_timeout() -> N
     assert not orchestrator._turn_children
 
 
+async def test_resource_probe_uses_the_managed_service_role() -> None:
+    async def health() -> dict[str, Any]:
+        return {
+            "ok": True,
+            "resources": {"memory": {"available_mib": 1024.0}},
+        }
+
+    orchestrator = object.__new__(Orchestrator)
+    orchestrator.settings = load_settings()
+    orchestrator.services = SimpleNamespace(
+        all=lambda: [
+            SimpleNamespace(
+                role="asr",
+                active=SimpleNamespace(
+                    health=health,
+                    base_url="http://127.0.0.1:8001",
+                ),
+            )
+        ]
+    )
+    orchestrator.event_bus = EventBus()
+
+    await orchestrator._probe_services()
+
+    events = orchestrator.event_bus.drain_nowait(8)
+    service = next(event for event in events if event.kind == "service")
+    resources = next(event for event in events if event.kind == "resources")
+    assert service.payload["name"] == "asr"
+    assert service.payload["hardware_profile"] == "nvidia.jetson.agx-orin"
+    assert resources.payload["services"] == {
+        "asr": {"memory": {"available_mib": 1024.0}}
+    }
+
+
 async def test_speaker_failure_cancels_a_blocked_language_model() -> None:
     settings = load_settings()
     orchestrator = object.__new__(Orchestrator)

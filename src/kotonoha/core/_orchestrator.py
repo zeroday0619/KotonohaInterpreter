@@ -343,15 +343,15 @@ class Orchestrator:
                 {
                     "ok": False,
                     "error": repr(health_result),
-                    "service": role.name,
+                    "service": role.role,
                 }
                 if isinstance(health_result, BaseException)
                 else health_result
             )
-            resource_status[role.name] = health.get("resources", {})
+            resource_status[role.role] = health.get("resources", {})
             self.event_bus.emit(
                 "service",
-                name=role.name,
+                name=role.role,
                 ok=bool(health.get("ok")),
                 hardware_profile=self.settings.accelerator.profile,
                 endpoint=role.active.base_url,
@@ -366,7 +366,12 @@ class Orchestrator:
         /,
     ) -> None:
         del interval
-        await self._probe_services()
+        try:
+            await self._probe_services()
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:  # noqa: BLE001 - diagnostics cannot stop the timer
+            log.error("resources.probe_failed", error=repr(error))
 
     # -- push-to-talk (§4: the initial implementation) ---------------------
     def ptt_down(

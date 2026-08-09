@@ -34,7 +34,7 @@ from dataclasses import dataclass
 from multiprocessing import resource_tracker, shared_memory
 from pathlib import Path
 from secrets import randbits
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Final
 
 import numpy as np
 
@@ -48,6 +48,7 @@ DESC_FMT = "<QII"
 DESC_SIZE = 16
 DTYPE = np.float32
 WRITING_FLAG = 1
+WEB_SESSION_IDENTIFIER_LENGTH: Final[int] = 12
 _owned_shared_memory_names: set[str] = set()
 _ownership_lock = threading.RLock()
 
@@ -510,13 +511,34 @@ _attached: OrderedDict[str, AudioRing] = OrderedDict()
 _attached_lock = threading.RLock()
 
 
+def is_allowed_audio_ring_name(
+    name: str,
+    configured_name: str,
+    /,
+) -> bool:
+    """Accept the configured ring and Web session rings derived from it."""
+    if name == configured_name:
+        return True
+    prefix = f"{configured_name}_"
+    if not name.startswith(prefix):
+        return False
+    session_identifier = name[len(prefix) :]
+    return (
+        len(session_identifier) == WEB_SESSION_IDENTIFIER_LENGTH
+        and all(character in "0123456789abcdef" for character in session_identifier)
+    )
+
+
 def attach_cached(
     name: str,
     /,
     expected_name: str | None = None,
 ) -> AudioRing:
     """Attach to a bounded set of allowed segments and reuse open handles."""
-    if expected_name is not None and name != expected_name:
+    if (
+        expected_name is not None
+        and not is_allowed_audio_ring_name(name, expected_name)
+    ):
         raise ValueError(f"unexpected shared-memory name: {name}")
     with _attached_lock:
         ring = _attached.get(name)
