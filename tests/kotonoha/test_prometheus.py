@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import ClassVar
 
 import httpx2
@@ -251,6 +252,17 @@ def test_monitoring_targets_include_one_endpoint_per_profile_role() -> None:
         "llm",
         "tts",
     }
+
+
+def test_metrics_receiver_uses_the_profile_aggregator_contract() -> None:
+    source = (
+        Path("src/kotonoha/services/_metrics_server.py")
+        .read_text(encoding="utf-8")
+    )
+
+    assert "AGGREGATOR = MetricsAggregator(SETTINGS)" in source
+    assert "PLACEMENT" not in source
+    assert "AGGREGATOR.refresh()" in source
 
 
 def test_monitoring_point_combines_host_service_and_turn_metrics() -> None:

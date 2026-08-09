@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any, Final
@@ -11,7 +10,7 @@ from typing import Any, Final
 from fastapi import FastAPI
 from fastapi.responses import Response
 
-from kotonoha._config import ROLES, load_settings
+from kotonoha._config import load_settings
 from kotonoha._logging_setup import setup_logging
 from kotonoha._prometheus import (
     MetricsAggregator,
@@ -22,23 +21,8 @@ from kotonoha.services._auth import install_auth
 
 log = setup_logging(service="metrics", console=True)
 REFRESH_SECONDS: Final[float] = 10.0
-SOURCE: Final[str] = "a6000"
 SETTINGS: Final = load_settings()
-PLACEMENT: Final[dict[str, str]] = dict.fromkeys(ROLES, SOURCE)
-ENDPOINTS: Final[dict[str, str]] = {
-    role: getattr(SETTINGS.services, role)
-    for role in ROLES
-}
-TOKEN: Final[str] = os.environ.get("KOTONOHA_SERVICE_TOKEN", "").strip()
-REQUEST_HEADERS: Final[dict[str, str]] = (
-    {"authorization": f"Bearer {TOKEN}"} if TOKEN else {}
-)
-AGGREGATOR = MetricsAggregator(
-    SETTINGS,
-    PLACEMENT,
-    endpoint_urls=ENDPOINTS,
-    headers=REQUEST_HEADERS,
-)
+AGGREGATOR = MetricsAggregator(SETTINGS)
 REGISTRY = create_unified_registry(AGGREGATOR)
 
 
@@ -46,7 +30,7 @@ async def _refresh_loop() -> None:
     while True:
         await asyncio.sleep(REFRESH_SECONDS)
         try:
-            await AGGREGATOR.refresh(PLACEMENT)
+            await AGGREGATOR.refresh()
         except Exception as error:
             log.error("metrics.refresh_failed", error=repr(error))
 
@@ -57,7 +41,7 @@ async def lifespan(
     /,
 ) -> AsyncIterator[None]:
     del application
-    await AGGREGATOR.refresh(PLACEMENT)
+    await AGGREGATOR.refresh()
     refresh_task = asyncio.create_task(_refresh_loop(), name="metrics-refresh")
     try:
         yield
